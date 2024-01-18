@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from kvdb.configs.base import KVDBSettings
 
 _kvdb_settings: Optional['KVDBSettings'] = None
-_concurrency_limit: Optional[int] = None
 
 def get_settings() -> 'KVDBSettings':
     """
@@ -21,21 +20,3 @@ def get_settings() -> 'KVDBSettings':
         _kvdb_settings = KVDBSettings()
     return _kvdb_settings
 
-
-def set_concurrency_limit(
-    limit: Optional[int] = None
-):
-    """
-    Set the concurrency limit
-    """
-    global _concurrency_limit
-    if limit is None: limit = os.cpu_count() * 4
-    _concurrency_limit = limit
-
-def get_concurrency_limit() -> Optional[int]:
-    """
-    Get the concurrency limit
-    """
-    global _concurrency_limit
-    if _concurrency_limit is None: set_concurrency_limit()
-    return _concurrency_limit

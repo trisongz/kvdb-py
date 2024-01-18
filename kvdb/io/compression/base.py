@@ -6,8 +6,8 @@ Base Compression Classes
 
 import abc
 
-from lazyops.utils.logs import logger
-from lazyops.utils.pooler import ThreadPoolV2 as ThreadPooler
+from kvdb.utils.logs import logger
+from kvdb.utils.pool import Pooler
 from typing import Any, Optional, Union, Dict, TypeVar
 
 
@@ -70,12 +70,12 @@ class BaseCompression(abc.ABC):
         """
         Base Compress
         """
-        return await ThreadPooler.run_async(self.compress, data, level = level, **kwargs)
+        return await Pooler.arun(self.compress, data, level = level, **kwargs)
     
     async def adecompress(self, data: Union[str, bytes], **kwargs) -> Union[str, bytes]:
         """
         Base Decompress
         """
-        return await ThreadPooler.run_async(self.decompress, data, **kwargs)
+        return await Pooler.arun(self.decompress, data, **kwargs)
 
 

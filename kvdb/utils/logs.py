@@ -1,18 +1,14 @@
-import structlog
-from structlog.typing import FilteringBoundLogger
+import os
 
-# structlog.configure(
-#     processors=[
-#         structlog.stdlib.add_log_level,
-#         structlog.processors.TimeStamper(fmt="iso"),
-#         structlog.processors.StackInfoRenderer(),
-#         structlog.processors.format_exc_info,
-#         structlog.processors.JSONRenderer()
-#     ],
-#     context_class=dict,
-#     logger_factory=structlog.PrintLoggerFactory(),
-#     wrapper_class=structlog.stdlib.BoundLogger,
-#     cache_logger_on_first_use=True,
-# )
+from lazyops.libs.logging import (
+    get_logger, 
+    null_logger, 
+    Logger,
+    NullLogger
+)
 
-logger: FilteringBoundLogger = structlog.get_logger(__name__)
+logger_level: str = os.getenv('LOGGER_LEVEL', 'INFO').upper()
+logger = get_logger(
+    __name__, 
+    logger_level
+)

@@ -6,14 +6,17 @@ Base Config Class
 
 # TODO - Support v1 later
 
+import logging
 import socket
 import contextlib
-from kvdb.types.base import KVDBUrl, BaseModel, supported_schemas, kv_db_schemas, computed_field
-from .types import BaseSettings, SettingsConfigDict, ProxySettings, PYDANTIC_VERSION
 
 from pydantic import Field, model_validator, validator
 from pydantic import ImportString, AliasChoices # Not available in v1
-from typing import Dict, Any, Optional, Type, Union, Callable, List, Mapping, TYPE_CHECKING
+from lazyops.libs.proxyobj import ProxyObject
+from kvdb.types.base import KVDBUrl, BaseModel, supported_schemas, kv_db_schemas, computed_field
+from .types import BaseSettings, SettingsConfigDict, PYDANTIC_VERSION
+
+from typing import Dict, Any, Optional, Type, Literal, Union, Callable, List, Mapping, TYPE_CHECKING
 
 # if PYDANTIC_VERSION == 2:
 #     from pydantic import ImportString, AliasChoices
@@ -93,7 +96,29 @@ class KVDBRetryConfig(BaseModel):
     client_enabled: Optional[bool] = True
     client_max_attempts: Optional[int] = 15
     client_max_delay: Optional[int] = 60
-    # retry_client_logging_level: Optional[int] = logging.DEBUG
+    client_logging_level: Optional[Union[str, int]] = logging.DEBUG
+
+    pubsub_enabled: Optional[bool] = True
+    pubsub_max_attempts: Optional[int] = 15
+    pubsub_max_delay: Optional[int] = 60
+    pubsub_logging_level: Optional[Union[str, int]] = logging.DEBUG
+
+    pipeline_enabled: Optional[bool] = True
+    pipeline_max_attempts: Optional[int] = 15
+    pipeline_max_delay: Optional[int] = 60
+    pipeline_logging_level: Optional[Union[str, int]] = logging.DEBUG
+
+    def get_retry_config(self, name: Literal['client', 'pubsub', 'pipeline']) -> Dict[str, Any]:
+        """
+        Returns the retry config for the given name
+        """
+        return {
+            'enabled': getattr(self, f'{name}_enabled'),
+            'max_attempts': getattr(self, f'{name}_max_attempts'),
+            'max_delay': getattr(self, f'{name}_max_delay'),
+            'logging_level': getattr(self, f'{name}_logging_level'),
+        }
+
 
 class KVDBCacheConfig(BaseModel):
     """
@@ -270,6 +295,6 @@ class KVDBSettings(BaseSettings):
         case_sensitive = False,
     )
 
-settings: 'KVDBSettings' = ProxySettings(
-    settings_getter = 'kvdb.utils.lazy.get_settings',
+settings: 'KVDBSettings' = ProxyObject(
+    obj_getter = 'kvdb.utils.lazy.get_settings',
 )

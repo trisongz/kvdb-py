@@ -17,10 +17,10 @@ requirements = [
     "croniter",
     "tenacity",
     "redis",
-    "structlog",
-    "xxhash",
-    "lazyops>=0.2.65",
     "hiredis",
+    # "structlog",
+    "xxhash",
+    "lazyops>=0.2.67",
     'typing-extensions; python_version<"3.8"',
 ]
 
