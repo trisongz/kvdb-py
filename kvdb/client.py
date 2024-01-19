@@ -8,6 +8,7 @@ The Main KVDB Client that Manages the Various KVDB Components
 import abc
 import sys
 import functools
+import contextlib
 
 from lazyops.libs.pooler import ThreadPooler
 from lazyops.libs.proxyobj import ProxyObject
@@ -63,7 +64,6 @@ class KVDBSessionManager(abc.ABC):
         self.autologger = self.settings.autologger
         self.settings.configure(**kwargs)
     
-
     def configure(
         self,
         overwrite: Optional[bool] = None,
@@ -73,6 +73,7 @@ class KVDBSessionManager(abc.ABC):
         Configures the global settings
         """
         self.settings.configure(**kwargs)
+        if overwrite is True: self.init_session(overwrite = overwrite, **kwargs)
 
     def get_pool(
         self,
@@ -291,10 +292,14 @@ class KVDBSessionManager(abc.ABC):
         """
         return self.ctx.aclient
     
+    @contextlib.contextmanager
+    def with_session(self, name: str) -> Iterator[KVDBSession]:
+        """
+        Returns the session with the given name as the current session
+        """
+        if name not in self.sessions: raise ValueError(f'Invalid session name: {name}')
+        yield self.sessions[name]
 
-
-        
-        
 
 
 KVDBClient: KVDBSessionManager = ProxyObject(obj_cls = KVDBSessionManager)
