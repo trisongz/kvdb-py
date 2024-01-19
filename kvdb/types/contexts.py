@@ -151,4 +151,27 @@ class GlobalKVDBContext(abc.ABC):
     The KVDB Context for the Global KVDB Instance
     """
 
+    ctx: Optional['KVDBSession'] = None
     sessions: Dict[str, 'KVDBSession'] = {}
+    pools: Dict[str, SessionPools] = {}
+
+    def set_ctx(
+        self,
+        name: Optional[str] = None,
+        session: Optional['KVDBSession'] = None,
+    ):
+        """
+        Sets the context
+        """
+        if not name and not session: raise ValueError('Either name or session must be provided')
+        if name:
+            if name not in self.sessions: raise ValueError(f'Invalid session name: {name}')
+            session = self.sessions[name]
+        self.ctx = session
+
+    @property
+    def current(self) -> Optional[str]:
+        """
+        Returns the current session
+        """
+        return self.ctx.name if self.ctx else None

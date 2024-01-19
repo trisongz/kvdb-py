@@ -2,8 +2,10 @@ import abc
 import types
 import typing
 from kvdb.types.base import KVDBUrl
+from kvdb.configs.main import KVDBSettings
 from kvdb.io.serializers import SerializerT
 from kvdb.io.encoder import Encoder
+from kvdb.utils.logs import Logger
 from kvdb.types.generic import ExpiryT, KeyT, Number 
 from kvdb.types.contexts import SessionPools, SessionState
 from kvdb.components.lock import Lock, AsyncLock
@@ -14,17 +16,18 @@ from redis.commands.core import ResponseT, Script, BitFieldOperation
 from redis.typing import ChannelT, EncodableT, KeysT, GroupT, AbsExpiryT, BitfieldOffsetT, PatternT, AnyKeyT, FieldT, StreamIdT, TimeoutSecT, ZScoreBoundT, ConsumerT, ScriptTextT
 from typing import Any, Mapping, Optional, Union, Iterable, Tuple, Iterator, Dict, Set, Literal, List, Awaitable, Callable, Sequence, AsyncIterator
 
-TYPE_CHECKING: bool
+# TYPE_CHECKING: bool
 ReturnT: typing.TypeVar
 
 class KVDBSession(abc.ABC):
+
 
     def __init__(
         self,
         name: str,
         url: Union[str, KVDBUrl],
         *,
-        pools: SessionPools,
+        pool: SessionPools,
         db_id: Optional[int] = None,
         serializer: Optional[Union['SerializerT', str]] = None,
         encoder: Optional['Encoder'] = None,
@@ -33,6 +36,19 @@ class KVDBSession(abc.ABC):
         """
         Initializes the KVDB Session
         """
+
+    name: str
+    url: KVDBUrl
+    pool: SessionPools
+    db_id: Optional[int]
+    serializer: Optional[SerializerT]
+    encoder: Optional[Encoder]
+    state: SessionState
+    _kwargs: Dict[str, Any]
+    logger: Logger
+    autologger: Logger
+    settings: KVDBSettings
+    version: str
 
     def init_serializer(self, serializer: Optional[Union['SerializerT', str]] = ..., **kwargs: Any) -> None:
         """

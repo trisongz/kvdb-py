@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import xxhash
 from typing_extensions import Literal
 from typing import Dict, Optional
 """
@@ -202,6 +203,7 @@ class KVDBUrl(Url):
     """
     Abstraction that allows for Pydantic to validate and parse KVDB URLs
     """
+    _key: Optional[str] = None
 
     @property
     def backend(self) -> str:
@@ -275,6 +277,20 @@ class KVDBUrl(Url):
         if self.fragment is not None: url += f"#{self.fragment}"
         return url
     
+    @property
+    def key(self) -> str:
+        """
+        Returns the key
+        """
+        if self._key is None:
+            self._key = xxhash.xxh64(self.value).hexdigest()
+        return self._key
+    
+    def set_key(self, name: str):
+        """
+        Sets the key
+        """
+        self._key = xxhash.xxh64(f'{self.value}:{name}').hexdigest()
 
     def with_db_id(
         self,

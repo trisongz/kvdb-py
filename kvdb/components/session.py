@@ -6,13 +6,7 @@ Implementation of the KVDB Session protocol.
 
 import abc
 import sys
-import time
-import anyio
-import typing
-import logging
-import asyncio
 import functools
-import contextlib
 
 from pydantic.types import ByteSize
 from lazyops.libs.pooler import ThreadPooler
@@ -77,7 +71,7 @@ class KVDBSession(abc.ABC):
         name: str,
         url: Union[str, KVDBUrl],
         *,
-        pools: SessionPools,
+        pool: SessionPools,
         db_id: Optional[int] = None,
         serializer: Optional[Union['SerializerT', str]] = None,
         encoder: Optional['Encoder'] = None,
@@ -89,14 +83,17 @@ class KVDBSession(abc.ABC):
         if isinstance(url, str): url = KVDBUrl(url)
         self.name = name
         self.url = url
-        self.pools = pools
+        self.pool = pool
         if db_id is not None and db_id != self.url.db_id:
             self.url = self.url.with_db_id(db_id)
+        self.settings = settings
+        self.logger = settings.logger
+        self.autologger = settings.autologger
         self.init_serializer(serializer, **kwargs)
         self.init_encoder(encoder, **kwargs)
         self.init_cache_config(**kwargs)
         self.init_state(**kwargs)
-        self.settings = settings
+        self._version: Optional[str] = None
         self._kwargs = kwargs
 
 
@@ -112,11 +109,13 @@ class KVDBSession(abc.ABC):
         """
         Initializes the serializer
         """
+        
         if serializer is None or isinstance(serializer, str):
             _serializer_kwargs = SerializerConfig.extract_kwargs(
                 _include = ('raise_errors'), 
                 **kwargs
             )
+            # self.settings.logger.info(f'Initializing serializer for {self.name}, {_serializer_kwargs}')
             serializer = settings.client_config.get_serializer(
                 serializer = serializer,
                 **_serializer_kwargs,
@@ -163,6 +162,14 @@ class KVDBSession(abc.ABC):
             dict_expiration = kwargs.get('dict_expiration'),
         )
 
+    @property
+    def version(self) -> str:
+        """
+        Returns the version
+        """
+        if self._version is None:
+            self._version = self.client.info('server')['redis_version']
+        return self._version
 
     @classmethod
     def _get_client_class(
@@ -201,7 +208,7 @@ class KVDBSession(abc.ABC):
         [Sync] The KVDB client
         """
         if self.state.client is None:
-            self.state.client = self._get_client_class(**self._kwargs)(connection_pool=self.pools.pool)
+            self.state.client = self._get_client_class(**self._kwargs)(connection_pool=self.pool.pool)
         return self.state.client
 
     @property
@@ -210,7 +217,7 @@ class KVDBSession(abc.ABC):
         [Async] The KVDB client
         """
         if self.state.aclient is None:
-            self.state.aclient = self._get_client_class(is_async = True, **self._kwargs)(connection_pool=self.pools.apool)
+            self.state.aclient = self._get_client_class(is_async = True, **self._kwargs)(connection_pool=self.pool.apool)
         return self.state.aclient
 
     def execute_command(self, *args: Any, **options: Any) -> Any:

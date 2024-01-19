@@ -150,7 +150,8 @@ class KVDBSettings(BaseSettings):
     def app_env(self) -> 'AppEnv':
         """
         Returns the App Env
-        """
+        """        
+        app_env.name # Force the app env to be loaded
         return app_env
     
     @property
@@ -207,7 +208,7 @@ class KVDBSettings(BaseSettings):
         Returns whether the environment is development
         """
         from kvdb.types.common import AppEnv
-        return self.app_env in [AppEnv.DEVELOPMENT, AppEnv.LOCAL] and not self.in_k8s
+        return self.app_env.name in [AppEnv.DEVELOPMENT, AppEnv.LOCAL] and not self.in_k8s
     
     @computed_field
     @property
@@ -216,7 +217,7 @@ class KVDBSettings(BaseSettings):
         Returns whether the environment is production
         """
         from kvdb.types.common import AppEnv
-        return self.app_env == AppEnv.PRODUCTION and self.in_k8s
+        return self.app_env.name == AppEnv.PRODUCTION and self.in_k8s
 
     @computed_field
     @property
@@ -225,7 +226,7 @@ class KVDBSettings(BaseSettings):
         Returns whether the environment is development
         """
         from kvdb.types.common import AppEnv
-        return self.app_env in [AppEnv.DEVELOPMENT, AppEnv.LOCAL, AppEnv.CICD]
+        return self.app_env.name in [AppEnv.DEVELOPMENT, AppEnv.LOCAL, AppEnv.CICD]
 
 
     def configure(self, **kwargs):

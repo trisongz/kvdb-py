@@ -97,7 +97,7 @@ class KVDBClientConfig(SerializerConfig, BaseModel):
     ssl: Optional[bool] = None
     ssl_keyfile: Optional[str] = None
     ssl_certfile: Optional[str] = None
-    ssl_cert_reqs: str = "required"
+    ssl_cert_reqs: Optional[str] = None
     ssl_ca_certs: Optional[str] = None
     ssl_ca_data: Optional[str] = None
     ssl_check_hostname: bool = None

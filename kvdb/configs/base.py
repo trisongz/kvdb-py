@@ -32,6 +32,7 @@ class SerializerConfig(BaseModel):
     compression_enabled: Optional[bool] = False
 
     encoding: Optional[str] = 'utf-8'
+    decode_responses: Optional[bool] = None
     
 
     @model_validator(mode = 'after')
@@ -55,6 +56,7 @@ class SerializerConfig(BaseModel):
         compression: Optional[str] = None,
         compression_level: Optional[int] = None,
         raise_errors: Optional[bool] = False,
+        encoding: Optional[str] = None,
         **kwargs
     ) -> 'SerializerT':
         """
@@ -65,12 +67,13 @@ class SerializerConfig(BaseModel):
         serializer_kwargs = self.serializer_kwargs if serializer_kwargs is None else serializer_kwargs
         compression = self.compression if compression is None else compression
         compression_level = self.compression_level if compression_level is None else compression_level
+        encoding = self.encoding if encoding is None else encoding
         return get_serializer(
             serializer = serializer,
             serializer_kwargs = serializer_kwargs,
             compression = compression,
             compression_level = compression_level,
-            encoding = self.encoding,
+            encoding = encoding,
             raise_errors = raise_errors,
             **kwargs
         )
@@ -83,6 +86,8 @@ class SerializerConfig(BaseModel):
         compression: Optional[str] = None,
         compression_level: Optional[int] = None,
         raise_errors: Optional[bool] = False,
+        encoding: Optional[str] = None,
+        decode_responses: Optional[bool] = None,
         **kwargs
     ) -> 'Encoder':
         """
@@ -94,12 +99,16 @@ class SerializerConfig(BaseModel):
             compression = compression,
             compression_level = compression_level,
             raise_errors = raise_errors,
+            encoding = encoding,
             **kwargs
         ) if serializer_enabled else None
         from kvdb.io.encoder import Encoder
+        encoding = self.encoding if encoding is None else encoding
+        decode_responses = self.decode_responses if decode_responses is None else decode_responses
         return Encoder(
-            encoding = self.encoding,
+            encoding = encoding,
             serializer = _serializer,
+            decode_responses = decode_responses,
         )
 
 

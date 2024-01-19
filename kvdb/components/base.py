@@ -261,7 +261,7 @@ def parse_url(url: Union[str, KVDBUrl], _is_async: bool = False):
     """
     Parse a URL string into a dictionary of connection parameters.
     """
-    if not any(
+    if isinstance(url, str) and not any(
         url.startswith(scheme) for scheme in supported_schemas
     ):
         raise ValueError(f"Invalid URL scheme (valid schemes are:  {', '.join(supported_schemas)})")

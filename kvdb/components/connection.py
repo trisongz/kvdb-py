@@ -116,6 +116,7 @@ class ConnectionPool(_ConnectionPool):
         self.connection_class = connection_class
         # logger.info(f"Using Mixin: {self.__dict__}", prefix = self.__class__.__name__)
         self.connection_kwargs = filter_kwargs_for_connection(self.connection_class, connection_kwargs)
+        self.serializer: Optional['SerializerT'] = None
         self.max_connections = max_connections
         self.post_init_base(**connection_kwargs)
         self.post_init_pool(**connection_kwargs)
@@ -480,6 +481,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         # logger.info(f"Using Mixin: {self.__dict__}", prefix = self.__class__.__name__)
         self.connection_kwargs = filter_kwargs_for_connection(self.connection_class, connection_kwargs)
         self.max_connections = max_connections
+        self.serializer: Optional['SerializerT'] = None
         self.post_init_base(**connection_kwargs)
         self.post_init_pool(**connection_kwargs)
     
