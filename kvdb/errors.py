@@ -8,6 +8,9 @@ from typing import Optional, Union, Callable, TypeVar, TYPE_CHECKING
 from .utils.logs import logger
 from .utils.helpers import is_coro_func
 
+if TYPE_CHECKING:
+    from kvdb.types.jobs import Job
+
 
 class KVDBException(Exception):
 
@@ -36,7 +39,18 @@ class KVDBException(Exception):
         if level is not None: self.level = level
         if traceback_depth is not None: self.traceback_depth = traceback_depth
         super().__init__(*args, **kwargs)
-        if self.verbose: logger.log(self.level, self.log_msg)
+        self.display()
+
+    def display(self):
+        """
+        Displays the error
+        """
+        if self.verbose: 
+            # if self.fatal:
+            #     logger.trace(self.log_msg, self, level = self.level)
+            # else:
+                # logger.log(self.level, self.log_msg)
+            logger.log(self.level, self.log_msg)
 
     @property
     def error_name(self) -> str:
@@ -57,7 +71,9 @@ class KVDBException(Exception):
         if self.fatal: 
             import traceback
             msg += f'\n{traceback.format_exc(limit = self.traceback_depth)}'
-        else: msg += f'\n{str(self)}'
+        #     msg += f'\n{traceback.format_exception(self, limit = self.traceback_depth)}'
+        # else: msg += f'\n{str(self)}'
+        msg += f'\n{str(self)}'
         return msg.strip()
 
 class TimeoutError(KVDBException):
@@ -101,6 +117,43 @@ class ChildDeadlockedError(KVDBException):
     level = 'ERROR'
     traceback_depth = 2
     verbose = True
+
+class LockError(KVDBException):
+    """
+    Raised when there is a problem acquiring a lock.
+    """
+    level = 'ERROR'
+    traceback_depth = 2
+    verbose = False
+
+class LockNotOwnedError(KVDBException):
+    """
+    Raised when trying to release a lock that we don't own.
+    """
+    level = 'ERROR'
+    traceback_depth = 2
+    verbose = False
+
+class JobError(KVDBException):
+    """
+    Raised when a job fails
+    """
+    level = 'ERROR'
+    traceback_depth = 2
+    verbose = True
+
+    def __init__(
+        self,
+        job: 'Job',
+        msg: Optional[str] = None,
+        *args,
+        **kwargs,
+    ):
+        
+        msg = msg or ""
+        msg += f"Job {job.id} {job.status}\n\nThe above job failed with the following error:\n\n{job.error}"
+        super().__init__(*args, msg = msg, **kwargs)
+        self.job = job
 
 
 def transpose_error(

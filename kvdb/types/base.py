@@ -1,13 +1,14 @@
 from __future__ import annotations
-from typing_extensions import Literal
 
+from typing_extensions import Literal
+from typing import Dict, Optional
 """
 Base Types
 """
 
 # Support for v1 and v2 of pydantic
 try:
-    from pydantic import BaseModel as _BaseModel, ConfigDict
+    from pydantic import BaseModel as _BaseModel, ConfigDict, computed_field
 
     PYDANTIC_VERSION = 2
 
@@ -30,6 +31,31 @@ try:
                     setattr(self, k, val)
                 else: setattr(self, k, v)
 
+        @classmethod
+        def extract_kwargs(
+            cls, 
+            _prefix: Optional[str] = None,
+            _include_prefix: Optional[bool] = None,
+            _include: Optional[set[str]] = None,
+            _exclude: Optional[set[str]] = None,
+            _exclude_none: Optional[bool] = True,
+            **kwargs
+        ) -> Dict[str, Any]:
+            """
+            Extract the kwargs that are valid for this model
+            """
+            if _prefix:
+                _kwargs = {(k if _include_prefix else k.replace(_prefix, '')): v for k, v in kwargs.items() if k.startswith(_prefix) and k.replace(_prefix, '') in cls.model_fields}
+            else:
+                _kwargs = {k: v for k, v in kwargs.items() if k in cls.model_fields}
+            
+            if _exclude_none: _kwargs = {k: v for k, v in _kwargs.items() if v is not None}
+            if _include is not None: 
+                _extra_kwargs = {k: v for k, v in _kwargs.items() if k in _include}
+                _kwargs.update(_extra_kwargs)
+            if _exclude is not None: _kwargs = {k: v for k, v in _kwargs.items() if k not in _exclude}
+            return _kwargs
+        
         model_config = ConfigDict(
             extra = 'allow',
             arbitrary_types_allowed = True,
@@ -92,6 +118,31 @@ except ImportError:
                 exclude_none = exclude_none,
 
             )
+        
+
+        @classmethod
+        def extract_kwargs(
+            cls, 
+            _prefix: Optional[str] = None,
+            _include_prefix: Optional[bool] = None,
+            _include: Optional[set[str]] = None,
+            _exclude: Optional[set[str]] = None,
+            _exclude_none: Optional[bool] = True,
+            **kwargs
+        ) -> Dict[str, Any]:
+            """
+            Extract the kwargs that are valid for this model
+            """
+            if _prefix:
+                _kwargs = {(k if _include_prefix else k.replace(_prefix, '')): v for k, v in kwargs.items() if k.startswith(_prefix) and k.replace(_prefix, '') in cls.__fields__}
+            else:
+                _kwargs = {k: v for k, v in kwargs.items() if k in cls.__fields__}
+            if _exclude_none: _kwargs = {k: v for k, v in _kwargs.items() if v is not None}
+            if _include is not None: 
+                _extra_kwargs = {k: v for k, v in _kwargs.items() if k in _include}
+                _kwargs.update(_extra_kwargs)
+            if _exclude is not None: _kwargs = {k: v for k, v in _kwargs.items() if k not in _exclude}
+            return _kwargs
 
 
     def computed_field(*args, **kwargs):
@@ -205,7 +256,7 @@ class KVDBUrl(Url):
         """
         Returns True if the URL is using TLS
         """
-        return self.scheme.endswith("s") or self.scheme.endswith("tls")
+        return (self.scheme.endswith("s") and self.scheme != "redis") or self.scheme.endswith("tls")
     
     @property
     def is_unix(self) -> bool:
@@ -213,6 +264,16 @@ class KVDBUrl(Url):
         Returns True if the URL is using a unix socket
         """
         return self.scheme.endswith("unix") or self.scheme.endswith("socket")
+    
+    @property
+    def value(self) -> str:
+        """
+        Returns the URL as a string
+        """
+        url = self.db_url
+        if self.query is not None: url += f"?{self.query}"
+        if self.fragment is not None: url += f"#{self.fragment}"
+        return url
     
 
     def with_db_id(

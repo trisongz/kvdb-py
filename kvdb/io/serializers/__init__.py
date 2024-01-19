@@ -7,21 +7,21 @@ from typing import Any, Dict, Optional, Union, Type
 SerializerT = Union[JsonSerializer, PickleSerializer, MsgPackSerializer, BaseSerializer]
 
 def get_serializer(
-    serializer_type: Optional[str] = None,
+    serializer: Optional[str] = None,
     **kwargs
 ) -> SerializerT:
     """
     Returns a Serializer
     """
-    serializer_type = serializer_type or "pickle"
-    if serializer_type in {"json", "orjson", "ujson", "simdjson"}:
-        if serializer_type != "json" and "jsonlib" not in kwargs:
-            kwargs["jsonlib"] = serializer_type
+    serializer = serializer or "pickle"
+    if serializer in {"json", "orjson", "ujson", "simdjson"}:
+        if serializer != "json" and "jsonlib" not in kwargs:
+            kwargs["jsonlib"] = serializer
         return JsonSerializer(**kwargs)
-    if serializer_type in {"pickle", "dill", "cloudpickle"}:
-        if serializer_type != "pickle" and "picklelib" not in kwargs:
-            kwargs["picklelib"] = serializer_type
+    if serializer in {"pickle", "dill", "cloudpickle"}:
+        if serializer != "pickle" and "picklelib" not in kwargs:
+            kwargs["picklelib"] = serializer
         return PickleSerializer(**kwargs)
-    if serializer_type == "msgpack":
+    if serializer == "msgpack":
         return MsgPackSerializer(**kwargs)
-    raise ValueError(f"Invalid Serializer Type: {serializer_type}")
+    raise ValueError(f"Invalid Serializer Type: {serializer}")

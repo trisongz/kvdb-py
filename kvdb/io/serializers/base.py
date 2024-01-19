@@ -59,6 +59,7 @@ class BaseSerializer(abc.ABC):
         encoding: Optional[str] = None,
         raise_errors: bool = False,
         enable_deprecation_support: bool = True,
+        is_encoder: Optional[bool] = None,
         **kwargs,
     ):
         """
@@ -85,6 +86,7 @@ class BaseSerializer(abc.ABC):
         if encoding is not None: self.encoding = encoding
         self.raise_errors = raise_errors
         self.enable_deprecation_support = enable_deprecation_support
+        self.is_encoder = is_encoder
         self._kwargs = kwargs
 
     def copy(self, **kwargs) -> BaseSerializer:
@@ -97,6 +99,7 @@ class BaseSerializer(abc.ABC):
             'encoding': self.encoding,
             'raise_errors': self.raise_errors,
             'enable_deprecation_support': self.enable_deprecation_support,
+            'is_encoder': self.is_encoder,
         }
         base_kwargs.update(self._kwargs)
         base_kwargs.update(kwargs)
@@ -230,7 +233,7 @@ class BaseSerializer(abc.ABC):
         try:
             return self.decode(value, **kwargs)
         except Exception as e:
-            logger.trace(f'[{self.name}] Error in Decoding: {str(value)[:500]}', e)
+            if not self.is_encoder: logger.trace(f'[{self.name}] Error in Decoding: {str(value)[:500]}', e)
             if self.raise_errors: raise DataError(f"[{self.name}] Error in Decoding: {str(value)[:500]}") from e
             return None
         

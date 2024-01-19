@@ -1,1 +1,1 @@
-from .base import KVDBSettings, settings
+from .main import KVDBSettings, settings

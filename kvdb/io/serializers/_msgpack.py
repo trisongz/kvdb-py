@@ -45,7 +45,7 @@ class MsgPackSerializer(BinaryBaseSerializer):
         Default Serialization Hook
         """
         if not isinstance(obj, BaseModel) and not hasattr(obj, 'model_dump'):
-            logger.info(f'Invalid Object Type: |r|{type(obj)}|e| {obj}', colored = True, prefix = "msgpack")
+            if not self.is_encoder: logger.info(f'Invalid Object Type: |r|{type(obj)}|e| {obj}', colored = True, prefix = "msgpack")
             return obj
         
         if self.disable_object_serialization: 
@@ -67,7 +67,7 @@ class MsgPackSerializer(BinaryBaseSerializer):
         try:
             data = self.jsonlib.loads(data)
         except Exception as e:
-            logger.info(f'Error Decoding Value: |r|({type(data)}) {e}|e| {str(data)[:500]}', colored = True, prefix = "msgpack")
+            if not self.is_encoder: logger.info(f'Error Decoding Value: |r|({type(data)}) {e}|e| {str(data)[:500]}', colored = True, prefix = "msgpack")
             if self.raise_errors: raise e
             return data
         if not self.disable_object_serialization:
@@ -90,7 +90,7 @@ class MsgPackSerializer(BinaryBaseSerializer):
         try:
             return msgpack.packb(value, **kwargs)
         except Exception as e:
-            logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:500]}', colored = True, prefix = "msgpack")
+            if not self.is_encoder: logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:500]}', colored = True, prefix = "msgpack")
             if self.raise_errors: raise e
         return None
 
@@ -103,6 +103,6 @@ class MsgPackSerializer(BinaryBaseSerializer):
             if 'ext_hook' not in kwargs: kwargs['ext_hook'] = self.default_deserialization_hook
             return msgpack.unpackb(value, **kwargs)
         except Exception as e:
-            logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:500]}', colored = True, prefix = "msgpack")
+            if not self.is_encoder: logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:500]}', colored = True, prefix = "msgpack")
             if self.raise_errors: raise e
         return None

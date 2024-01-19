@@ -83,11 +83,11 @@ class JsonSerializer(BaseSerializer):
                 if not self.disable_object_serialization:
                     value['__class__'] = obj_class_name
         except Exception as e:
-            logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True)
+            if not self.is_encoder: logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True)
         try:
             return self.jsonlib.dumps(value, **kwargs)
         except Exception as e:
-            logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+            if not self.is_encoder: logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
         
@@ -121,7 +121,7 @@ class JsonSerializer(BaseSerializer):
                 value = self.serialization_obj.model_validate(value)
             return value
         except Exception as e:
-            logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+            if not self.is_encoder: logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
 

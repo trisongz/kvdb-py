@@ -10,14 +10,14 @@ if TYPE_CHECKING:
     from redis.typing import ChannelT
 
 
-retryable_wrapper = get_retry('pubsub')
+retryable = get_retry('pubsub')
 
 class RetryablePubSub(PubSub):
     """
     Retryable PubSub
     """
 
-    @retryable_wrapper
+    @retryable
     def subscribe(self, *args: 'ChannelT', **kwargs: typing.Callable):
         """
         Subscribe to channels. Channels supplied as keyword arguments expect
@@ -28,7 +28,7 @@ class RetryablePubSub(PubSub):
         """
         return super().subscribe(*args, **kwargs)
     
-    @retryable_wrapper
+    @retryable
     def unsubscribe(self, *args):
         """
         Unsubscribe from the supplied channels. If empty, unsubscribe from
@@ -36,7 +36,7 @@ class RetryablePubSub(PubSub):
         """
         return super().unsubscribe(*args)
 
-    @retryable_wrapper
+    @retryable
     def listen(self) -> typing.Iterator:
         """Listen for messages on channels this client has been subscribed to"""
         yield from super().listen()
@@ -47,7 +47,7 @@ class AsyncRetryablePubSub(AsyncPubSub):
     Retryable PubSub
     """
 
-    @retryable_wrapper
+    @retryable
     async def subscribe(self, *args: 'ChannelT', **kwargs: typing.Callable):
         """
         Subscribe to channels. Channels supplied as keyword arguments expect
@@ -58,7 +58,7 @@ class AsyncRetryablePubSub(AsyncPubSub):
         """
         return await super().subscribe(*args, **kwargs)
     
-    @retryable_wrapper
+    @retryable
     def unsubscribe(self, *args) -> typing.Awaitable:
         """
         Unsubscribe from the supplied channels. If empty, unsubscribe from
@@ -66,7 +66,7 @@ class AsyncRetryablePubSub(AsyncPubSub):
         """
         return super().unsubscribe(*args)
 
-    @retryable_wrapper
+    @retryable
     async def listen(self) -> typing.AsyncIterator:
         """Listen for messages on channels this client has been subscribed to"""
         async for response in super().listen():

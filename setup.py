@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 if sys.version_info.major != 3:
     raise RuntimeError("This package requires Python 3+")
 
-pkg_name = 'kvdb'
+pkg_name = 'kvdbpy'
 gitrepo = 'trisongz/kvdb-py'
 root = Path(__file__).parent
 version = root.joinpath('kvdb/version.py').read_text().split('VERSION = ', 1)[-1].strip().replace('-', '').replace("'", '')
@@ -20,6 +20,7 @@ requirements = [
     "hiredis",
     # "structlog",
     "xxhash",
+    "makefun",
     "lazyops>=0.2.67",
     'typing-extensions; python_version<"3.8"',
 ]
@@ -28,6 +29,7 @@ args = {
     'packages': find_packages(
         include=[
             "kvdb",
+            "kvdb.*",
         ]
     ),
     'install_requires': requirements,

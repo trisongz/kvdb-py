@@ -50,7 +50,7 @@ class PickleSerializer(BinaryBaseSerializer):
         try:
             return self.picklelib.dumps(value, **kwargs)
         except Exception as e:
-            logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {value}', colored = True, prefix = self.picklelib_name)
+            if not self.is_encoder: logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {value}', colored = True, prefix = self.picklelib_name)
             if self.raise_errors: raise e
         return None
 
@@ -66,6 +66,6 @@ class PickleSerializer(BinaryBaseSerializer):
                     kwargs['fix_imports'] = False
             return self.picklelib.loads(value, **kwargs)
         except Exception as e:
-            logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {value}', colored = True, prefix = self.picklelib_name)
+            if not self.is_encoder: logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {value}', colored = True, prefix = self.picklelib_name)
             if self.raise_errors: raise e
         return None

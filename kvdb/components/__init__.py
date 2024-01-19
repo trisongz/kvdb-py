@@ -1,4 +1,4 @@
-from .connection import (
+from .base import (
     Connection,
     UnixDomainSocketConnection,
     SSLConnection,
@@ -7,6 +7,9 @@ from .connection import (
     AsyncUnixDomainSocketConnection,
     AsyncSSLConnection,
 
+)
+from .connection import (
+    
     ConnectionPool,
     BlockingConnectionPool,
 

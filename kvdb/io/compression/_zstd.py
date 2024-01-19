@@ -16,7 +16,7 @@ except ImportError:
 
 class ZstdCompression(BaseCompression):
     name: str = "zstd"
-    compression_level: Optional[int] = 3
+    compression_level: Optional[int] = 19
 
 
     def validate_compression_level(self):
