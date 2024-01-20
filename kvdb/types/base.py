@@ -282,15 +282,16 @@ class KVDBUrl(Url):
         """
         Returns the key
         """
-        if self._key is None:
-            self._key = xxhash.xxh64(self.value).hexdigest()
+        if self._key is None: self.set_key()
         return self._key
     
-    def set_key(self, name: str):
+    def set_key(self, *args, **kwargs):
         """
         Sets the key
         """
-        self._key = xxhash.xxh64(f'{self.value}:{name}').hexdigest()
+        from kvdb.utils.helpers import create_cache_key_from_kwargs
+        kwargs['url'] = self.value
+        self._key = create_cache_key_from_kwargs('kvdburl', args = args, kwargs = kwargs, exclude_null = True)
 
     def with_db_id(
         self,

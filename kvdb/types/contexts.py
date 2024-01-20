@@ -86,6 +86,15 @@ class SessionPools(BaseModel):
             **recreate_kwargs
         )
 
+    @property
+    def pool_serialization_enabled(self) -> bool:
+        """
+        Returns True if serialization is enabled for the pool's encoder
+        which requires both serialization and decode_responses to be enabled
+        """
+        return self.pool.encoder_serialization_enabled or \
+            self.apool.encoder_serialization_enabled
+
 
 class SessionState(BaseModel):
     """

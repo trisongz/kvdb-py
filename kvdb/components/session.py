@@ -58,6 +58,7 @@ else:
 if TYPE_CHECKING:
     from kvdb.io.encoder import Encoder
     from kvdb.io.serializers import SerializerT
+    from .persistence import PersistentDict
 
 ResponseT = TypeVar('ResponseT')
 
@@ -94,6 +95,7 @@ class KVDBSession(abc.ABC):
         self.init_cache_config(**kwargs)
         self.init_state(**kwargs)
         self._version: Optional[str] = None
+        self._persistence: Optional['PersistentDict'] = None
         self._kwargs = kwargs
 
 
@@ -219,6 +221,33 @@ class KVDBSession(abc.ABC):
         if self.state.aclient is None:
             self.state.aclient = self._get_client_class(is_async = True, **self._kwargs)(connection_pool=self.pool.apool)
         return self.state.aclient
+    
+    @property
+    def session_serialization_enabled(self) -> bool:
+        """
+        Returns whether session serialization is enabled
+        which is determined by the pool's encoder serialization
+        to be enabled
+        """
+        return self.pool.pool_serialization_enabled
+    
+    @property
+    def persistence(self) -> 'PersistentDict':
+        """
+        Returns the `PersistentDict` instance
+        that utilizes the session's client
+        """
+        if self._persistence is None:
+            from .persistence import KVDBStatefulBackend
+            persistence_config = self.settings.persistence.model_dump(exclude_none = True)
+            persistence_kwargs = self.settings.persistence.extract_kwargs(_prefix = 'persistence_', _exclude_none = True, **self._kwargs)
+            if persistence_kwargs: persistence_config.update(persistence_kwargs)
+            if 'name' not in persistence_config: persistence_config['name'] = self.name
+            self._persistence = KVDBStatefulBackend.as_persistent_dict(
+                session = self,
+                **persistence_config,
+            )
+        return self._persistence
 
     def execute_command(self, *args: Any, **options: Any) -> Any:
         """
@@ -441,14 +470,8 @@ class KVDBSession(abc.ABC):
     
     """
     Dict-Like Interface
+    Powered by `PersistentDict`
     """
-
-    def get_dictkey(self, key: KeyT) -> str:
-        """
-        Returns the dict key
-        """
-        if self.state.dict_method == 'hset': return key
-        return f'{self.state.dict_prefix}:{key}' if self.state.dict_prefix is not None and self.state.dict_prefix not in key else key
 
     def getitem(
         self,
@@ -458,10 +481,8 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Returns the value for the given key
         """
-        if self.state.dict_method == 'hset': value = self.client.hget(self.state.dict_prefix, key)
-        else: value = self.client.get(self.get_dictkey(key))
-        return default if value is None else \
-            self.encoder.decode(value) if self.state.dict_serialize else value
+        return self.persistence.get(key, default)
+    
     
     async def agetitem(
         self,
@@ -471,11 +492,8 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Returns the value for the given key
         """
-        if self.state.dict_method == 'hset': value = await self.aclient.hget(self.state.dict_prefix, key)
-        else: value = await self.aclient.get(self.get_dictkey(key))
-        return default if value is None else \
-            await self.encoder.adecode(value) if self.state.dict_serialize else value
-    
+        return await self.persistence.aget(key, default)
+
     
     def setitem(
         self,
@@ -487,12 +505,7 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Sets the value for the given key
         """
-        value = self.encoder.encode(value) if self.state.dict_serialize else value
-        ex = self.state.dict_expiration if ex is None else ex
-        if self.state.dict_method == 'hset':
-            self.client.hset(self.state.dict_prefix, key, value)
-            if ex is not None: self.client.expire(self.state.dict_prefix, ex, **kwargs)
-        else: self.client.set(self.get_dictkey(key), value, ex, **kwargs)
+        return self.persistence.set(key, value, ex = ex, **kwargs)
 
     async def asetitem(
         self,
@@ -504,13 +517,8 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Sets the value for the given key
         """
-        value = await self.encoder.aencode(value) if self.state.dict_serialize else value
-        ex = self.state.dict_expiration if ex is None else ex
-        if self.state.dict_method == 'hset':
-            await self.aclient.hset(self.state.dict_prefix, key, value)
-            if ex is not None: await self.aclient.expire(self.state.dict_prefix, ex, **kwargs)
-        else:
-            await self.aclient.set(self.get_dictkey(key), value, ex, **kwargs)
+        return await self.persistence.aset(key, value, ex = ex, **kwargs)
+        
 
     def delitem(
         self,
@@ -519,9 +527,8 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Deletes the key
         """
-        if self.state.dict_method == 'hset': self.client.hdel(self.state.dict_prefix, key)
-        else: self.client.delete(self.get_dictkey(key))
-    
+        return self.persistence.delete(key)
+        
     async def adelitem(
         self,
         key: KeyT,
@@ -529,9 +536,7 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Deletes the key
         """
-        if self.state.dict_method == 'hset': await self.aclient.hdel(self.state.dict_prefix, key)
-        else: await self.aclient.delete(self.get_dictkey(key))
-
+        return await self.persistence.adelete(key)
 
 
     """
@@ -628,9 +633,7 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Returns whether the key exists
         """
-        if self.state.dict_method == 'hset':
-            return self.client.hexists(self.state.dict_prefix, key)
-        return self.client.exists(self.get_dictkey(key))
+        return self.persistence.contains(key)
     
     """
     Class Wrap Methods

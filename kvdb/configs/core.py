@@ -109,4 +109,15 @@ class KVDBSerializationConfig(BaseModel):
     """
     encoding_errors: Optional[str] = 'strict'
 
+class KVDBPersistenceConfig(SerializerConfig, BaseModel):
+    """
+    The KVDB Persistence Config
+    """
+    base_key: Optional[str] = None
+    expiration: Optional[int] = None
+    hset_disabled: Optional[bool] = False
+    keyjoin: Optional[str] = ':'
+    async_enabled: Optional[bool] = False
+
+    
 

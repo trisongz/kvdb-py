@@ -121,6 +121,14 @@ class ConnectionPool(_ConnectionPool):
         self.post_init_base(**connection_kwargs)
         self.post_init_pool(**connection_kwargs)
 
+    @property
+    def encoder_serialization_enabled(self) -> bool:
+        """
+        Returns True if serialization is enabled for the encoder
+        which requires both serialization and decode_responses to be enabled
+        """
+        return self.encoder.serialization_enabled
+
     def get_init_kwargs(self, **kwargs) -> Dict[str, Any]:
         """
         Returns the init kwargs
@@ -485,6 +493,14 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         self.post_init_base(**connection_kwargs)
         self.post_init_pool(**connection_kwargs)
     
+    @property
+    def encoder_serialization_enabled(self) -> bool:
+        """
+        Returns True if serialization is enabled for the encoder
+        which requires both serialization and decode_responses to be enabled
+        """
+        return self.encoder.serialization_enabled
+
     
     def get_init_kwargs(self, **kwargs) -> Dict[str, Any]:
         """
@@ -566,6 +582,8 @@ class AsyncConnectionPool(_AsyncConnectionPool):
             self._in_use_connections.add(connection)
 
         try:
+            # TODO: handle pool wait if cannot connect to host.
+            
             # ensure this connection is connected to Redis
             await connection.connect()
             # connection.encoder = self.encoder

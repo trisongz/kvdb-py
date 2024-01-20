@@ -12,6 +12,7 @@ from kvdb.components.lock import Lock, AsyncLock
 from kvdb.components.pubsub import PubSub, AsyncPubSub, AsyncPubSubT, PubSubT
 from kvdb.components.pipeline import AsyncPipelineT, PipelineT
 from kvdb.components.client import AsyncKVDB, KVDB, ClientT
+from lazyops.libs.persistence import PersistentDict
 from redis.commands.core import ResponseT, Script, BitFieldOperation
 from redis.typing import ChannelT, EncodableT, KeysT, GroupT, AbsExpiryT, BitfieldOffsetT, PatternT, AnyKeyT, FieldT, StreamIdT, TimeoutSecT, ZScoreBoundT, ConsumerT, ScriptTextT
 from typing import Any, Mapping, Optional, Union, Iterable, Tuple, Iterator, Dict, Set, Literal, List, Awaitable, Callable, Sequence, AsyncIterator
@@ -49,6 +50,8 @@ class KVDBSession(abc.ABC):
     autologger: Logger
     settings: KVDBSettings
     version: str
+    session_serialization_enabled: bool
+    persistence: PersistentDict
 
     def init_serializer(self, serializer: Optional[Union['SerializerT', str]] = ..., **kwargs: Any) -> None:
         """
@@ -1080,7 +1083,7 @@ class KVDBSession(abc.ABC):
 
         For more information see https://redis.io/commands/decrby
         """
-    decr = decrby
+    adecr = adecrby
     async def adelete(self, *names: KeyT) -> ResponseT:
         """
         Delete one or more keys specified by ``names``

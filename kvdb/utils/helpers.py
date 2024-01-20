@@ -68,7 +68,7 @@ def full_name(func: Callable, follow_wrapper_chains: bool = True) -> str:
 
 
 def create_cache_key_from_kwargs(
-    base: str, 
+    base: Optional[str] = None, 
     args: Optional[Tuple[Any]] = None, 
     kwargs: Optional[Dict[str, Any]] = None, 
     typed: Optional[bool] = False,
@@ -84,7 +84,8 @@ def create_cache_key_from_kwargs(
     :param bool typed: include types in cache key
     :return: cache key tuple
     """
-    key = base + args
+    # key = base + args
+    key = args or ()
     if kwargs:
         if exclude: kwargs = {k: v for k, v in kwargs.items() if k not in exclude}
         if exclude_null: kwargs = {k: v for k, v in kwargs.items() if v is not None}
@@ -99,6 +100,7 @@ def create_cache_key_from_kwargs(
         if kwargs: key += tuple(type(value) for _, value in sorted_items)
 
     cache_key = f'{sep}'.join(str(k) for k in key)
+    if base is not None: cache_key = f'{base}{sep}{cache_key}'
     return xxhash.xxh64(cache_key.encode()).hexdigest()
 
 

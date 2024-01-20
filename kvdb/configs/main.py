@@ -20,6 +20,7 @@ from .core import (
     KVDBPoolConfig,
     KVDBClientConfig,
     KVDBSerializationConfig,
+    KVDBPersistenceConfig,
 )
 from .caching import KVDBCacheConfig
 from .tasks import KVDBTaskQueueConfig
@@ -71,6 +72,9 @@ class KVDBSettings(BaseSettings):
     # Serialization Settings
     serialization: Optional[KVDBSerializationConfig] = Field(default_factory = KVDBSerializationConfig)
 
+    # Persistence Settings
+    persistence: Optional[KVDBPersistenceConfig] = Field(default_factory = KVDBPersistenceConfig)
+
     # Retry Settings
     retry: Optional[KVDBRetryConfig] = Field(default_factory = KVDBRetryConfig)
 
@@ -79,6 +83,8 @@ class KVDBSettings(BaseSettings):
 
     # Task Queue Settings
     tasks: Optional[KVDBTaskQueueConfig] = Field(default_factory = KVDBTaskQueueConfig)
+
+
 
     @validator('url', pre = True)
     def validate_url(cls, v: Union[str, KVDBUrl]) -> KVDBUrl:
@@ -267,6 +273,15 @@ class KVDBSettings(BaseSettings):
             }
         if serialization_config: self.serialization.update_config(**serialization_config)
 
+        ## Persistence Config
+        if 'persistence_config' in kwargs: persistence_config = kwargs.pop('persistence_config')
+        else:
+            persistence_config = {
+                field: kwargs.pop(f'persistence_{field}', None)
+                for field in self.persistence.model_fields
+                if f'persistence_{field}' in kwargs
+            }
+        if persistence_config: self.persistence.update_config(**persistence_config)
 
         # Retry Config
         if 'retry_config' in kwargs: retry_config = kwargs.pop('retry_config')

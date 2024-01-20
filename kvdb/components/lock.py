@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from redis.lock import (
     Lock as _Lock,
     LockError, 

@@ -37,6 +37,15 @@ class Encoder:
         self.serializer = serializer
         self.decode_responses = decode_responses if decode_responses is not None else \
             self.serializer is not None
+    
+    @property
+    def serialization_enabled(self) -> bool:
+        """
+        Returns whether serialization is enabled
+        which requires a serializer and decode_responses
+        """
+        return self.serializer is not None and \
+            self.decode_responses
 
     def encode(self, value) -> bytes:
         """
@@ -46,7 +55,7 @@ class Encoder:
         if isinstance(value, (int, float)): return repr(value).encode()
         _serialized = False
         if not isinstance(value, str):
-            if self.serializer is None:
+            if not self.serialization_enabled:
                 typename = type(value).__name__
                 raise DataError(
                     f"Invalid input of type: '{typename}'. "

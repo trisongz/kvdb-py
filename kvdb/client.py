@@ -87,10 +87,11 @@ class KVDBSessionManager(abc.ABC):
         """
         if url is None: url = self.settings.url
         if isinstance(url, str): url = KVDBUrl(url)
-        url.set_key(name)
+        # url.set_key(name = name, serializer_config = serializer_config, **kwargs)
         if url.key in self.pools: 
             self.autologger.info(f'Using existing pool with name {name} and url {url}: {url.key}')
             return self.pools[url.key]
+        self.autologger.info(f'Creating newpool with name {name} and url {url}: {url.key}')
 
         # Get the serializer config
         serializer_config = SerializerConfig.extract_kwargs(_exclude_none = True, **kwargs) \
@@ -155,6 +156,7 @@ class KVDBSessionManager(abc.ABC):
         # Get the serializer config
         serializer_config = SerializerConfig.extract_kwargs(_exclude_none = True, **kwargs)
         kwargs = {k : v for k, v in kwargs.items() if k not in serializer_config}
+        url.set_key(name = name, serializer_config = serializer_config, **kwargs)
 
         # Get the Client Config
         client_config = self.settings.client_config.model_dump(exclude_none = True)
@@ -279,14 +281,14 @@ class KVDBSessionManager(abc.ABC):
         return self.c.current
     
     @property
-    def kvdb(self) -> KVDB:
+    def client(self) -> KVDB:
         """
         Returns the current session
         """
         return self.ctx.client
     
     @property
-    def akvdb(self) -> AsyncKVDB:
+    def aclient(self) -> AsyncKVDB:
         """
         Returns the current session
         """
