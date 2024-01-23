@@ -19,6 +19,7 @@ requirements = [
     "backoff",
     "redis",
     "hiredis",
+    "trio",
     # "structlog",
     "xxhash",
     "makefun",

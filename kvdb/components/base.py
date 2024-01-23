@@ -4,7 +4,9 @@ from __future__ import annotations
 Some Base Components for KVDB
 """
 import os
+import sys
 import copy
+import trio
 import socket
 import weakref
 import asyncio
@@ -48,6 +50,14 @@ from kvdb.utils.logs import logger
 from kvdb.version import VERSION
 
 from typing import Union, Optional, Any, Dict, List, Iterable, Tuple, Type, Set, TypeVar, Callable, Awaitable, TYPE_CHECKING
+
+
+# the functionality is available in 3.11.x but has a major issue before
+# 3.11.3. See https://github.com/redis/redis-py/issues/2633
+if sys.version_info >= (3, 11, 3):
+    from asyncio import timeout as async_timeout
+else:
+    from async_timeout import timeout as async_timeout
 
 
 if TYPE_CHECKING:
@@ -253,9 +263,200 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
                 raise errors.ConnectionError("protocol must be either 2 or 3")
             self.protocol = protocol
 
+
 class AsyncConnection(_AsyncConnection, AsyncAbstractConnection): pass
 class AsyncUnixDomainSocketConnection(_AsyncUnixDomainSocketConnection, AsyncAbstractConnection): pass
 class AsyncSSLConnection(_AsyncSSLConnection, AsyncAbstractConnection): pass
+
+# TODO: Implement AsyncConnection with trio backend
+class TrioAsyncAbstractConnection(_AsyncAbstractConnection):
+    def __init__(
+        self,
+        *args,
+        db: Union[str, int] = 0,
+        password: Optional[str] = None,
+        socket_timeout: Optional[float] = None,
+        socket_connect_timeout: Optional[float] = None,
+        retry_on_timeout: bool = False,
+        retry_on_error: Union[list, _Sentinel] = SENTINEL,
+        encoder: Optional[Encoder] = None,
+        encoding: str = "utf-8",
+        encoding_errors: str = "strict",
+        decode_responses: bool = False,
+        parser_class: Type[AsyncBaseParser] = AsyncDefaultParser,
+        socket_read_size: int = 65536,
+        health_check_interval: float = 0,
+        client_name: Optional[str] = None,
+        lib_name: Optional[str] = "kvdb",
+        lib_version: Optional[str] = VERSION,
+        username: Optional[str] = None,
+        retry: Optional[Retry] = None,
+        redis_connect_func: Optional[ConnectCallbackT] = None,
+        encoder_class: Type[Encoder] = Encoder,
+        credential_provider: Optional[CredentialProvider] = None,
+        protocol: Optional[int] = 2,
+        **kwargs,
+    ):  # sourcery skip: low-code-quality
+        super().__init__(
+            *args,
+            db = db,
+            password = password,
+            socket_timeout = socket_timeout,
+            socket_connect_timeout = socket_connect_timeout,
+            retry_on_timeout = retry_on_timeout,
+            retry_on_error = retry_on_error,
+            encoder = encoder,
+            encoding = encoding,
+            encoding_errors = encoding_errors,
+            decode_responses = decode_responses,
+            parser_class = parser_class,
+            socket_read_size = socket_read_size,
+            health_check_interval = health_check_interval,
+            client_name = client_name,
+            lib_name = lib_name,
+            lib_version = lib_version,
+            username = username,
+            retry = retry,
+            redis_connect_func = redis_connect_func,
+            encoder_class = encoder_class,
+            credential_provider = credential_provider,
+            protocol = protocol,
+            **kwargs,
+        )
+        self._sock: Optional[trio.SocketStream] = None
+
+    
+    async def send_packed_command(
+        self, 
+        command: Union[bytes, str, Iterable[bytes]], 
+        check_health: bool = True
+    ) -> None:
+        """
+        Send an already packed command to the Redis server.
+        """
+        if not self.is_connected:
+            await self.connect()
+        elif check_health:
+            await self.check_health()
+
+        try:
+            if isinstance(command, str):
+                command = command.encode()
+            if isinstance(command, bytes):
+                command = [command]
+            for item in command:
+                await self._sock.send_all(item)
+        except asyncio.TimeoutError:
+            await self.disconnect(nowait=True)
+            raise TimeoutError("Timeout writing to socket") from None
+        except OSError as e:
+            await self.disconnect(nowait=True)
+            if len(e.args) == 1:
+                err_no, errmsg = "UNKNOWN", e.args[0]
+            else:
+                err_no = e.args[0]
+                errmsg = e.args[1]
+            raise errors.ConnectionError(
+                f"Error {err_no} while writing to socket. {errmsg}."
+            ) from e
+        except BaseException:
+            # BaseExceptions can be raised when a socket send operation is not
+            # finished, e.g. due to a timeout.  Ideally, a caller could then re-try
+            # to send un-sent data. However, the send_packed_command() API
+            # does not support it so there is no point in keeping the connection open.
+            await self.disconnect(nowait=True)
+            raise
+
+    async def disconnect(self, nowait: bool = False) -> None:
+        """Disconnects from the Redis server"""
+        try:
+            async with async_timeout(self.socket_connect_timeout):
+                self._parser.on_disconnect()
+                if not self.is_connected: return
+                try:
+                    await self._sock.aclose()
+                    # self._writer.close()  # type: ignore[union-attr]
+                    # wait for close to finish, except when handling errors and
+                    # forcefully disconnecting.
+                except OSError: pass
+                finally: self._sock = None
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"Timed out closing connection after {self.socket_connect_timeout}") from None
+
+
+class TrioAsyncConnection(_AsyncConnection, TrioAsyncAbstractConnection):
+
+    async def _connect(self):
+        "Create a TCP socket connection"
+        # we want to mimic what socket.create_connection does to support
+        # ipv4/ipv6, but we want to set options prior to calling
+        # socket.connect()
+        err = None
+        async for res in trio.socket.getaddrinfo(
+            self.host, self.port, self.socket_type, trio.socket.SOCK_STREAM
+        ):
+            family, socktype, proto, canonname, socket_address = res
+            sock = None
+            try:
+                sock = trio.socket.socket(family, socktype, proto)
+                # TCP_NODELAY
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+                # TCP_KEEPALIVE
+                if self.socket_keepalive:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    for k, v in self.socket_keepalive_options.items():
+                        sock.setsockopt(socket.IPPROTO_TCP, k, v)
+
+                # set the socket_connect_timeout before we connect
+                # sock.settimeout(self.socket_connect_timeout)
+
+                # connect
+                with trio.move_on_after(self.socket_connect_timeout):
+                    await sock.connect(socket_address)
+
+                # set the socket_timeout now that we're connected
+                # sock.settimeout(self.socket_timeout)
+                return sock
+
+            except OSError as _:
+                err = _
+                if sock is not None:
+                    sock.close()
+
+        if err is not None:
+            raise err
+        raise OSError("socket.getaddrinfo returned an empty list")
+
+
+    async def _connect(self):
+        """
+        Create a TCP socket connection
+        """
+        async with async_timeout(self.socket_connect_timeout):
+            self._sock = await trio.open_tcp_stream(self.host, self.port)
+            reader, writer = await asyncio.open_connection(
+                **self._connection_arguments()
+            )
+        self._reader = reader
+        self._writer = writer
+        sock = writer.transport.get_extra_info("socket")
+        if sock:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            try:
+                # TCP_KEEPALIVE
+                if self.socket_keepalive:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    for k, v in self.socket_keepalive_options.items():
+                        sock.setsockopt(socket.SOL_TCP, k, v)
+
+            except (OSError, TypeError):
+                # `socket_keepalive_options` might contain invalid options
+                # causing an error. Do not leave the connection open.
+                writer.close()
+                raise
+
+
 
 
 def parse_url(url: Union[str, KVDBUrl], _is_async: bool = False):
