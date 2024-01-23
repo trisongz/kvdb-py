@@ -4,7 +4,6 @@ from __future__ import annotations
 The Main KVDB Client that Manages the Various KVDB Components
 """
 
-
 import abc
 import sys
 import functools
@@ -15,6 +14,7 @@ from lazyops.libs.proxyobj import ProxyObject
 from kvdb.types.base import BaseModel, KVDBUrl
 from kvdb.types.contexts import SessionPools, SessionState, GlobalKVDBContext
 from kvdb.components.client import KVDB, AsyncKVDB, ClientT
+from kvdb.components.connection import ConnectionPoolT, AsyncConnectionPoolT
 from kvdb.components.session import KVDBSession
 from kvdb.configs import settings
 from kvdb.configs.base import SerializerConfig
@@ -38,6 +38,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    overload,
 )
 
 
@@ -47,7 +48,6 @@ class KVDBSessionManager(abc.ABC):
     """
     The KVDB Session Manager
     """
-
 
     def __init__(
         self, 
@@ -119,14 +119,10 @@ class KVDBSessionManager(abc.ABC):
         pool = SessionPools(
             name = name,
             pool = pool_class.from_url(
-                url,
-                max_connections = pool_max_connections,
-                **pool_config,
+                url, max_connections = pool_max_connections, **pool_config,
             ),
             apool = apool_class.from_url(
-                url,
-                max_connections = apool_max_connections,
-                **pool_config,
+                url, max_connections = apool_max_connections, **pool_config,
             ),
         )
         self.pools[url.key] = pool
@@ -175,6 +171,147 @@ class KVDBSessionManager(abc.ABC):
             **client_config,
             **kwargs,
         )
+    
+    @overload
+    def session(
+        self,
+        name: Optional[str] = 'default',
+        url: Optional[Union[str, KVDBUrl]] = None,
+        db_id: Optional[int] = None,
+
+        # Pool Config
+        pool_class: Optional[Union[str, Type[ConnectionPoolT]]] = None,
+        pool_max_connections: Optional[int] = None,
+        apool_class: Optional[Union[str, Type[AsyncConnectionPoolT]]] = None,
+        apool_max_connections: Optional[int] = None,
+
+        # Serializer Config
+        serializer: Optional[str] = None,
+        serializer_kwargs: Optional[Dict[str, Any]] = None,
+        compression: Optional[str] = None,
+        compression_level: Optional[int] = None,
+        compression_enabled: Optional[bool] = None,
+        encoding: Optional[str] = None,
+        decode_responses: Optional[bool] = None,
+
+        # Client Config
+        socket_timeout: Optional[float] = None,
+        socket_connect_timeout: Optional[float] = None,
+        socket_keepalive: Optional[bool] = None,
+        socket_keepalive_options: Optional[Mapping[int, Union[int, bytes]]] = None,
+        unix_socket_path: Optional[str] = None,
+        ssl: Optional[bool] = None,
+        ssl_keyfile: Optional[str] = None,
+        ssl_certfile: Optional[str] = None,
+        ssl_cert_reqs: Optional[str] = None,
+        ssl_ca_certs: Optional[str] = None,
+        ssl_ca_data: Optional[str] = None,
+        ssl_check_hostname: bool = None,
+
+        # Retry Config
+        retry_on_timeout: Optional[bool] = None,
+        retry_on_error: Optional[List[Exception]] = None,
+        retry_on_connection_error: Optional[bool] = None,
+        retry_on_connection_reset_error: Optional[bool] = None,
+        retry_on_response_error: Optional[bool] = None,
+        retry_enabled: Optional[bool] = None,
+
+        retry_client_enabled: Optional[bool] = None,
+        retry_client_max_attempts: Optional[int] = None,
+        retry_client_max_delay: Optional[float] = None,
+        retry_client_logging_level: Optional[str] = None,
+
+        retry_pubsub_enabled: Optional[bool] = None,
+        retry_pubsub_max_attempts: Optional[int] = None,
+        retry_pubsub_max_delay: Optional[float] = None,
+        retry_pubsub_logging_level: Optional[str] = None,
+
+        retry_pipeline_enabled: Optional[bool] = None,
+        retry_pipeline_max_attempts: Optional[int] = None,
+        retry_pipeline_max_delay: Optional[float] = None,
+        retry_pipeline_logging_level: Optional[str] = None,
+
+        # Persistence Config
+        persistence_base_key: Optional[str] = None,
+        persistence_expiration: Optional[int] = None,
+        persistence_hset_disabled: Optional[bool] = None,
+        persistence_keyjoin: Optional[str] = None,
+        persistence_async_enabled: Optional[bool] = None,
+
+        set_as_ctx: Optional[bool] = None,
+        overwrite: Optional[bool] = None,
+        **kwargs,
+    ) -> KVDBSession:
+        """
+        Initializes a KVDB Session that is managed by the KVDB Session Manager
+
+        - If the session already exists, returns the existing session
+
+        For retry options, if enabled, the underlying client will wrap executions
+        in a retry wrapper using `tenacity`.
+
+        Arguments:
+            name: The name of the session
+            url: The KVDB URL
+            db_id: The KVDB Database ID
+            pool_class: The pool class to use
+            pool_max_connections: The maximum number of connections in the pool
+            apool_class: The async pool class to use
+            apool_max_connections: The maximum number of connections in the async pool
+            serializer: The serializer to use
+            serializer_kwargs: The kwargs to pass to the serializer
+            compression: The compression to use
+            compression_level: The compression level to use
+            compression_enabled: Whether compression is enabled
+            encoding: The encoding to use
+            decode_responses: Whether to decode responses
+            socket_timeout: The socket timeout
+            socket_connect_timeout: The socket connect timeout
+            socket_keepalive: Whether to keep the socket alive
+            socket_keepalive_options: The socket keepalive options
+            unix_socket_path: The unix socket path
+            ssl: Whether to use SSL
+            ssl_keyfile: The SSL keyfile
+            ssl_certfile: The SSL certfile
+            ssl_cert_reqs: The SSL cert requirements
+            ssl_ca_certs: The SSL CA certs
+            ssl_ca_data: The SSL CA data
+            ssl_check_hostname: Whether to check the SSL hostname
+
+            retry_on_timeout: Whether to retry on timeout
+            retry_on_error: The errors to retry on
+            retry_on_connection_error: Whether to retry on connection error
+            retry_on_connection_reset_error: Whether to retry on connection reset error
+            retry_on_response_error: Whether to retry on response error
+            retry_enabled: Whether retry is enabled
+
+            retry_client_enabled: Whether client retry is enabled
+            retry_client_max_attempts: The maximum number of client retry attempts
+            retry_client_max_delay: The maximum client retry delay
+            retry_client_logging_level: The client retry logging level
+
+            retry_pubsub_enabled: Whether pubsub retry is enabled
+            retry_pubsub_max_attempts: The maximum number of pubsub retry attempts
+            retry_pubsub_max_delay: The maximum pubsub retry delay
+            retry_pubsub_logging_level: The pubsub retry logging level
+
+            retry_pipeline_enabled: Whether pipeline retry is enabled
+            retry_pipeline_max_attempts: The maximum number of pipeline retry attempts
+            retry_pipeline_max_delay: The maximum pipeline retry delay
+            retry_pipeline_logging_level: The pipeline retry logging level
+
+
+            persistence_base_key: The persistence base key
+            persistence_expiration: The persistence expiration
+            persistence_hset_disabled: Whether hset is disabled
+            persistence_keyjoin: The persistence keyjoin. Defaults to ':'
+            persistence_async_enabled: Whether certain persistence operations are async and runs in a threadpool
+            set_as_ctx: Whether to set the session as the current session
+            overwrite: Whether to overwrite the existing session
+            **kwargs: Additional arguments to pass to the KVDB Session
+        """
+        ...
+    
 
     def session(
         self,
@@ -199,6 +336,147 @@ class KVDBSessionManager(abc.ABC):
         return session
     
 
+    @overload
+    def init_session(
+        self,
+        name: Optional[str] = 'default',
+        url: Optional[Union[str, KVDBUrl]] = None,
+        db_id: Optional[int] = None,
+
+        # Pool Config
+        pool_class: Optional[Union[str, Type[ConnectionPoolT]]] = None,
+        pool_max_connections: Optional[int] = None,
+        apool_class: Optional[Union[str, Type[AsyncConnectionPoolT]]] = None,
+        apool_max_connections: Optional[int] = None,
+
+        # Serializer Config
+        serializer: Optional[str] = None,
+        serializer_kwargs: Optional[Dict[str, Any]] = None,
+        compression: Optional[str] = None,
+        compression_level: Optional[int] = None,
+        compression_enabled: Optional[bool] = None,
+        encoding: Optional[str] = None,
+        decode_responses: Optional[bool] = None,
+
+        # Client Config
+        socket_timeout: Optional[float] = None,
+        socket_connect_timeout: Optional[float] = None,
+        socket_keepalive: Optional[bool] = None,
+        socket_keepalive_options: Optional[Mapping[int, Union[int, bytes]]] = None,
+        unix_socket_path: Optional[str] = None,
+        ssl: Optional[bool] = None,
+        ssl_keyfile: Optional[str] = None,
+        ssl_certfile: Optional[str] = None,
+        ssl_cert_reqs: Optional[str] = None,
+        ssl_ca_certs: Optional[str] = None,
+        ssl_ca_data: Optional[str] = None,
+        ssl_check_hostname: bool = None,
+
+        # Retry Config
+        retry_on_timeout: Optional[bool] = None,
+        retry_on_error: Optional[List[Exception]] = None,
+        retry_on_connection_error: Optional[bool] = None,
+        retry_on_connection_reset_error: Optional[bool] = None,
+        retry_on_response_error: Optional[bool] = None,
+        retry_enabled: Optional[bool] = None,
+
+        retry_client_enabled: Optional[bool] = None,
+        retry_client_max_attempts: Optional[int] = None,
+        retry_client_max_delay: Optional[float] = None,
+        retry_client_logging_level: Optional[str] = None,
+
+        retry_pubsub_enabled: Optional[bool] = None,
+        retry_pubsub_max_attempts: Optional[int] = None,
+        retry_pubsub_max_delay: Optional[float] = None,
+        retry_pubsub_logging_level: Optional[str] = None,
+
+        retry_pipeline_enabled: Optional[bool] = None,
+        retry_pipeline_max_attempts: Optional[int] = None,
+        retry_pipeline_max_delay: Optional[float] = None,
+        retry_pipeline_logging_level: Optional[str] = None,
+
+        # Persistence Config
+        persistence_base_key: Optional[str] = None,
+        persistence_expiration: Optional[int] = None,
+        persistence_hset_disabled: Optional[bool] = None,
+        persistence_keyjoin: Optional[str] = None,
+        persistence_async_enabled: Optional[bool] = None,
+
+        set_as_ctx: Optional[bool] = None,
+        overwrite: Optional[bool] = None,
+        **kwargs,
+    ) -> KVDBSession:
+        """
+        Initializes a KVDB Session that is managed by the KVDB Session Manager
+
+        - If the session already exists, returns the existing session
+
+        For retry options, if enabled, the underlying client will wrap executions
+        in a retry wrapper using `tenacity`.
+
+        Arguments:
+            name: The name of the session
+            url: The KVDB URL
+            db_id: The KVDB Database ID
+            pool_class: The pool class to use
+            pool_max_connections: The maximum number of connections in the pool
+            apool_class: The async pool class to use
+            apool_max_connections: The maximum number of connections in the async pool
+            serializer: The serializer to use
+            serializer_kwargs: The kwargs to pass to the serializer
+            compression: The compression to use
+            compression_level: The compression level to use
+            compression_enabled: Whether compression is enabled
+            encoding: The encoding to use
+            decode_responses: Whether to decode responses
+            socket_timeout: The socket timeout
+            socket_connect_timeout: The socket connect timeout
+            socket_keepalive: Whether to keep the socket alive
+            socket_keepalive_options: The socket keepalive options
+            unix_socket_path: The unix socket path
+            ssl: Whether to use SSL
+            ssl_keyfile: The SSL keyfile
+            ssl_certfile: The SSL certfile
+            ssl_cert_reqs: The SSL cert requirements
+            ssl_ca_certs: The SSL CA certs
+            ssl_ca_data: The SSL CA data
+            ssl_check_hostname: Whether to check the SSL hostname
+
+            retry_on_timeout: Whether to retry on timeout
+            retry_on_error: The errors to retry on
+            retry_on_connection_error: Whether to retry on connection error
+            retry_on_connection_reset_error: Whether to retry on connection reset error
+            retry_on_response_error: Whether to retry on response error
+            retry_enabled: Whether retry is enabled
+
+            retry_client_enabled: Whether client retry is enabled
+            retry_client_max_attempts: The maximum number of client retry attempts
+            retry_client_max_delay: The maximum client retry delay
+            retry_client_logging_level: The client retry logging level
+
+            retry_pubsub_enabled: Whether pubsub retry is enabled
+            retry_pubsub_max_attempts: The maximum number of pubsub retry attempts
+            retry_pubsub_max_delay: The maximum pubsub retry delay
+            retry_pubsub_logging_level: The pubsub retry logging level
+
+            retry_pipeline_enabled: Whether pipeline retry is enabled
+            retry_pipeline_max_attempts: The maximum number of pipeline retry attempts
+            retry_pipeline_max_delay: The maximum pipeline retry delay
+            retry_pipeline_logging_level: The pipeline retry logging level
+
+
+            persistence_base_key: The persistence base key
+            persistence_expiration: The persistence expiration
+            persistence_hset_disabled: Whether hset is disabled
+            persistence_keyjoin: The persistence keyjoin. Defaults to ':'
+            persistence_async_enabled: Whether certain persistence operations are async and runs in a threadpool
+            set_as_ctx: Whether to set the session as the current session
+            overwrite: Whether to overwrite the existing session
+            **kwargs: Additional arguments to pass to the KVDB Session
+        """
+        ...
+    
+
     def init_session(
         self,
         name: Optional[str] = 'default',
@@ -217,6 +495,145 @@ class KVDBSessionManager(abc.ABC):
             raise ValueError(f'The session with name {name} already exists. Use overwrite = True to overwrite the session')
         return self.session(name = name, url = url, db_id = db_id, set_as_ctx = set_as_ctx, overwrite = overwrite, **kwargs)
     
+
+    @overload
+    def get_session(
+        self,
+        name: Optional[str] = 'default',
+        url: Optional[Union[str, KVDBUrl]] = None,
+        db_id: Optional[int] = None,
+
+        # Pool Config
+        pool_class: Optional[Union[str, Type[ConnectionPoolT]]] = None,
+        pool_max_connections: Optional[int] = None,
+        apool_class: Optional[Union[str, Type[AsyncConnectionPoolT]]] = None,
+        apool_max_connections: Optional[int] = None,
+
+        # Serializer Config
+        serializer: Optional[str] = None,
+        serializer_kwargs: Optional[Dict[str, Any]] = None,
+        compression: Optional[str] = None,
+        compression_level: Optional[int] = None,
+        compression_enabled: Optional[bool] = None,
+        encoding: Optional[str] = None,
+        decode_responses: Optional[bool] = None,
+
+        # Client Config
+        socket_timeout: Optional[float] = None,
+        socket_connect_timeout: Optional[float] = None,
+        socket_keepalive: Optional[bool] = None,
+        socket_keepalive_options: Optional[Mapping[int, Union[int, bytes]]] = None,
+        unix_socket_path: Optional[str] = None,
+        ssl: Optional[bool] = None,
+        ssl_keyfile: Optional[str] = None,
+        ssl_certfile: Optional[str] = None,
+        ssl_cert_reqs: Optional[str] = None,
+        ssl_ca_certs: Optional[str] = None,
+        ssl_ca_data: Optional[str] = None,
+        ssl_check_hostname: bool = None,
+
+        # Retry Config
+        retry_on_timeout: Optional[bool] = None,
+        retry_on_error: Optional[List[Exception]] = None,
+        retry_on_connection_error: Optional[bool] = None,
+        retry_on_connection_reset_error: Optional[bool] = None,
+        retry_on_response_error: Optional[bool] = None,
+        retry_enabled: Optional[bool] = None,
+
+        retry_client_enabled: Optional[bool] = None,
+        retry_client_max_attempts: Optional[int] = None,
+        retry_client_max_delay: Optional[float] = None,
+        retry_client_logging_level: Optional[str] = None,
+
+        retry_pubsub_enabled: Optional[bool] = None,
+        retry_pubsub_max_attempts: Optional[int] = None,
+        retry_pubsub_max_delay: Optional[float] = None,
+        retry_pubsub_logging_level: Optional[str] = None,
+
+        retry_pipeline_enabled: Optional[bool] = None,
+        retry_pipeline_max_attempts: Optional[int] = None,
+        retry_pipeline_max_delay: Optional[float] = None,
+        retry_pipeline_logging_level: Optional[str] = None,
+
+        # Persistence Config
+        persistence_base_key: Optional[str] = None,
+        persistence_expiration: Optional[int] = None,
+        persistence_hset_disabled: Optional[bool] = None,
+        persistence_keyjoin: Optional[str] = None,
+        persistence_async_enabled: Optional[bool] = None,
+
+        set_as_ctx: Optional[bool] = None,
+        **kwargs,
+    ) -> KVDBSession:
+        """
+        Initializes a KVDB Session that is managed by the KVDB Session Manager
+
+        - If the session already exists, returns the existing session
+
+        For retry options, if enabled, the underlying client will wrap executions
+        in a retry wrapper using `tenacity`.
+
+        Arguments:
+            name: The name of the session
+            url: The KVDB URL
+            db_id: The KVDB Database ID
+            pool_class: The pool class to use
+            pool_max_connections: The maximum number of connections in the pool
+            apool_class: The async pool class to use
+            apool_max_connections: The maximum number of connections in the async pool
+            serializer: The serializer to use
+            serializer_kwargs: The kwargs to pass to the serializer
+            compression: The compression to use
+            compression_level: The compression level to use
+            compression_enabled: Whether compression is enabled
+            encoding: The encoding to use
+            decode_responses: Whether to decode responses
+            socket_timeout: The socket timeout
+            socket_connect_timeout: The socket connect timeout
+            socket_keepalive: Whether to keep the socket alive
+            socket_keepalive_options: The socket keepalive options
+            unix_socket_path: The unix socket path
+            ssl: Whether to use SSL
+            ssl_keyfile: The SSL keyfile
+            ssl_certfile: The SSL certfile
+            ssl_cert_reqs: The SSL cert requirements
+            ssl_ca_certs: The SSL CA certs
+            ssl_ca_data: The SSL CA data
+            ssl_check_hostname: Whether to check the SSL hostname
+
+            retry_on_timeout: Whether to retry on timeout
+            retry_on_error: The errors to retry on
+            retry_on_connection_error: Whether to retry on connection error
+            retry_on_connection_reset_error: Whether to retry on connection reset error
+            retry_on_response_error: Whether to retry on response error
+            retry_enabled: Whether retry is enabled
+
+            retry_client_enabled: Whether client retry is enabled
+            retry_client_max_attempts: The maximum number of client retry attempts
+            retry_client_max_delay: The maximum client retry delay
+            retry_client_logging_level: The client retry logging level
+
+            retry_pubsub_enabled: Whether pubsub retry is enabled
+            retry_pubsub_max_attempts: The maximum number of pubsub retry attempts
+            retry_pubsub_max_delay: The maximum pubsub retry delay
+            retry_pubsub_logging_level: The pubsub retry logging level
+
+            retry_pipeline_enabled: Whether pipeline retry is enabled
+            retry_pipeline_max_attempts: The maximum number of pipeline retry attempts
+            retry_pipeline_max_delay: The maximum pipeline retry delay
+            retry_pipeline_logging_level: The pipeline retry logging level
+
+
+            persistence_base_key: The persistence base key
+            persistence_expiration: The persistence expiration
+            persistence_hset_disabled: Whether hset is disabled
+            persistence_keyjoin: The persistence keyjoin. Defaults to ':'
+            persistence_async_enabled: Whether certain persistence operations are async and runs in a threadpool
+            set_as_ctx: Whether to set the session as the current session
+            **kwargs: Additional arguments to pass to the KVDB Session
+        """
+        ...
+
     def get_session(
         self,
         name: Optional[str] = None,
@@ -278,7 +695,7 @@ class KVDBSessionManager(abc.ABC):
         """
         Returns the current session
         """
-        return self.c.current
+        return self.c.current or 'default'
     
     @property
     def client(self) -> KVDB:
@@ -299,9 +716,22 @@ class KVDBSessionManager(abc.ABC):
         """
         Returns the session with the given name as the current session
         """
-        if name not in self.sessions: raise ValueError(f'Invalid session name: {name}')
+        if name not in self.sessions: 
+            raise ValueError(f'Invalid session name: `{name}`. Initialize the session first using `session` or `init_session`')
         yield self.sessions[name]
 
+    """
+    Session Wrap Methods
+    """
+    def _session_function(self, *args, _function: Optional[str] = None, session_ctx: Optional[str] = None, **kwargs) -> Union[ResponseT, Awaitable[ResponseT]]:
+        """
+        Wraps the session function
+        """
+        if session_ctx is None: session_ctx = self.current
+        with self.with_session(session_ctx) as session:
+            return getattr(session, _function)(*args, **kwargs)
+    
+    
 
 
 KVDBClient: KVDBSessionManager = ProxyObject(obj_cls = KVDBSessionManager)

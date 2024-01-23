@@ -16,6 +16,7 @@ requirements = [
     "pydantic-settings",
     "croniter",
     "tenacity",
+    "backoff",
     "redis",
     "hiredis",
     # "structlog",

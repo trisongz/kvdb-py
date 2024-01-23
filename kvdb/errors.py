@@ -110,6 +110,15 @@ class ConnectionError(KVDBException):
     traceback_depth = 2
     verbose = True
 
+class TimeoutError(KVDBException):
+    """
+    Raised when there is a timeout.
+    """
+    level = 'ERROR'
+    traceback_depth = 1
+    verbose = True
+    fatal: Optional[bool] = True
+
 class ChildDeadlockedError(KVDBException):
     """
     Internal exception used to break deadlocks in the connection pool.

@@ -159,7 +159,7 @@ class KVDBSession(abc.ABC):
         """
         Closes the locks that are currently managed by the session
         """
-    def aclose_locks(self, names: typing.Optional[typing.Union[typing.List[str], str]] = ..., force: Optional[bool] = ..., raise_errors: Optional[bool] = ...):
+    async def aclose_locks(self, names: typing.Optional[typing.Union[typing.List[str], str]] = ..., force: Optional[bool] = ..., raise_errors: Optional[bool] = ...):
         """
         Closes the locks that are currently managed by the session
         """
@@ -171,7 +171,7 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Returns the value for the given key
         """
-    def agetitem(self, key: KeyT, default: Optional[Any] = ...) -> ReturnT:
+    async def agetitem(self, key: KeyT, default: Optional[Any] = ...) -> ReturnT:
         """
         [Dict] Returns the value for the given key
         """
@@ -179,7 +179,7 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Sets the value for the given key
         """
-    def asetitem(self, key: KeyT, value: Any, ex: Optional[ExpiryT] = ..., **kwargs: Any) -> None:
+    async def asetitem(self, key: KeyT, value: Any, ex: Optional[ExpiryT] = ..., **kwargs: Any) -> None:
         """
         [Dict] Sets the value for the given key
         """
@@ -187,7 +187,7 @@ class KVDBSession(abc.ABC):
         """
         [Dict] Deletes the key
         """
-    def adelitem(self, key: KeyT) -> None:
+    async def adelitem(self, key: KeyT) -> None:
         """
         [Dict] Deletes the key
         """
@@ -207,11 +207,11 @@ class KVDBSession(abc.ABC):
         """
         On exit, close the session
         """
-    def __aenter__(self):
+    async def __aenter__(self):
         """
         Enter the runtime context related to this object.
         """
-    def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
         """
         Close the session
         """

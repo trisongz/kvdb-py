@@ -469,8 +469,7 @@ class KVDBSession(abc.ABC):
     
     
     """
-    Dict-Like Interface
-    Powered by `PersistentDict`
+    Dict-Like Interface Powered by `PersistentDict`
     """
 
     def getitem(
@@ -518,7 +517,6 @@ class KVDBSession(abc.ABC):
         [Dict] Sets the value for the given key
         """
         return await self.persistence.aset(key, value, ex = ex, **kwargs)
-        
 
     def delitem(
         self,
@@ -537,6 +535,43 @@ class KVDBSession(abc.ABC):
         [Dict] Deletes the key
         """
         return await self.persistence.adelete(key)
+
+
+    """
+    Dict-Like Interface
+    """
+
+    def __setitem__(self, key: KeyT, value: Any) -> None:
+        """
+        [Dict] Sets the value for the given key
+        """
+        if settings.is_in_async_loop():
+            return ThreadPooler.create_background_task(
+                self.asetitem, key, value,
+            )
+        return self.setitem(key, value)
+
+
+    def __getitem__(self, key: KeyT) -> ResponseT:
+        """
+        [Dict] Returns the value for the given key
+        """
+        return self.getitem(key)
+
+
+    def __delitem__(self, key: KeyT) -> None:
+        """
+        [Dict] Deletes the key
+        """
+        if settings.is_in_async_loop():
+            return ThreadPooler.create_background_task(self.adelitem, key)
+        return self.delitem(key)
+    
+    def __contains__(self, key: KeyT) -> bool:
+        """
+        [Dict] Returns whether the key exists
+        """
+        return self.persistence.contains(key)
 
 
     """
@@ -602,38 +637,6 @@ class KVDBSession(abc.ABC):
         Close the session
         """
         await self.aclose()
-
-    def __setitem__(self, key: KeyT, value: Any) -> None:
-        """
-        [Dict] Sets the value for the given key
-        """
-        if settings.is_in_async_loop():
-            return ThreadPooler.create_background_task(
-                self.asetitem, key, value,
-            )
-        return self.setitem(key, value)
-
-
-    def __getitem__(self, key: KeyT) -> ResponseT:
-        """
-        [Dict] Returns the value for the given key
-        """
-        return self.getitem(key)
-
-
-    def __delitem__(self, key: KeyT) -> None:
-        """
-        [Dict] Deletes the key
-        """
-        if settings.is_in_async_loop():
-            return ThreadPooler.create_background_task(self.adelitem, key)
-        return self.delitem(key)
-    
-    def __contains__(self, key: KeyT) -> bool:
-        """
-        [Dict] Returns whether the key exists
-        """
-        return self.persistence.contains(key)
     
     """
     Class Wrap Methods

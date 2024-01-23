@@ -8,7 +8,8 @@ import copy
 import socket
 import weakref
 import asyncio
-from itertools import chain
+
+# from itertools import chain
 from urllib.parse import parse_qs, unquote
 from redis.connection import (
     URL_QUERY_ARGUMENT_PARSERS,

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import anyio
 import time
 import uuid
 import inspect
+import signal
 import xxhash
 import functools
 from lazyops.libs.pooler import ensure_coro, is_coro_func
@@ -67,6 +69,22 @@ def full_name(func: Callable, follow_wrapper_chains: bool = True) -> str:
     return f'{func.__module__}.{func.__qualname__}'
 
 
+def is_classmethod(method: Callable) -> bool:
+    """
+    Checks if the given method is a classmethod
+    """
+    bound_to = getattr(method, '__self__', None)
+    if not isinstance(bound_to, type):
+        # must be bound to a class
+        return False
+    name = method.__name__
+    for cls in bound_to.__mro__:
+        descriptor = vars(cls).get(name)
+        if descriptor is not None:
+            return isinstance(descriptor, classmethod)
+    return False
+
+
 def create_cache_key_from_kwargs(
     base: Optional[str] = None, 
     args: Optional[Tuple[Any]] = None, 
@@ -74,7 +92,8 @@ def create_cache_key_from_kwargs(
     typed: Optional[bool] = False,
     exclude: Optional[List[str]] = None,
     exclude_null: Optional[bool] = True,
-    sep: Optional[str] = ":"
+    sep: Optional[str] = ":",
+    is_classmethod: Optional[bool] = None,
 ) -> str:
     """
     Create cache key out of function arguments.
@@ -84,7 +103,7 @@ def create_cache_key_from_kwargs(
     :param bool typed: include types in cache key
     :return: cache key tuple
     """
-    # key = base + args
+    if is_classmethod and args:  args = args[1:]
     key = args or ()
     if kwargs:
         if exclude: kwargs = {k: v for k, v in kwargs.items() if k not in exclude}
@@ -104,11 +123,14 @@ def create_cache_key_from_kwargs(
     return xxhash.xxh64(cache_key.encode()).hexdigest()
 
 
-
 def get_ulimits():
+    """
+    Gets the system ulimits
+    """
     import resource
     soft_limit, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
     return soft_limit
+
 
 def set_ulimits(
     max_connections: int = 500,
@@ -157,3 +179,33 @@ def patch_parent_class_obj(
         print(f"New Bases: {new_bases}")
         setattr(child, '__bases__', new_bases)
         globals()[child.__class__.__name__] = child
+
+
+# https://stackoverflow.com/questions/2281850/timeout-function-if-it-takes-too-long-to-finish
+class timeout:
+    def __init__(
+        self, 
+        seconds: int = 1, 
+        error_message: Optional[str] = 'Timeout',
+        raise_errors: Optional[bool] = True,
+    ):
+        """
+        A timeout context manager
+        """
+        self.seconds = seconds
+        self.error_message = error_message
+        self.raise_errors = raise_errors
+    
+    def handle_timeout(self, signum, frame):
+        """
+        Handles the timeout
+        """
+        if self.raise_errors:
+            raise TimeoutError(self.error_message)
+    
+    def __enter__(self):
+        signal.signal(signal.SIGALRM, self.handle_timeout)
+        signal.alarm(self.seconds)
+    
+    def __exit__(self, type, value, traceback):
+        signal.alarm(0)

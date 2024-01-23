@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import xxhash
 from typing_extensions import Literal
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 """
 Base Types
 """
@@ -56,6 +56,36 @@ try:
                 _kwargs.update(_extra_kwargs)
             if _exclude is not None: _kwargs = {k: v for k, v in _kwargs.items() if k not in _exclude}
             return _kwargs
+        
+
+        @classmethod
+        def extract_config_and_kwargs(
+            cls,
+            _prefix: Optional[str] = None,
+            _include_prefix: Optional[bool] = None,
+            _include: Optional[set[str]] = None,
+            _exclude: Optional[set[str]] = None,
+            _exclude_none: Optional[bool] = True,
+            **kwargs
+        ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+            """
+            Extract the config that are valid for this model and returns
+            the config and kwargs
+
+            Returns:
+                Tuple[Dict[str, Any], Dict[str, Any]]: The config and deduplicated kwargs
+            """
+            config = cls.extract_kwargs(
+                _prefix = _prefix,
+                _include_prefix = _include_prefix,
+                _include = _include,
+                _exclude = _exclude,
+                _exclude_none = _exclude_none,
+                **kwargs
+            )
+            kwargs = {k: v for k, v in kwargs.items() if k not in config}
+            if _prefix: kwargs = {k: v for k, v in kwargs.items() if f'{_prefix}{k}' not in config}
+            return config, kwargs
         
         model_config = ConfigDict(
             extra = 'allow',
@@ -144,7 +174,35 @@ except ImportError:
                 _kwargs.update(_extra_kwargs)
             if _exclude is not None: _kwargs = {k: v for k, v in _kwargs.items() if k not in _exclude}
             return _kwargs
+        
+        @classmethod
+        def extract_config_and_kwargs(
+            cls,
+            _prefix: Optional[str] = None,
+            _include_prefix: Optional[bool] = None,
+            _include: Optional[set[str]] = None,
+            _exclude: Optional[set[str]] = None,
+            _exclude_none: Optional[bool] = True,
+            **kwargs
+        ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+            """
+            Extract the config that are valid for this model and returns
+            the config and kwargs
 
+            Returns:
+                Tuple[Dict[str, Any], Dict[str, Any]]: The config and deduplicated kwargs
+            """
+            config = cls.extract_kwargs(
+                _prefix = _prefix,
+                _include_prefix = _include_prefix,
+                _include = _include,
+                _exclude = _exclude,
+                _exclude_none = _exclude_none,
+                **kwargs
+            )
+            kwargs = {k: v for k, v in kwargs.items() if k not in config}
+            if _prefix: kwargs = {k: v for k, v in kwargs.items() if f'{_prefix}{k}' not in config}
+            return config, kwargs
 
     def computed_field(*args, **kwargs):
         # Return a fake wrapper

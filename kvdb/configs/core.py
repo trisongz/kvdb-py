@@ -65,6 +65,10 @@ class KVDBPoolConfig(BaseModel):
 
     single_connection_client: Optional[bool] = False
     auto_reset_enabled: Optional[bool] = True
+    auto_pause_enabled: Optional[bool] = True # Pause connection attempts when the host is down
+    auto_pause_interval: Optional[float] = 1.5 # 1500ms
+    auto_pause_max_delay: Optional[float] = 60.0 * 2 # 2 minutes
+    
 
     def get_pool_class(
         self,

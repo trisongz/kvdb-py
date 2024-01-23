@@ -106,3 +106,23 @@ class AppEnv(str, Enum):
         Returns the name in lower
         """
         return self.value.lower()
+
+
+class CachePolicy(str, Enum):
+    """
+    The cache policy for cachify
+
+    LRU: Least Recently Used
+        Discards the least recently used items first by timestamp
+    LFU: Least Frequently Used
+        Discards the least frequently used items first by hits
+    FIFO: First In First Out
+        Discards the oldest items first by timestamp
+    LIFO: Last In First Out
+        Discards the newest items first by timestamp
+    """
+    LRU = 'LRU'
+    LFU = 'LFU'
+    FIFO = 'FIFO'
+    LIFO = 'LIFO'
+

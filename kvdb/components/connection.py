@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import sys
+import time
+import anyio
+import socket
 import asyncio
 import typing
 import contextlib
 import threading
+import itertools
 
-from itertools import chain
+# from itertools import chain
 from queue import Empty, Full, Queue, LifoQueue
 
 # the functionality is available in 3.11.x but has a major issue before
@@ -16,7 +20,9 @@ if sys.version_info >= (3, 11, 3):
 else:
     from async_timeout import timeout as async_timeout
 
+
 from kvdb import errors
+from redis import exceptions as rerrors
 from kvdb.io.encoder import Encoder
 from kvdb.types.base import supported_schemas, KVDBUrl
 from kvdb.utils.logs import logger
@@ -99,7 +105,6 @@ class ConnectionPool(_ConnectionPool):
         kwargs.update(url_options)
         return cls(**kwargs)
     
-
     def __init__(
         self, 
         connection_class: Type[Connection] = Connection, 
@@ -149,6 +154,10 @@ class ConnectionPool(_ConnectionPool):
         self._settings: Optional['KVDBSettings'] = None
         self._encoder: Optional[Encoder] = None
         self.extra_kwargs = {k:v for k, v in kwargs.items() if k not in self.connection_kwargs}
+        self.auto_pause_enabled = self.extra_kwargs.get('auto_pause_enabled', self.settings.pool.auto_pause_enabled)
+        self.auto_pause_interval = self.extra_kwargs.get('auto_pause_interval', self.settings.pool.auto_pause_interval)
+        self.auto_pause_max_delay = self.extra_kwargs.get('auto_pause_max_delay', self.settings.pool.auto_pause_max_delay)
+
         self.encoder_class = self.connection_kwargs.get("encoder_class", Encoder)
         if 'serializer' in kwargs:
             serializer = kwargs.get('serializer')
@@ -184,6 +193,59 @@ class ConnectionPool(_ConnectionPool):
             raise errors.ConnectionError("Too many connections")
         self._created_connections += 1
         return self.connection_class(**self.connection_kwargs, encoder = self.encoder)
+    
+    def reestablish_connection(self, connection: Connection) -> bool:
+        """
+        Attempts to Reestablish connection to the host
+        """
+        duration = 0.0
+        err = None
+        while duration < self.auto_pause_max_delay:
+            try:
+                sock = socket.create_connection((connection.host, connection.port), timeout = 0.5)
+                sock.close()
+                connection.connect()
+                return True
+            except ConnectionRefusedError as err:
+                logger.info(f"Connection Refused: {err}")
+                time.sleep(self.auto_pause_interval)
+                duration += self.auto_pause_interval
+        logger.info(f"Unable to reestablish connection: {err} after {duration} seconds")
+        return False
+
+    @contextlib.contextmanager
+    def ensure_connection(self, connection: Connection) -> Connection:
+        """
+        Ensure that the connection is available and that the host is available
+        """
+        try:
+            # ensure this connection is connected to Redis
+            connection.connect()
+        
+        except rerrors.TimeoutError as exc:
+            if not self.auto_pause_enabled or not self.reestablish_connection(connection): 
+                raise errors.TimeoutError(source_error = exc) from exc
+
+        # connections that the pool provides should be ready to send
+        # a command. if not, the connection was either returned to the
+        # pool before all data has been read or the socket has been
+        # closed. either way, reconnect and verify everything is good.
+        try:
+            if connection.can_read():
+                raise errors.ConnectionError("Connection has data")
+        except (errors.ConnectionError, ConnectionError, OSError) as exc:
+            connection.disconnect()
+            connection.connect()
+            if connection.can_read():
+                raise errors.ConnectionError("Connection not ready") from exc
+        
+        except BaseException:
+            # release the connection back to the pool so that we don't
+            # leak it
+            self.release(connection)
+            raise
+        
+        yield connection
 
     def get_connection(self, command_name: str, *keys: Any, **options: Dict[str, Any]) -> Connection:
         """
@@ -205,28 +267,9 @@ class ConnectionPool(_ConnectionPool):
             self._in_use_connections.add(connection)
             # if command_name in {'PUBLISH', 'SUBSCRIBE', 'UNSUBSCRIBE'}:
             #     connection.encoder = self.encoder
+        with self.ensure_connection(connection) as conn:
+            return conn
 
-        try:
-            # ensure this connection is connected to Redis
-            connection.connect()
-            # connections that the pool provides should be ready to send
-            # a command. if not, the connection was either returned to the
-            # pool before all data has been read or the socket has been
-            # closed. either way, reconnect and verify everything is good.
-            try:
-                if connection.can_read():
-                    raise errors.ConnectionError("Connection has data")
-            except (errors.ConnectionError, ConnectionError, OSError) as exc:
-                connection.disconnect()
-                connection.connect()
-                if connection.can_read():
-                    raise errors.ConnectionError("Connection not ready") from exc
-        except BaseException:
-            # release the connection back to the pool so that we don't
-            # leak it
-            self.release(connection)
-            raise
-        return connection
 
     @contextlib.contextmanager
     def disconnect_ctx(self, with_lock: bool = True, **kwargs):
@@ -257,7 +300,7 @@ class ConnectionPool(_ConnectionPool):
         self._checkpid()
         with self.disconnect_ctx(with_lock = with_lock):
             if inuse_connections:
-                connections = chain(self._available_connections, self._in_use_connections)
+                connections = itertools.chain(self._available_connections, self._in_use_connections)
             else: connections = self._available_connections
             outputs: List[Union[BaseException, Connection]] = []
             for connection in connections:
@@ -371,35 +414,16 @@ class BlockingConnectionPool(_BlockingConnectionPool, ConnectionPool):
         connection = None
         try:
             connection = self.pool.get(block=True, timeout=self.timeout)
-        except Empty:
+        except Empty as e:
             # Note that this is not caught by the redis client and will be
             # raised unless handled by application code. If you want never to
-            raise ConnectionError("No connection available.")
+            raise ConnectionError("No connection available.") from e
 
         # If the ``connection`` is actually ``None`` then that's a cue to make
         # a new connection to add to the pool.
         if connection is None: connection = self.make_connection()
-
-        try:
-            # ensure this connection is connected to Redis
-            connection.connect()
-            # connections that the pool provides should be ready to send
-            # a command. if not, the connection was either returned to the
-            # pool before all data has been read or the socket has been
-            # closed. either way, reconnect and verify everything is good.
-            try:
-                if connection.can_read():
-                    raise ConnectionError("Connection has data")
-            except (errors.ConnectionError, ConnectionError, OSError) as exc:
-                connection.disconnect()
-                connection.connect()
-                if connection.can_read():
-                    raise errors.ConnectionError("Connection not ready") from exc
-        except BaseException:
-            # release the connection back to the pool so that we don't leak it
-            self.release(connection)
-            raise
-        return connection
+        with self.ensure_connection(connection):
+            yield connection
     
 
     def disconnect(self, inuse_connections: bool = True, raise_errors: bool = False, **kwargs):
@@ -523,6 +547,10 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         self._settings: Optional['KVDBSettings'] = None
         self._encoder: Optional[Encoder] = None
         self.extra_kwargs = {k:v for k, v in kwargs.items() if k not in self.connection_kwargs}
+        self.auto_pause_enabled = self.extra_kwargs.get('auto_pause_enabled', self.settings.pool.auto_pause_enabled)
+        self.auto_pause_interval = self.extra_kwargs.get('auto_pause_interval', self.settings.pool.auto_pause_interval)
+        self.auto_pause_max_delay = self.extra_kwargs.get('auto_pause_max_delay', self.settings.pool.auto_pause_max_delay)
+
         self.encoder_class = self.connection_kwargs.get("encoder_class", Encoder)
         
         if 'serializer' in kwargs:
@@ -562,6 +590,58 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         # logger.info('Generating new connection')
         return self.connection_class(**self.connection_kwargs, encoder = self.encoder)
     
+    async def reestablish_connection(self, connection: AsyncConnection) -> bool:
+        """
+        Attempts to Reestablish connection to the host
+        """
+        duration = 0.0
+        err = None
+        while duration < self.auto_pause_max_delay:
+            try:
+                sock = socket.create_connection((connection.host, connection.port), timeout = 0.5)
+                sock.close()
+                await connection.connect()
+                return True
+            except ConnectionRefusedError as err:
+                await asyncio.sleep(self.auto_pause_interval)
+                duration += self.auto_pause_interval
+        return False
+    
+    @contextlib.asynccontextmanager
+    async def ensure_connection(self, connection: AsyncConnection) -> AsyncConnection:
+        """
+        Ensure that the connection is available and that the host is available
+        """
+        try:
+            # ensure this connection is connected to Redis
+            await connection.connect()
+        
+        except rerrors.TimeoutError as exc:
+            if not self.auto_pause_enabled or not await self.reestablish_connection(connection): 
+                raise errors.TimeoutError(source_error = exc) from exc
+
+        # connections that the pool provides should be ready to send
+        # a command. if not, the connection was either returned to the
+        # pool before all data has been read or the socket has been
+        # closed. either way, reconnect and verify everything is good.
+        try:
+            if await connection.can_read_destructive():
+                raise errors.ConnectionError("Connection has data")
+        except (errors.ConnectionError, ConnectionError, OSError) as exc:
+            await connection.disconnect()
+            await connection.connect()
+            if await connection.can_read_destructive():
+                raise errors.ConnectionError("Connection not ready") from exc
+        
+        except BaseException:
+            # release the connection back to the pool so that we don't
+            # leak it
+            await self.release(connection)
+            raise
+        
+        yield connection
+
+
     async def get_connection(self, command_name, *keys, **options):
         """
         Get a connection from the pool
@@ -581,32 +661,8 @@ class AsyncConnectionPool(_AsyncConnectionPool):
 
             self._in_use_connections.add(connection)
 
-        try:
-            # TODO: handle pool wait if cannot connect to host.
-            
-            # ensure this connection is connected to Redis
-            await connection.connect()
-            # connection.encoder = self.encoder
-            # logger.info(f"Connection: {connection.encoder}")
-            
-            # connections that the pool provides should be ready to send
-            # a command. if not, the connection was either returned to the
-            # pool before all data has been read or the socket has been
-            # closed. either way, reconnect and verify everything is good.
-            try:
-                if await connection.can_read_destructive():
-                    raise errors.ConnectionError("Connection has data")
-            except (errors.ConnectionError, ConnectionError, OSError) as exc:
-                await connection.disconnect()
-                await connection.connect()
-                if await connection.can_read_destructive():
-                    raise errors.ConnectionError("Connection not ready") from exc
-        except BaseException:
-            # release the connection back to the pool so that we don't
-            # leak it
-            await self.release(connection)
-            raise
-        return connection
+        async with self.ensure_connection(connection) as conn:
+            return conn
     
 
     
@@ -638,7 +694,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         """
         async with self.disconnect_ctx(with_lock = with_lock):
             if inuse_connections:
-                connections: Iterable[AsyncConnection] = chain(
+                connections: Iterable[AsyncConnection] = itertools.chain(
                     self._available_connections, self._in_use_connections
                 )
             else:
