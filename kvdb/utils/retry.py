@@ -97,7 +97,7 @@ def get_retryable_wrapper(
     Creates a retryable decorator
     """
     if not enabled: return None
-    from kvdb import errors
+    import kvdb.errors as errors
     from redis import exceptions as rerrors
     if isinstance(logging_level, str): logging_level = getattr(logging, logging_level.upper())
     return retry(

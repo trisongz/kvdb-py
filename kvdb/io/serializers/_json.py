@@ -4,6 +4,7 @@ import json
 from typing import Any, Dict, Optional, Union, Type
 from kvdb.utils.lazy import lazy_import
 from .base import BaseSerializer, ObjectValue, SchemaType, BaseModel, logger
+from .utils import is_primitive, serialize_object, deserialize_object
 
 try:
     import orjson
@@ -67,42 +68,24 @@ class JsonSerializer(BaseSerializer):
             assert hasattr(jsonlib, "dumps") and hasattr(jsonlib, "loads"), f"Invalid JSON Library: {jsonlib}"
             self.jsonlib = jsonlib
         self.jsonlib_name = self.jsonlib.__name__
-    
-
-    def encode_one(self, value: Union[Any, SchemaType], **kwargs) -> str:
+        
+    def encode_value(self, value: Union[Any, SchemaType], **kwargs) -> str:
         """
         Encode the value with the JSON Library
         """
         try:
-            if hasattr(value, 'model_dump'): 
-                if not self.disable_object_serialization:
-                    obj_class_name = self.fetch_object_classname(value)
-                    if obj_class_name not in self.serialization_schemas:
-                        self.serialization_schemas[obj_class_name] = value.__class__
-                value = value.model_dump(mode = 'json', round_trip = True, **self.serialization_obj_kwargs)
-                if not self.disable_object_serialization:
-                    value['__class__'] = obj_class_name
+            value_dict = serialize_object(value, **self.serialization_obj_kwargs)
+            # logger.info(f'Value Dict: {value_dict}')
+            return self.jsonlib.dumps(value_dict, **kwargs)
         except Exception as e:
-            if not self.is_encoder: logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True)
+            if not self.is_encoder: 
+                logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True)
         try:
             return self.jsonlib.dumps(value, **kwargs)
         except Exception as e:
             if not self.is_encoder: logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
-        
-    def encode_value(self, value: Union[Any, SchemaType], **kwargs) -> str:
-        """
-        Encode the value with the JSON Library
-        """
-        if isinstance(value, list):
-            values = [self.encode_one(v, **kwargs) for v in value]
-            value_dict = {
-                '__type__': 'list',
-                'values': values,
-            }
-            return self.jsonlib.dumps(value_dict, **kwargs)
-        return self.encode_one(value, **kwargs)
 
 
     def decode_one(self, value: str, **kwargs) -> Union[SchemaType, Dict, Any]:
@@ -129,10 +112,14 @@ class JsonSerializer(BaseSerializer):
         """
         Decode the value with the JSON Library
         """
-        value = self.decode_one(value, **kwargs)
-        if isinstance(value, dict) and '__type__' in value and value['__type__'] == 'list':
-            return [self.decode_one(v, **kwargs) for v in value['values']]
-        return value
+        try:
+            value = self.jsonlib.loads(value, **kwargs)
+            return deserialize_object(value)
+        except Exception as e:
+            if not self.is_encoder: logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+            if self.raise_errors: raise e
+        return None
+
 
         
     

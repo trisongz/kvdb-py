@@ -191,6 +191,7 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         hash_func = self.keybuilder or create_cache_key_from_kwargs
         return hash_func(
+            base = self.prefix,
             args = args, 
             kwargs = kwargs, 
             typed = self.typed, 
@@ -209,6 +210,7 @@ class CachifyConfig(KVDBCachifyConfig):
         hash_func = self.keybuilder or create_cache_key_from_kwargs
         return await ThreadPooler.asyncish(
             hash_func, 
+            base = self.prefix,
             args = args, 
             kwargs = kwargs, 
             typed = self.typed, 
@@ -1118,8 +1120,13 @@ def cachify_sync(
         if _cachify.retry_enabled:
             func = _retry_func_wrapper(max_tries = _cachify.retry_max_attempts + 1)(func)
         
+        _current_cache_key = None
+        _current_was_cached = False
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            nonlocal _current_cache_key, _current_was_cached
+
             # Set the cache field
             _cachify.build_hash_name(func, *args, **kwargs)
             _cachify.validate_is_class_method(func)
@@ -1134,6 +1141,8 @@ def cachify_sync(
             
             # Get the cache key
             cache_key = wrapper.__cache_key__(*args, **kwargs)
+            _current_cache_key = cache_key
+
             
             # Check if we should invalidate
             if _cachify.should_invalidate(*args, cache_kwargs = cachify_kwargs, **kwargs):
@@ -1156,7 +1165,7 @@ def cachify_sync(
                     if _cachify.verbosity: logger.trace(f'[{_cachify.cache_field}:{cache_key}] Exception', error = e)
                     if _cachify.raise_exceptions: raise e
                     return None
-            
+            _current_was_cached = True
             if _cachify.super_verbose: logger.info('Cache Hit', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
             _cachify.run_post_call_hook(value, *args, is_hit = True, **kwargs)
             return value
@@ -1167,7 +1176,21 @@ def cachify_sync(
             """
             return _cachify.build_hash_key(*args, **kwargs)
         
+        def is_cached() -> bool:
+            """
+            Returns whether or not the function is cached
+            """
+            return _cachify._exists(_current_cache_key)
+        
+        def was_cached() -> bool:
+            """
+            Returns whether or not the function was cached
+            """
+            return _current_was_cached
+        
         wrapper.__cache_key__ = __cache_key__
+        wrapper.is_cached = is_cached
+        wrapper.was_cached = was_cached
         return wrapper
     
     return decorator
@@ -1194,8 +1217,13 @@ def cachify_async(
     def decorator(func: FunctionT):
         if _cachify.retry_enabled: func = _retry_func_wrapper(max_tries = _cachify.retry_max_attempts + 1)(func)
         
+        _current_cache_key = None
+        _current_was_cached = False
+
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
+            nonlocal _current_cache_key, _current_was_cached
+
             # Set the cache field
             await _cachify.abuild_hash_name(func, *args, **kwargs)
             _cachify.validate_is_class_method(func)
@@ -1209,6 +1237,7 @@ def cachify_async(
             
             # Get the cache key
             cache_key = await wrapper.__cache_key__(*args, **kwargs)
+            _current_cache_key = cache_key
             
             # Check if we should invalidate
             if await _cachify.ashould_invalidate(*args, cache_kwargs = cachify_kwargs, **kwargs):
@@ -1232,6 +1261,7 @@ def cachify_async(
                     if _cachify.raise_exceptions: raise e
                     return None
             
+            _current_was_cached = True
             if _cachify.super_verbose: logger.info('Cache Hit', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
             await _cachify.arun_post_call_hook(value, *args, is_hit = True, **kwargs)
             return value
@@ -1242,7 +1272,21 @@ def cachify_async(
             """
             return await _cachify.abuild_hash_key(*args, **kwargs)
         
+        def is_cached() -> bool:
+            """
+            Returns whether or not the function is cached
+            """
+            return _cachify._exists(_current_cache_key)
+        
+        def was_cached() -> bool:
+            """
+            Returns whether or not the function was cached
+            """
+            return _current_was_cached
+        
         wrapper.__cache_key__ = __cache_key__
+        wrapper.is_cached = is_cached
+        wrapper.was_cached = was_cached
         return wrapper
     
     return decorator
@@ -1526,6 +1570,7 @@ def cachify(
     exclude_keys: Optional[List[str]] = None,
     exclude_null: Optional[bool] = True,
     exclude_exceptions: Optional[Union[bool, List[Exception]]] = True,
+    prefix: Optional[str] = '_kvc_', # The prefix to use for the cache if keybuilder is not present
 
     exclude_null_values_in_hash: Optional[bool] = None,
     exclude_default_values_in_hash: Optional[bool] = None,
@@ -1544,8 +1589,6 @@ def cachify(
     retry_enabled: Optional[bool] = False,
     retry_max_attempts: Optional[int] = 3, # Will retry 3 times
     retry_giveup_callable: Optional[Callable[..., bool]] = None,
-
-    # bypass_if: Optional[Callable] = None
 
     timeout: Optional[float] = 5.0,
     verbosity: Optional[int] = None,
@@ -1571,6 +1614,8 @@ def cachify(
     hset_enabled: Optional[bool] = True,
 
     session: Optional['KVDBSession'] = None,
+    session_name: Optional[str] = None,
+    session_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Callable[[FunctionT], FunctionT]:  # sourcery skip: default-mutable-arg
     """
     Creates a new cachify decorator
@@ -1585,6 +1630,7 @@ def cachify(
         exclude_keys (Optional[List[str]], optional): The keys to exclude from the cache. Defaults to None.
         exclude_null (Optional[bool], optional): Whether or not to exclude null values from the cache. Defaults to True.
         exclude_exceptions (Optional[Union[bool, List[Exception]]], optional): Whether or not to exclude exceptions from the cache. Defaults to True.
+        prefix (Optional[str], optional): The prefix to use for the cache if keybuilder is not present. Defaults to '_kvc_'.
         exclude_null_values_in_hash (Optional[bool], optional): Whether or not to exclude null values from the hash. Defaults to None.
         exclude_default_values_in_hash (Optional[bool], optional): Whether or not to exclude default values from the hash. Defaults to None.
         disabled (Optional[Union[bool, Callable]], optional): Whether or not to disable the cache. Defaults to None.
@@ -1610,13 +1656,17 @@ def cachify(
         post_call_hook (Optional[Union[str, Callable]], optional): The post call hook to use. Defaults to None.
         hset_enabled (Optional[bool], optional): Whether or not to enable hset/hget/hdel/hmset/hmget/hmgetall. Defaults to True.
         session (Optional['KVDBSession'], optional): The session to use. Defaults to None.
+        session_name (Optional[str], optional): The session name to use. Defaults to None.
+        session_kwargs (Optional[Dict[str, Any]], optional): The session kwargs to use. Defaults to None.
     """
     ...
 
 
 
 def cachify(
-    session: Optional['KVDBSession'] = None,
+    session: Optional[Union['KVDBSession', str]] = None,
+    session_name: Optional[str] = None,
+    session_kwargs: Optional[Dict[str, Any]] = None,
     **kwargs
 ) -> Callable[[FunctionT], FunctionT]:
     """
@@ -1624,23 +1674,136 @@ def cachify(
     that utilizes hset/hget/hdel/hmset/hmget/hmgetall
     instead of the default set/get/del
     """
-    _cachify = CachifyConfig(**kwargs)
+    from kvdb.configs import settings
+    base_kwargs = settings.cache.model_dump(exclude_none=True, exclude_unset=True)
+    base_kwargs.update(kwargs)
+    _cachify = CachifyConfig(**base_kwargs)
     def decorator(func: FunctionT) -> FunctionT:
         """
         The decorator for cachify
         """
-        nonlocal session
+        nonlocal session, session_name, session_kwargs
+        if session and isinstance(session, str):
+            session_name = session
+            session = None
         if session is None: 
+            session_kwargs = session_kwargs or {}
             from kvdb.client import KVDBClient
             session = KVDBClient.get_session(
-                name = kwargs.get('session_name'), 
-                **kwargs.get('session_kwargs', {})
+                name = session_name, 
+                **session_kwargs
             )
         if inspect.iscoroutinefunction(func):
             return fallback_async_wrapper(func, session, _cachify)
         else:
             return fallback_sync_wrapper(func, session, _cachify)
     return decorator
+
+
+
+@overload
+def create_cachify(
+    ttl: Optional[int] = 60 * 10, # 10 minutes
+    ttl_kws: Optional[List[str]] = ['cache_ttl'], # The keyword arguments to use for the ttl
+
+    keybuilder: Optional[Callable] = None,
+    name: Optional[Union[str, Callable]] = None,
+    typed: Optional[bool] = True,
+    exclude_keys: Optional[List[str]] = None,
+    exclude_null: Optional[bool] = True,
+    exclude_exceptions: Optional[Union[bool, List[Exception]]] = True,
+    prefix: Optional[str] = '_kvc_',
+
+    exclude_null_values_in_hash: Optional[bool] = None,
+    exclude_default_values_in_hash: Optional[bool] = None,
+
+    disabled: Optional[Union[bool, Callable]] = None,
+    disabled_kws: Optional[List[str]] = ['cache_disable'], # If present and True, disable the cache
+    
+    invalidate_after: Optional[Union[int, Callable]] = None,
+    
+    invalidate_if: Optional[Callable] = None,
+    invalidate_kws: Optional[List[str]] = ['cache_invalidate'], # If present and True, invalidate the cache
+
+    overwrite_if: Optional[Callable] = None,
+    overwrite_kws: Optional[List[str]] = ['cache_overwrite'], # If present and True, overwrite the cache
+
+    retry_enabled: Optional[bool] = False,
+    retry_max_attempts: Optional[int] = 3, # Will retry 3 times
+    retry_giveup_callable: Optional[Callable[..., bool]] = None,
+    
+    timeout: Optional[float] = 5.0,
+    verbosity: Optional[int] = None,
+
+    raise_exceptions: Optional[bool] = True,
+
+    encoder: Optional[Union[str, Callable]] = None,
+    decoder: Optional[Union[str, Callable]] = None,
+
+    # Allow for custom hit setters and getters
+    hit_setter: Optional[Callable] = None,
+    hit_getter: Optional[Callable] = None,
+
+    # Allow for max cache size
+    cache_max_size: Optional[int] = None,
+    cache_max_size_policy: Optional[Union[str, CachePolicy]] = CachePolicy.LFU, # 'LRU' | 'LFU' | 'FIFO' | 'LIFO'
+
+    # Allow for post-init hooks
+    post_init_hook: Optional[Union[str, Callable]] = None,
+    
+    # Allow for post-call hooks
+    post_call_hook: Optional[Union[str, Callable]] = None,
+    hset_enabled: Optional[bool] = True,
+
+    session: Optional['KVDBSession'] = None,
+    session_name: Optional[str] = None,
+    session_kwargs: Optional[Dict[str, Any]] = None,
+) -> Callable[[FunctionT], FunctionT]:  # sourcery skip: default-mutable-arg
+    """
+    Creates a new cachify partial decorator that
+    passes the kwargs to the cachify decorator before it is applied
+
+    Args:
+
+        ttl (Optional[int], optional): The time to live for the cache. Defaults to 60 * 10 (10 minutes).
+        ttl_kws (Optional[List[str]], optional): The keyword arguments to use for the ttl. Defaults to ['cache_ttl'].
+        keybuilder (Optional[Callable], optional): The keybuilder function to use. Defaults to None.
+        name (Optional[Union[str, Callable]], optional): The name of the cache. Defaults to None.
+        typed (Optional[bool], optional): Whether or not to use typed caching. Defaults to True.
+        exclude_keys (Optional[List[str]], optional): The keys to exclude from the cache. Defaults to None.
+        exclude_null (Optional[bool], optional): Whether or not to exclude null values from the cache. Defaults to True.
+        exclude_exceptions (Optional[Union[bool, List[Exception]]], optional): Whether or not to exclude exceptions from the cache. Defaults to True.
+        prefix (Optional[str], optional): The prefix to use for the cache if keybuilder is not present. Defaults to '_kvc_'.
+        exclude_null_values_in_hash (Optional[bool], optional): Whether or not to exclude null values from the hash. Defaults to None.
+        exclude_default_values_in_hash (Optional[bool], optional): Whether or not to exclude default values from the hash. Defaults to None.
+        disabled (Optional[Union[bool, Callable]], optional): Whether or not to disable the cache. Defaults to None.
+        disabled_kws (Optional[List[str]], optional): The keyword arguments to use for the disabled flag. Defaults to ['cache_disable'].
+        invalidate_after (Optional[Union[int, Callable]], optional): The time to invalidate the cache after. Defaults to None.
+        invalidate_if (Optional[Callable], optional): The function to use to invalidate the cache. Defaults to None.
+        invalidate_kws (Optional[List[str]], optional): The keyword arguments to use for the invalidate flag. Defaults to ['cache_invalidate'].
+        overwrite_if (Optional[Callable], optional): The function to use to overwrite the cache. Defaults to None.
+        overwrite_kws (Optional[List[str]], optional): The keyword arguments to use for the overwrite flag. Defaults to ['cache_overwrite'].
+        retry_enabled (Optional[bool], optional): Whether or not to enable retries. Defaults to False.
+        retry_max_attempts (Optional[int], optional): The maximum number of retries. Defaults to 3.
+        retry_giveup_callable (Optional[Callable[..., bool]], optional): The function to use to give up on retries. Defaults to None.
+        timeout (Optional[float], optional): The timeout for the cache. Defaults to 5.0.
+        verbosity (Optional[int], optional): The verbosity level. Defaults to None.
+        raise_exceptions (Optional[bool], optional): Whether or not to raise exceptions. Defaults to True.
+        encoder (Optional[Union[str, Callable]], optional): The encoder to use. Defaults to None.
+        decoder (Optional[Union[str, Callable]], optional): The decoder to use. Defaults to None.
+        hit_setter (Optional[Callable], optional): The hit setter to use. Defaults to None.
+        hit_getter (Optional[Callable], optional): The hit getter to use. Defaults to None.
+        cache_max_size (Optional[int], optional): The maximum size of the cache. Defaults to None.
+        cache_max_size_policy (Optional[Union[str, CachePolicy]], optional): The cache policy to use. Defaults to CachePolicy.LFU.
+        post_init_hook (Optional[Union[str, Callable]], optional): The post init hook to use. Defaults to None.
+        post_call_hook (Optional[Union[str, Callable]], optional): The post call hook to use. Defaults to None.
+        hset_enabled (Optional[bool], optional): Whether or not to enable hset/hget/hdel/hmset/hmget/hmgetall. Defaults to True.
+        session (Optional['KVDBSession'], optional): The session to use. Defaults to None.
+        session_name (Optional[str], optional): The session name to use. Defaults to None.
+        session_kwargs (Optional[Dict[str, Any]], optional): The session kwargs to use. Defaults to None.
+    """
+    ...
+
 
 
 def create_cachify(

@@ -9,7 +9,8 @@ from redis.asyncio.lock import (
     Lock as _AsyncLock,
 )
 from kvdb.configs import settings
-from kvdb import errors
+
+import kvdb.errors as errors
 from typing import Optional, Union, Awaitable, TYPE_CHECKING
 
 if TYPE_CHECKING:

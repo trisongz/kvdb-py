@@ -43,6 +43,7 @@ class KVDBCachifyConfig(SerializerConfig, BaseModel):
     exclude_keys: Optional[List[str]] = None
     exclude_null: Optional[bool] = True
     exclude_exceptions: Optional[Union[bool, List[Exception]]] = True
+    prefix: Optional[str] = Field('_kvc_', description = 'The prefix for the cache key')
 
     exclude_null_values_in_hash: Optional[bool] = None
     exclude_default_values_in_hash: Optional[bool] = None
@@ -60,6 +61,7 @@ class KVDBCachifyConfig(SerializerConfig, BaseModel):
 
     retry_enabled: Optional[bool] = False
     retry_max_attempts: Optional[int] = 3 # Will retry 3 times
+    retry_giveup_callable: Optional[Callable[..., bool]] = None
 
     # bypass_if: Optional[Callable] = None
 

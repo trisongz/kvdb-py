@@ -46,6 +46,12 @@ if TYPE_CHECKING:
 
 JobResultT = TypeVar('JobResultT')
 
+def get_default_job_key() -> str:
+    """
+    Lazily initialize the default job key
+    """
+    return settings.tasks.get_default_job_key()
+
 class BaseJobProperties(BaseModel):
     """
     Base job properties
@@ -82,7 +88,7 @@ class JobQueueMixin(BaseModel):
         completed: Optional[int] = None
     else:
         queue: Optional[Any] = Field(default = None, exclude = True)
-
+        
 
     
     """
@@ -122,7 +128,9 @@ class JobQueueMixin(BaseModel):
         """
         Returns the job fields
         """
-        return list(self.model_fields.keys()) - ['queue']
+        fields = list(self.model_fields.keys())
+        fields.remove('queue')
+        return fields
 
     @property
     def id(self):
@@ -262,6 +270,7 @@ class CronJob(BaseJobProperties, BaseModel):
     callback_kwargs: Optional[Dict[str, Any]] = None
 
     bypass_lock: Optional[bool] = None
+    queue_name: Optional[str] = Field(default = None)
 
     @validator('function', pre = True)
     def validate_callables(cls, v: Optional[Union[str, Callable[..., Any]]]) -> Callable[..., Any]:
@@ -286,6 +295,8 @@ class CronJob(BaseJobProperties, BaseModel):
         """
         Validates the cronjob
         """
+        from kvdb.utils.cron import validate_cron_schedule
+        self.cron = validate_cron_schedule(self.cron)
         return self
 
 
@@ -303,6 +314,76 @@ class CronJob(BaseJobProperties, BaseModel):
         """
         return int(croniter.croniter(self.cron, seconds(now())).get_next())
     
+    def get_next_cron_run_data(
+        self,
+        verbose: Optional[bool] = False,
+    ) -> Dict[str, Any]:
+        """
+        Returns the next cron run data
+        """
+        utc_date = datetime.datetime.now(tz = datetime.timezone.utc)
+        next_date: datetime.datetime = croniter.croniter(self.cron, utc_date).get_next(datetime.datetime)
+        total_seconds = (next_date - utc_date).total_seconds()
+        next_interval, next_unit = total_seconds, "secs"
+        # Reverse the order
+        if next_interval > (60 * 60 * 24):
+            next_interval /= (60 * 60 * 24)
+            next_unit = "days"
+        elif next_interval > (60 * 60):
+            next_interval /= (60 * 60)
+            next_unit = "hrs"
+        elif next_interval > 60:
+            next_interval /= 60
+            next_unit = "mins"
+        msg = f'Next Scheduled Run is `{next_date}` ({next_interval:.2f} {next_unit})'
+        if verbose: logger.info(f'Next Scheduled Run in |g|{next_interval:.2f} {next_unit}|e| at |g|{next_date}|e| ({self.cron_name})', colored = True)
+        return {
+            'next_date': next_date,
+            'next_interval': next_interval,
+            'next_unit': next_unit,
+            'total_seconds': total_seconds,
+            'message': msg,
+        }
+    
+
+    def to_enqueue_kwargs(
+        self, 
+        job_key: typing.Optional[str] = None, 
+        exclude_none: typing.Optional[bool] = True, 
+        job_function_kwarg_prefix: Optional[str] = None,
+        **kwargs
+    ) -> typing.Dict[str, typing.Any]:
+        """
+        Returns the kwargs for the job
+        """
+        default_kwargs = self.default_kwargs.copy() if self.default_kwargs else {}
+        if kwargs: default_kwargs.update(kwargs)
+        enqueue_kwargs = {
+            "key": job_key,
+            **default_kwargs,
+        }
+        if self.callback:
+            enqueue_kwargs['job_callback'] = self.callback
+            enqueue_kwargs['job_callback_kwargs'] = self.callback_kwargs
+        
+        if self.bypass_lock is not None:
+            enqueue_kwargs['bypass_lock'] = self.bypass_lock
+
+        if exclude_none:
+            enqueue_kwargs = {
+                k: v
+                for k, v in enqueue_kwargs.items()
+                if v is not None
+            }
+        enqueue_kwargs['scheduled'] = self.next_scheduled()
+        if job_function_kwarg_prefix:
+            enqueue_kwargs = {
+                f'{job_function_kwarg_prefix}{k}': v
+                for k, v in enqueue_kwargs.items()
+            }
+        enqueue_kwargs["job_or_func"] = self.function_name
+        return enqueue_kwargs
+
 
 
 class JobProgress(BaseModel):
@@ -339,6 +420,12 @@ class JobProgress(BaseModel):
         Updates the progress of a job
         """
         self.completed += completed
+
+    def reset(self):
+        """
+        Resets the progress of a job
+        """
+        self.set(total = 0, completed = 0)
 
     def __add__(self, value: Union[int, float]) -> JobProgress:
         """
@@ -393,7 +480,7 @@ class JobProperties(BaseModel):
     completed: Optional[int] = 0
     queued: Optional[int] = 0
     started: Optional[int] = 0
-    touched: Optional[int] = 0
+    touched: Optional[int] = 0 
 
 
 class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
@@ -428,7 +515,7 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
     args: Optional[List[Any]] = Field(default_factory = list)
     kwargs: Optional[Dict[str, Any]] = Field(default_factory = dict)
 
-    key: Optional[str] = None
+    key: Optional[str] = Field(default_factory = get_default_job_key)
     result: Optional[Any] = None
     error: Optional[Union[str, Exception, Any]] = None
     status: Optional[JobStatus] = JobStatus.NEW
@@ -440,6 +527,7 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
     job_callback: Optional[Union[str, Callable]] = None
     job_callback_kwargs: Optional[Dict[str, Any]] = Field(default_factory = dict)
     bypass_lock: Optional[bool] = None
+    queue_name: Optional[str] = Field(default = None)
 
 
     @validator("job_callback", pre = True)
@@ -449,13 +537,6 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         """
         return v if v is None else get_func_full_name(v)
     
-    @validator("key", pre = True)
-    def validate_key(cls, v: Optional[str]) -> str:
-        """
-        Validates the key
-        """
-        return v if v is not None else settings.tasks.get_default_job_key()
-
 
     @classmethod
     def create(
@@ -504,7 +585,36 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
                 jitter = True,
             )
         return self.retry_delay
-        
+    
+    def reset(
+        self,
+        status: Optional[JobStatus] = JobStatus.QUEUED,
+        error: Optional[Any] = None,
+    ):
+        """
+        Resets the job.
+        """
+        self.status = status
+        self.error = error
+        self.completed = 0
+        self.started = 0
+        self.progress.reset()
+        self.touched = now()
+
+    def complete(
+        self,
+        status: Optional[JobStatus] = JobStatus.COMPLETE,
+        result: Optional[Any] = None,
+        error: Optional[Any] = None,
+    ):
+        """
+        Completes the job.
+        """
+        self.status = status
+        self.result = result
+        self.error = error
+        self.completed = now()
+        self.progress.set(completed = self.progress.total)
 
     """
     Callbacks
@@ -519,6 +629,12 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         func = lazy_import(self.job_callback)
         return ThreadPooler.ensure_coro_function(func)
     
+    @property
+    def abort_id(self):
+        """
+        Returns the abort id.
+        """
+        return f"{self.queue.abort_id_prefix}:{self.key}"
 
     @property
     def has_job_callback(self) -> bool:
@@ -719,3 +835,99 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
             return getattr(self, key)
         return self.metadata.get(key)
 
+    def model_dump(
+        self,
+        mode: Literal['json', 'python'] = 'json',
+        include: Any = None,
+        exclude: Any = None,
+        by_alias: bool = False,
+        exclude_unset: bool = False,
+        exclude_defaults: bool = False,
+        exclude_none: bool = False,
+        round_trip: bool = True,
+        warnings: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Serializes the job
+        """
+
+        exclude: set = exclude or set()
+        if 'queue' not in exclude:
+            exclude.add('queue')
+        data = super().model_dump(
+            mode = mode,
+            include = include,
+            exclude = exclude,
+            by_alias = by_alias,
+            exclude_unset = exclude_unset,
+            exclude_defaults = exclude_defaults,
+            exclude_none = exclude_none,
+            round_trip = round_trip,
+            warnings = warnings,
+        )
+        data['queue_name'] = self.queue.queue_name
+        # logger.info(f'Job Dump: {data}')
+        return data
+    
+
+    def get_truncated_result(self, max_length: int) -> str:
+        """
+        Returns a truncated result
+        """
+        if self.result is None: return ''
+        result = str(self.result)
+        return f'{result[:max_length]}...' if len(result) > max_length else result
+    
+    def get_truncated_kwargs(self, max_length: int) -> str:
+        """
+        Returns a truncated kwargs
+        """
+        if self.kwargs is None: return ''
+
+        kwv_max_length = max_length // len(self.kwargs)
+        kwargs = {}
+        for k, v in self.kwargs.items():
+            kwargs[k] = str(v)
+            if len(kwargs[k]) > kwv_max_length:
+                kwargs[k] = f'{kwargs[k][:kwv_max_length]}...'
+        return str(kwargs)
+    
+    @property
+    def short_kwargs(self) -> str:
+        """
+        Returns the shortened kwargs to prevent overflow
+        """
+        if len(str(self.kwargs)) < 5000:
+            return str(self.kwargs)
+        try:
+            div_length = 5000 // len(self.kwargs)
+            return str({k: (f'{v[:div_length]}...' if len(str(v)) > div_length else v) for k, v in self.kwargs.items()})
+        except Exception:
+            return str(self.kwargs)[:5000]
+        
+
+
+    @property
+    def short_repr(self):
+        """
+        Shortened representation of the job.
+        """
+        kws = [
+            f"{k}={v}"
+            for k, v in {
+                "id": self.id,
+                "function": self.function,
+                "status": self.status,
+                "result": self.get_truncated_result(50),
+                "error": self.error,
+                "args": self.args,
+                "kwargs": self.short_kwargs,
+                "attempts": self.attempts,
+                "queue": self.queue.queue_name,
+                "worker_id": self.worker_id,
+                "worker_name": self.worker_name,
+            }.items()
+            if v is not None
+        ]
+        return f"<Job {', '.join(kws)}>"
+    

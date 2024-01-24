@@ -21,7 +21,8 @@ else:
     from async_timeout import timeout as async_timeout
 
 
-from kvdb import errors
+
+import kvdb.errors as errors
 from redis import exceptions as rerrors
 from kvdb.io.encoder import Encoder
 from kvdb.types.base import supported_schemas, KVDBUrl

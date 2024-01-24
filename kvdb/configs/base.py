@@ -118,3 +118,71 @@ class PersistenceConfig(BaseModel):
     """
 
     prefix: Optional[str] = Field(None, description = 'The prefix for the persistence key')
+
+
+
+class WorkerTimerConfig(BaseModel):
+    """
+    Worker Timer Config
+    """
+    schedule: Optional[int] = Field(1, description = 'The recurring interval for the schedule timer in seconds')
+    stats: Optional[int] = Field(60, description = 'The recurring interval for the stats timer in seconds')
+    sweep: Optional[int] = Field(180, description = 'The recurring interval for the sweep timer in seconds')
+    abort: Optional[int] = Field(1, description = 'The recurring interval for the abort timer in seconds')
+    heartbeat: Optional[int] = Field(5, description = 'The recurring interval for the heartbeat timer in seconds')
+    broadcast: Optional[int] = Field(10, description = 'The recurring interval for the broadcast timer in seconds')
+
+
+class TaskQueueConfig(SerializerConfig, BaseModel):
+    """
+    Configuration for the Task Queue
+    """
+    queue_prefix: Optional[str] = Field('_kvq_', description = 'The prefix for job keys')
+    queue_db_id: Optional[int] = Field(3, description = 'The database number to use')
+    cronjob_prefix: Optional[str] = 'cronjob'
+    serializer: Optional[str] = 'json'
+
+    job_prefix: Optional[str] = 'job'
+    job_key_method: Optional[str] = 'uuid4'
+    job_timeout: Optional[int] = 60 * 15 # 15 minutes
+    job_ttl: Optional[int] = None
+    job_retries: Optional[int] = 1
+    job_retry_delay: Optional[float] = 60.0 * 1 # 1 minute
+    job_max_stuck_duration: Optional[float] = None
+    job_function_kwarg_prefix: Optional[str] = None
+
+    max_concurrency: Optional[int] = 150
+    max_broadcast_concurrency: Optional[int] = 50
+
+    truncate_logs: Optional[Union[bool, int]] = 1000
+    debug_enabled: Optional[bool] = None
+
+    queue_log_name: Optional[str] = None
+    worker_log_name: Optional[str] = None
+
+    socket_timeout: Optional[float] = None
+    socket_connect_timeout: Optional[float] = 60.0
+    socket_keepalive: Optional[bool] = True
+    heartbeat_interval: Optional[float] = 15.0
+
+
+    @model_validator(mode = 'after')
+    def validate_task_queue(self):
+        """
+        Validate the task queue config
+
+        Automatically set defaults for job_ttl and job_max_stuck_duration
+        """
+        if self.job_max_stuck_duration is None: self.job_max_stuck_duration = self.job_timeout * 4
+        if self.job_ttl is None: self.job_ttl = self.job_timeout * 2
+        return self
+    
+    def get_default_job_key(self) -> str:
+        """
+        Returns the default job key
+        """
+        from kvdb.utils.helpers import uuid1, uuid4
+        if self.job_key_method == 'uuid1': return uuid1()
+        elif self.job_key_method == 'uuid4': return uuid4()
+        raise ValueError(f'Invalid job_key_method: {self.job_key_method}')
+

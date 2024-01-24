@@ -43,7 +43,8 @@ from redis.asyncio.connection import (
     DEFAULT_RESP_VERSION,
 )
 
-from kvdb import errors
+
+import kvdb.errors as errors
 from kvdb.io.encoder import Encoder
 from kvdb.types.base import supported_schemas, KVDBUrl
 from kvdb.utils.logs import logger
@@ -63,6 +64,8 @@ else:
 if TYPE_CHECKING:
     from kvdb.configs import KVDBSettings
     from kvdb.io.serializers import SerializerT
+
+# :TODO - add a loadbalancer connection class 
 
 class AbstractConnection(_AbstractConnection):
     """

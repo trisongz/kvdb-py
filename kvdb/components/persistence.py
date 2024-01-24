@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 A KVDB-backed Dict-like object
 """
-
+import re
 from kvdb.configs import settings as kvdb_settings
 from kvdb.configs.base import SerializerConfig
 from kvdb.utils.logs import logger
@@ -391,6 +391,23 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             results = {k.replace(f'{self.base_key}.', ''): v for k, v in results.items()}
         return results
     
+    def get_keys(self, pattern: str, exclude_base_key: Optional[str] = False) -> List[str]:
+        """
+        Returns the keys that match the pattern
+        """
+        # if not self.base_key:
+        #     raise NotImplementedError('Cannot get keys from a Redis Cache without a base key')
+        base_pattern = pattern if self.hset_enabled else f'{self.base_key}{pattern}'
+        if self.hset_enabled: 
+            keys = self._fetch_hset_keys(decode = True)
+            keys = [key for key in keys if re.match(base_pattern, key)]
+        else:
+            keys: List[str] = self.cache.client.keys(base_pattern)        
+        if exclude_base_key:
+            keys = [key.replace(f'{self.base_key}.', '') for key in keys]
+        return keys
+
+
     def get_all_keys(self, exclude_base_key: Optional[bool] = False) -> List[str]:
         """
         Returns all the Keys
@@ -459,6 +476,21 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         if exclude_base_key:
             results = {k.replace(f'{self.base_key}.', ''): v for k, v in results.items()}
         return results
+    
+    async def aget_keys(self, pattern: str, exclude_base_key: Optional[str] = False) -> List[str]:
+        """
+        Returns the keys that match the pattern
+        """
+        base_pattern = pattern if self.hset_enabled else f'{self.base_key}{pattern}'
+        if self.hset_enabled: 
+            keys = await self._afetch_hset_keys(decode = True)
+            keys = [key for key in keys if re.match(base_pattern, key)]
+        else:
+            keys: List[str] = await self.cache.aclient.keys(base_pattern)
+        if exclude_base_key:
+            keys = [key.replace(f'{self.base_key}.', '') for key in keys]
+        return keys
+
     
     async def aget_all_keys(self, exclude_base_key: Optional[bool] = False) -> List[str]:
         """
