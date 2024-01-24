@@ -78,12 +78,13 @@ class JsonSerializer(BaseSerializer):
             # logger.info(f'Value Dict: {value_dict}')
             return self.jsonlib.dumps(value_dict, **kwargs)
         except Exception as e:
-            if not self.is_encoder: 
-                logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True)
+            # if not self.is_encoder: 
+            logger.trace(f'Error Encoding Value: |r|({type(value)})|e| {str(value)[:1000]}', e, colored = True)
         try:
             return self.jsonlib.dumps(value, **kwargs)
         except Exception as e:
-            if not self.is_encoder: logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+            if not self.is_encoder: 
+                logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
 

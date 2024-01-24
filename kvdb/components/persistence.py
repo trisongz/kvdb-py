@@ -109,7 +109,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         self._kwargs['expiration'] = expiration
         self._kwargs['name'] = name
         self._kwargs['keyjoin'] = keyjoin
-        logger.info(f'[{self.base_key}] Initialized KVDBStatefulBackend with {self._kwargs}')
+        # logger.info(f'[{self.base_key}] Initialized KVDBStatefulBackend with {self._kwargs}')
 
     @classmethod
     def as_persistent_dict(

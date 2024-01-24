@@ -1,14 +1,16 @@
 """
 Serialization Utilities
 """
-
+import abc
 import datetime
 import dataclasses
+import contextlib
 from uuid import UUID
 from enum import Enum
-
+from kvdb.utils.logs import logger
 from kvdb.utils.lazy import lazy_import
 from .base import BaseModel
+from ._pickle import default_pickle
 from typing import Optional, Union, Any, Dict, List, Tuple, Callable, Type, Mapping, TypeVar, TYPE_CHECKING
 
 try:
@@ -80,6 +82,9 @@ def serialize_object(
             "value": obj.model_dump(mode = 'json', round_trip = True, **kwargs),
         }
 
+    if is_primitive(obj, exclude_bytes = True):
+        return obj
+
     if isinstance(obj, (list, tuple)):
         return [serialize_object(item) for item in obj]
 
@@ -98,7 +103,7 @@ def serialize_object(
             "value": obj.total_seconds(),
         }
     
-    if isinstance(obj, (dataclasses.dataclass, dataclasses.InitVar)):
+    if isinstance(obj, dataclasses.InitVar) or dataclasses.is_dataclass(obj):
         obj_class_name = register_object_class(obj)
         return {
             "__type__": "dataclass",
@@ -140,9 +145,14 @@ def serialize_object(
             "value": str(obj),
         }
 
-    if isinstance(obj, (type(None), int, float, bool, str)):
-        return obj
-    
+    if isinstance(obj, abc.ABC):
+        logger.info(f'Pickle Serializing Object: |r|({type(obj)}) {str(obj)[:1000]}', colored = True)
+        obj_bytes = default_pickle.dumps(obj)
+        return {
+            "__type__": "pickle",
+            "value": obj_bytes.hex(),
+        }
+
 
     if hasattr(obj, "numpy"):  # Checks for TF tensors without needing the import
         return {
@@ -173,6 +183,20 @@ def serialize_object(
                 "value": float(obj),
             }
 
+    # Try one shot encoding objects
+    # with contextlib.suppress(Exception):
+    
+    try:
+        logger.info(f'Pickle Serializing Object: |r|({type(obj)}) {str(obj)[:1000]}', colored = True)
+        obj_bytes = default_pickle.dumps(obj)
+        return {
+            "__type__": "pickle",
+            "value": obj_bytes.hex(),
+        }
+    except Exception as e:
+        
+        logger.info(f'Error Serializing Object: |r|({type(obj)}) {e}|e| {str(obj)[:1000]}', colored = True)
+    
     raise TypeError(f"Cannot serialize object of type {type(obj)}")
 
 
@@ -197,6 +221,13 @@ def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any]) ->
         if obj_type == "pydantic":
             obj_class = get_object_class(obj["__class__"])
             return obj_class.model_validate(obj_value)
+        
+        if obj_type == "pickle":
+            try:
+                obj_value = bytes.fromhex(obj_value)
+                return default_pickle.loads(obj_value)
+            except Exception as e:
+                raise TypeError(f"Cannot deserialize object of type {obj_type}: {e}") from e
         
         if obj_type == "datetime":
             return datetime.datetime.fromisoformat(obj_value)

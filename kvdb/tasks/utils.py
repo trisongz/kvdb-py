@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import typing
 import operator
-from typing import Literal, Union, Dict, Any, Optional, List, TYPE_CHECKING
+from inspect import signature
+from typing import Literal, Union, Dict, Any, Optional, Callable, List, TYPE_CHECKING
+from types import ModuleType, FunctionType
 
 if TYPE_CHECKING:
     from kvdb.types.jobs import Job
@@ -115,7 +117,7 @@ def get_func_name(func: typing.Union[str, typing.Callable]) -> str:
     """
     Returns the function name
     """
-    return func.__name__ if callable(func) else func
+    return func.__qualname__ if callable(func) else func
 
 
 def get_exc_error(
@@ -132,3 +134,18 @@ def get_exc_error(
     if func: err_msg = f'func={get_func_name(func)}, {err_msg}'
     elif job: err_msg = f'job={job.short_repr}, {err_msg}'
     return error
+
+
+def is_cls_or_self_method(func: Callable) -> bool:
+    """
+    Checks if the method is from a class or self
+    """
+    sig = signature(func)
+    return 'self' in sig.parameters or 'cls' in sig.parameters
+
+
+def is_uninit_method(func: Callable) -> bool:
+    """
+    Checks if the method is from an non-initialized object
+    """
+    return type(func) == FunctionType and is_cls_or_self_method(func)

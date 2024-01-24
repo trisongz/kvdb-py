@@ -550,7 +550,7 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         """
         job_kwargs = {"kwargs": {}, "args": args}
         job_fields = cls.model_fields.keys()
-        for key in kwargs:
+        for key in list(kwargs.keys()):
             if key in job_fields:
                 job_kwargs[key] = kwargs.pop(key)
                 continue
@@ -564,7 +564,7 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
             for k, v in job_kwargs.items():
                 setattr(job, k, v)
         elif callable(job_or_func):
-            job = cls(function = job_or_func.__name__, **job_kwargs)
+            job = cls(function = job_or_func.__qualname__, **job_kwargs)
         
         else:
             raise ValueError(f"Invalid job_or_func: {job_or_func} {type(job_or_func)}")
@@ -682,7 +682,8 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         for kind in {
             'process', 'total', 'start', 'running', 'queued'
         }:
-            if duration := self.calc_duration(kind): return duration
+            if duration := self.get_duration(kind): return duration
+        return None
 
 
     @property
@@ -884,7 +885,7 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         """
         if self.kwargs is None: return ''
 
-        kwv_max_length = max_length // len(self.kwargs)
+        kwv_max_length = max_length // max(len(self.kwargs), 1)
         kwargs = {}
         for k, v in self.kwargs.items():
             kwargs[k] = str(v)
@@ -900,7 +901,7 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         if len(str(self.kwargs)) < 5000:
             return str(self.kwargs)
         try:
-            div_length = 5000 // len(self.kwargs)
+            div_length = 5000 // max(len(self.kwargs), 1)
             return str({k: (f'{v[:div_length]}...' if len(str(v)) > div_length else v) for k, v in self.kwargs.items()})
         except Exception:
             return str(self.kwargs)[:5000]

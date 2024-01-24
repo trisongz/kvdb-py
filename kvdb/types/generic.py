@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Iterable, TypeVar, Union
 
 from typing import Any, ClassVar, TypeVar, overload
 from typing_extensions import Literal, Self, TypeAlias
+
 from redis.compat import Protocol
 
 if TYPE_CHECKING:

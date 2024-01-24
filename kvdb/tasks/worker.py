@@ -12,14 +12,12 @@ import functools
 import asyncio
 import contextlib
 import croniter
-
-from inspect import signature, Parameter
-from pydantic import Field, model_validator, validator
-from kvdb.types.base import BaseModel
+import contextvars
 from kvdb.utils.logs import logger
 from kvdb.configs import settings
 from kvdb.configs.tasks import KVDBTaskQueueConfig
 from kvdb.configs.base import WorkerTimerConfig
+from kvdb.types.jobs import CronJob, Job, JobStatus
 from kvdb.utils.helpers import is_coro_func, lazy_import
 from lazyops.libs.proxyobj import ProxyObject
 from typing import Optional, Dict, Any, Union, TypeVar, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
@@ -55,9 +53,8 @@ if TYPE_CHECKING:
     from kvdb.components.session import KVDBSession
     from kvdb.components.persistence import PersistentDict
     from kvdb.utils.logs import Logger
-    from kvdb.types.jobs import CronJob, Job, JobStatus
     from .queue import TaskQueue
-    from .base import TaskFunction, Ctx
+    from .tasks import TaskFunction, Ctx
 
 
 
@@ -300,7 +297,7 @@ class TaskWorker(abc.ABC):
         existing_jobs = [
             job
             for job in self.job_task_contexts
-            if job.duration("running") >= millis(abort_threshold)
+            if job.get_duration("running") >= millis(abort_threshold)
         ]
         if not existing_jobs: return
         jobs_by_queues = await self.sort_jobs(existing_jobs)
@@ -320,7 +317,7 @@ class TaskWorker(abc.ABC):
                     await job.finish(JobStatus.ABORTED, error = abort.decode("utf-8"))
                     await queue.ctx.adelete(job.abort_id)
                     if not queue.queue_tasks.is_function_silenced(job.function, stage = "abort"):
-                        self.logger(job = job, kind = "abort").info(f"⊘ {job.duration('running')}ms, node={self.node_name}, func={job.function}, id={job.id}")
+                        self.logger(job = job, kind = "abort").info(f"⊘ {job.get_duration('running')}ms, node={self.node_name}, func={job.function}, id={job.id}")
             
 
     async def process_queue(
@@ -336,6 +333,7 @@ class TaskWorker(abc.ABC):
         # pylint: disable=too-many-branches
         job, context = None, None
         queue = self.queue_dict[queue_name]
+        
         try:
             with contextlib.suppress(ConnectionError):
                 job = await queue.dequeue(
@@ -343,6 +341,7 @@ class TaskWorker(abc.ABC):
                     worker_id = self.worker_id if broadcast else None, 
                     worker_name = self.name if broadcast else None,
                 )
+                # self.autologger.info(f"Dequeued job {job}")
 
             if not job: 
                 self.autologger.info(f"No job found in queue {queue_name}")
@@ -357,7 +356,7 @@ class TaskWorker(abc.ABC):
                     self.logger(job = job, kind = "process").info(f"⊘ Rejected job, queued_key={job.queued_key}, func={job.function}, id={job.id} | worker_name={job.worker_name} != {self.name}")
                 return
                 
-            if job.worker_name or job.worker_id and self.config.debug_enabled:
+            if (job.worker_name or job.worker_id) and self.config.debug_enabled:
                 self.logger(job = job, kind = "process").info(f"☑ Accepted job, func={job.function}, id={job.id}, worker_name={job.worker_name}, worker_id={job.worker_id}")
             
             self.tasks_idx += 1
@@ -368,17 +367,19 @@ class TaskWorker(abc.ABC):
             # if self.queue.function_tracker_enabled:
             #     await self.queue.track_job_id(job)
             context = {**self.ctx, "job": job}
-            await self._before_process(context)
+            await self.before_process(context)
             # if job.function not in self.silenced_functions:
             if not queue.queue_tasks.is_function_silenced(job.function, stage = "process"):
-                _msg = f"← duration={job.duration('running')}ms, node={self.node_name}, func={job.function}"
+                _msg = f"← duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}"
                 # if self.verbose_concurrency:
                 #     _msg = _msg.replace("node=", f"idx={self._tasks_idx}, conn=({concurrency_id}/{self.concurrency}), node=")
                 self.logger(job = job, kind = "process").info(_msg)
 
             function = self.functions[job.function]
+            # res = await function(context, *(job.args or ()), **(job.kwargs or {}))
             try:
-                task = asyncio.create_task(function(context, *(job.args or ()), **(job.kwargs or {})))
+                contextvar = contextvars.copy_context()
+                task = asyncio.create_task(function(context, *(job.args or ()), **(job.kwargs or {})), context = contextvar)
             except Exception as e:
                 # self.logger(job = job, kind = "process").error(
                 #     f"Failed to create task for [{job.function}] {function} with error: {e}.\nKwargs: {job.kwargs}"
@@ -395,6 +396,7 @@ class TaskWorker(abc.ABC):
                 await job.retry("cancelled")
         except Exception:
             error = get_exc_error(job = job)
+            self.autologger.error(f"Error in process_queue for job {job.id}: {error}")
 
             if job:
                 if job.attempts >= job.retries: await job.finish(JobStatus.FAILED, error=error)
@@ -484,7 +486,7 @@ class TaskWorker(abc.ABC):
         # Configure Misc Variables
         from lazyops.utils.system import get_host_name
         self.node_name = get_host_name()
-        self.name = kwargs.get('name') or self.node_name
+        self.name = kwargs.get('name', kwargs.get('worker_name')) or self.node_name
         self.worker_name = self.name
         self.is_primary_process = self.settings.temp_data.has_logged(f'primary_process.worker:{self.name}')
         if self.settings.in_k8s:
@@ -582,7 +584,6 @@ class TaskWorker(abc.ABC):
                 queue.register_worker(self)
 
 
-
     def init_queues(
         self, 
         queues: Union[List[Union['TaskQueue', str]], 'TaskQueue', str] = None,
@@ -593,7 +594,7 @@ class TaskWorker(abc.ABC):
         Initializes the queues
         """
         self.queue_eager_init = kwargs.get('queue_eager_init', False)
-        from .base import TaskManager
+        from .main import TaskManager
         self.task_manager = TaskManager
         self.queues = self.task_manager.get_worker_queues(
             queues = queues, 
@@ -618,19 +619,19 @@ class TaskWorker(abc.ABC):
         """
         # _msg = f'{self._worker_identity}: {self.worker_host}.{self.name} v{self.settings.version}'
         _msg = f'{self.worker_identity}: v{self.settings.version}'
-        _msg += f'\n- {ColorMap.cyan}[Node Name]{ColorMap.reset}: {ColorMap.bold}{self.node_name}.{self.name}{ColorMap.reset}'
-        _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset}'
-        add = True
-        # if self.is_primary_process:
-        if add:
+        _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset} {ColorMap.cyan}[Worker Name]{ColorMap.reset}: {ColorMap.bold}{self.name}{ColorMap.reset} {ColorMap.cyan}[Node Name]{ColorMap.reset}: {ColorMap.bold}{self.node_name} {ColorMap.cyan}'
+        # _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset}'
+        if self.config.debug_enabled:
+            _msg += f'\n- {ColorMap.cyan}[Concurrency]{ColorMap.reset}: {ColorMap.bold}{self.max_concurrency}/jobs, {self.max_broadcast_concurrency}/broadcasts{ColorMap.reset}'
             if len(self.queues) == 1:
                 _msg += f'\n- {ColorMap.cyan}[Queue]{ColorMap.reset}: {ColorMap.bold}{self.queues[0].queue_name} @ {self.queues[0].ctx.url.safe_url} DB: {self.queues[0].ctx.url.db_id}{ColorMap.reset}'
+                _msg += f'\n- {ColorMap.cyan}[Registered]{ColorMap.reset}: {ColorMap.bold}{len(self.functions)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'
             else:
                 _msg += f'\n- {ColorMap.cyan}[Queues]{ColorMap.reset}:'
                 for queue in self.queues:
-                    _msg += f'\n   - {ColorMap.bold}{queue.queue_name} @ {queue.ctx.url} DB: {queue.ctx.db_id}{ColorMap.reset}'
-            _msg += f'\n- {ColorMap.cyan}[Registered]{ColorMap.reset}: {ColorMap.bold}{len(self.functions)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'
-            _msg += f'\n- {ColorMap.cyan}[Concurrency]{ColorMap.reset}: {ColorMap.bold}{self.max_concurrency}/jobs, {self.max_broadcast_concurrency}/broadcasts{ColorMap.reset}'
+                    queue_funcs = [f for f in self.functions.values() if f.queue_name == queue.queue_name]
+                    _msg += f'\n   - {ColorMap.bold}[{queue.queue_name}]\t @ {queue.ctx.url} DB: {queue.ctx.url.db_id}, {len(queue_funcs)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'            
+            
             # if self.verbose_startup:
             #     _msg += f'\n- {ColorMap.cyan}[Worker Attributes]{ColorMap.reset}: {self.worker_attributes}'
             #     if self._is_ctx_retryable:

@@ -4,23 +4,200 @@ from __future__ import annotations
 Base Task Types
 """
 
-import abc
-import makefun
-import functools
-import contextlib
-from inspect import signature, Parameter
-from pydantic import Field, model_validator, validator
+from inspect import signature, Signature
+from pydantic import Field, model_validator
 from kvdb.types.base import BaseModel
 from kvdb.utils.logs import logger
-from kvdb.utils.helpers import is_coro_func, lazy_import
+from kvdb.utils.helpers import is_coro_func, lazy_import, ensure_coro
 from lazyops.libs.proxyobj import ProxyObject
 from lazyops.libs.pooler import ThreadPooler
-from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, List, Type, Tuple, Literal, TYPE_CHECKING, overload
+from .utils import AttributeMatchType, determine_match_from_attributes
 
 if TYPE_CHECKING:
     from kvdb.components.session import KVDBSession
     from kvdb.components.pipeline import AsyncPipelineT
-    from kvdb.types.jobs import Job
+    from kvdb.types.jobs import Job, CronJob
+    from .queue import TaskQueue
+    from .worker import TaskWorker
+
+
+CtxObject = TypeVar('CtxObject', 'Job', Dict[str, 'TaskQueue'], 'TaskWorker', Any)
+Ctx = Dict[str, CtxObject]
+
+
+ReturnValue = TypeVar('ReturnValue')
+ReturnValueT = Union[ReturnValue, Awaitable[ReturnValue]]
+FunctionT = TypeVar('FunctionT', bound = Callable[..., ReturnValueT])
+
+TaskResult = TypeVar('TaskResult', 'Job', Any, Awaitable[Any])
+TaskPhase = Literal['context', 'dependency', 'startup', 'shutdown']
+
+class TaskFunction(BaseModel):
+    """
+    The Task Function Class
+    """
+    func: Union[Callable, str]
+    name: Optional[str] = None
+    phase: Optional[TaskPhase] = None
+    silenced: Optional[bool] = None
+    silenced_stages: Optional[List[str]] = Field(default_factory = list)
+    kwargs: Optional[Dict[str, Any]] = Field(default_factory = dict)
+    default_kwargs: Optional[Dict[str, Any]] = None
+
+    is_cronjob: Optional[bool] = None
+
+    # Allow deterministic queue
+    queue_name: Optional[str] = None
+
+    # Enable/Disable Patching
+    disable_patch: Optional[bool] = None
+
+    # Filter Functions for the Task Function
+    worker_attributes: Optional[Dict[str, Any]] = Field(default_factory = dict)
+    attribute_match_type: Optional[AttributeMatchType] = None
+    
+    # Private Attributes
+    function_signature: Optional[Signature] = Field(None, exclude=True)
+    function_inject_ctx: Optional[bool] = Field(None, exclude=True)
+    function_inject_args: Optional[bool] = Field(None, exclude=True)
+    function_inject_kwargs: Optional[bool] = Field(None, exclude=True)
+
+    function_is_method: Optional[bool] = Field(None, exclude=True)
+    function_parent_type: Optional[Literal['class', 'instance']] = Field(None, exclude=True)
+
+    if TYPE_CHECKING:
+        cronjob: Optional[CronJob] = None
+    else:
+        cronjob: Optional[Any] = None
+
+    @model_validator(mode = 'after')
+    def validate_function(self):
+        """
+        Validates the function
+        """
+        # We defer this until after we startup the worker
+        if isinstance(self.func, str): self.func = lazy_import(self.func)
+        if self.function_signature is None: self.function_signature = signature(self.func)
+        self.function_inject_ctx = 'ctx' in self.function_signature.parameters
+        self.function_inject_args = 'args' in self.function_signature.parameters
+        self.function_inject_kwargs = 'kwargs' in self.function_signature.parameters
+        self.function_is_method = hasattr(self.func, '__class__')
+        if self.function_is_method:
+            if 'self' in self.function_signature.parameters:
+                self.function_parent_type = 'instance'
+            elif 'cls' in self.function_signature.parameters:
+                self.function_parent_type = 'class'
+
+        if not self.name: self.name = self.func.__qualname__
+        self.func = ensure_coro(self.func)
+        if 'silenced' in self.kwargs:
+            self.silenced = self.kwargs.pop('silenced')
+        if 'silenced_stages' in self.kwargs:
+            self.silenced_stages = self.kwargs.pop('silenced_stages')
+        if 'default_kwargs' in self.kwargs:
+            self.default_kwargs = self.kwargs.pop('default_kwargs')
+        if self.silenced_stages is None: self.silenced_stages = []
+        if self.silenced is None: self.silenced = False
+        return self
+    
+    @property
+    def function_name(self) -> str:
+        """
+        Returns the function name
+        """
+        return self.name
+    
+    def configure_cronjob(self, cronjob_class: Type['CronJob'], **kwargs):
+        """
+        Configures the cronjob
+        """
+        if self.cronjob is not None: return
+        self.cronjob = cronjob_class(
+            function = self.func,
+            cron_name = self.name,
+            default_kwargs = self.default_kwargs,
+            **self.kwargs, **kwargs,
+        )
+    
+    def is_silenced(self, stage: str) -> bool:
+        """
+        Checks if the function is silenced
+        """
+        return self.silenced or stage in self.silenced_stages
+    
+    def should_run_for_phase(self, phase: TaskPhase) -> bool:
+        """
+        Checks if the function should run for phase
+        """
+        return self.phase and self.phase == phase
+    
+    @property
+    def should_set_ctx(self) -> bool:
+        """
+        Checks if the function should set the context
+        """
+        return self.kwargs.get('set_ctx', False)
+    
+    async def run_phase(self, ctx: Ctx, verbose: Optional[bool] = None):
+        """
+        Runs the phase
+        """
+        if self.should_set_ctx:
+            if verbose: logger.info(f'[{self.phase}] setting ctx[{self.name}]: result of {self.func.__name__}')
+            ctx = await self.func(ctx, **self.kwargs) if is_coro_func(self.func) else self.func(ctx, **self.kwargs)
+        else:
+            if verbose: logger.info(f'[{self.phase}] running task {self.name} = {self.func.__name__}')
+            result = await self.func(**self.kwargs) if is_coro_func(self.func) else self.func(**self.kwargs)
+            if result is not None: ctx[self.name] = result
+        return ctx
+    
+    def is_enabled(self, worker_attributes: Optional[Dict[str, Any]] = None, attribute_match_type: Optional[AttributeMatchType] = None, queue_name: Optional[str] = None) -> bool:
+        """
+        Checks if the function is enabled
+        """
+        if queue_name is not None and self.queue_name is not None and queue_name != self.queue_name: return False
+        if not self.worker_attributes: return True
+        attribute_match_type = attribute_match_type or self.attribute_match_type
+        if not attribute_match_type: return True
+        if worker_attributes is None: worker_attributes = {}
+        return determine_match_from_attributes(worker_attributes, self.worker_attributes, attribute_match_type)
+    
+    @property
+    def function_class_initialized(self) -> bool:
+        """
+        Checks if the function class is initialized
+        """
+        if self.function_is_method:
+            if self.function_parent_type == 'instance':
+                return hasattr(self.func, '__self__') and self.func.__self__ is not None
+            elif self.function_parent_type == 'class':
+                return True
+            return False
+        return True
+
+    def __call__(self, ctx: Ctx, *args, **kwargs) -> ReturnValueT:
+        """
+        Calls the function
+        """
+        # logger.info(f'[{self.name}] running task {self.func.__name__} with args: {args} and kwargs: {kwargs}')
+        if self.function_inject_ctx:
+            if self.function_inject_args and self.function_inject_kwargs:
+                return self.func(ctx, *args, **kwargs)
+            elif self.function_inject_args:
+                return self.func(ctx, *args)
+            elif self.function_inject_kwargs:
+                return self.func(ctx, **kwargs)
+            return self.func(ctx)
+        if self.function_inject_args and self.function_inject_kwargs:
+            return self.func(*args, **kwargs)
+        elif self.function_inject_args:
+            return self.func(*args)
+        elif self.function_inject_kwargs:
+            return self.func(**kwargs)
+        return self.func()
+
+
 
 
 class PushQueue:

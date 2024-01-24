@@ -196,9 +196,9 @@ class TaskQueue(abc.ABC):
                     if self.queue_tasks.is_function_silenced(job.function, stage = 'sweep'): pass
                     elif self.logging_max_length:
                         job_result = job.get_truncated_result(self.logging_max_length)
-                        self.logger(job=job, kind = "sweep").info(f"☇ duration={job.duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
+                        self.logger(job=job, kind = "sweep").info(f"☇ duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
                     else:
-                        self.logger(job=job, kind = "sweep").info(f"☇ duration={job.duration('total')}ms, node={self.node_name}, func={job.function}")
+                        self.logger(job=job, kind = "sweep").info(f"☇ duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}")
         gc.collect()
         return swept
 
@@ -252,7 +252,7 @@ class TaskQueue(abc.ABC):
             # self.retried += 1
             await self.notify(job)
             if not self.queue_tasks.is_function_silenced(job.function, stage = 'retry'):
-                self.logger(job=job, kind = "retry").info(f"↻ duration={job.duration('running')}ms, node={self.node_name}, func={job.function}, error={job.error}")
+                self.logger(job=job, kind = "retry").info(f"↻ duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}, error={job.error}")
 
 
     async def finish(
@@ -291,9 +291,9 @@ class TaskQueue(abc.ABC):
                 pass
             elif self.logging_max_length:
                 job_result = job.get_truncated_result(self.logging_max_length)
-                self.logger(job=job, kind = "finish").info(f"● duration={job.duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
+                self.logger(job=job, kind = "finish").info(f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
             else:
-                self.logger(job=job, kind = "finish").info(f"● duration={job.duration('total')}ms, node={self.node_name}, func={job.function}")
+                self.logger(job=job, kind = "finish").info(f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}")
             # await self.track_job(job)
             
 
@@ -389,7 +389,7 @@ class TaskQueue(abc.ABC):
         job.queued = now()
         job.status = JobStatus.QUEUED
         await self._before_enqueue(job)
-        settings.logger.info(f'Enqueueing Task: |y|{job_or_func.__name__}|e|', colored = True, prefix = "tasks")
+        # settings.logger.info(f'Enqueueing Task: |y|{job_or_func}|e|', colored = True, prefix = "tasks")
 
         async with self.op_sephamore(job.bypass_lock):
             if not await self._enqueue_script(
@@ -775,8 +775,23 @@ class TaskQueue(abc.ABC):
         if postfix:
             queued_key = f'{self.queued_key}:{postfix}'
             active_key = f'{self.active_key}:{postfix}'
+        
+        
+        # if self.version < (6, 2, 0):
+        #     return await self.ctx.abrpoplpush(
+        #         queued_key, 
+        #         active_key, 
+        #         timeout
+        #     )
+        # return await self.ctx.ablmove(
+        #     queued_key, 
+        #     active_key, 
+        #     timeout,
+        #     "RIGHT", 
+        #     "LEFT", 
+        # )
         return await self.dequeue_func_method(
-            queued_key,  active_key,  timeout = timeout
+            queued_key,  active_key,  timeout
         )
     
 
@@ -800,6 +815,7 @@ class TaskQueue(abc.ABC):
         
         if job_id is not None:
             # logger.info(f'Fetched job id {job_id}: {queued_key}: {active_key}')
+            # self.autologger.info(f'Fetched job id {job_id}')
             return await self.get_job_by_id(job_id)
 
         if not worker_id and not worker_name: self.logger(kind="dequeue").info("Dequeue timed out")
@@ -1126,7 +1142,11 @@ class TaskQueue(abc.ABC):
             if self.version < (6, 2, 0):
                 self._dequeue_func_method = self.ctx.abrpoplpush
             else:
-                self._dequeue_func_method = functools.partial(self.ctx.ablmove, source = "RIGHT", destination = "LEFT")
+                self._dequeue_func_method = functools.partial(
+                    self.ctx.ablmove, 
+                    src = "RIGHT", 
+                    dest = "LEFT"
+                )
         return self._dequeue_func_method
     
     @property
