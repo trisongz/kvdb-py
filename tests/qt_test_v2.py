@@ -49,6 +49,8 @@ async def entrypoint():
     # print(TestWorker.task1.__class__)
     print(type(TestWorker.task1))
     print(type(x.task1))
+
+
     await q.enqueue('TestWorker.task1')
     # await x.task1(blocking = False)
 
@@ -57,6 +59,13 @@ async def entrypoint():
     
     await q.enqueue('TestWorker.task2')
     await x.task2(blocking = False)
+
+
+    await tasks.enqueue('TestWorker.task1')
+    # await x.task1(blocking = False)
+    await tasks.enqueue(my_task, queue_name='test')
+    
+    await tasks.enqueue('TestWorker.task2')
 
     with anyio.move_on_after(10):
         await w.start()

@@ -618,7 +618,7 @@ class TaskWorker(abc.ABC):
         )
         self.queue_names = [q.queue_name for q in self.queues]
         self.queue_dict = {q.queue_name: q for q in self.queues}
-        self.queue_name = ','.join(self.queue_names)
+        self.queue_name = '[' + '|'.join(self.queue_names) + ']'
 
     @property
     def autologger(self) -> 'Logger':

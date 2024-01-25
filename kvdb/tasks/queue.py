@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     from kvdb.components.session import KVDBSession
     from kvdb.components.persistence import PersistentDict
     from kvdb.utils.logs import Logger
-    from .types import PushQueue
+    from .types import PushQueue, TaskResult
     from .worker import TaskWorker
 
 
@@ -1002,6 +1002,38 @@ class TaskQueue(abc.ABC):
         if verbose: 
             if source_job: self.autologger.info(f'Completed {source_job.id} w/ {num_results}/{num_jobs} in {t.total_s}')
             else: self.autologger.info(f'Completed {num_results}/{num_jobs} jobs in {t.total_s}')
+
+    @overload
+    def __call__(
+        self,
+        job_or_func: Union[Job, str, Callable],
+        *args,
+        blocking: Optional[bool] = False,
+        broadcast: Optional[bool] = None,
+        return_existing_job: bool = True,
+        **kwargs,
+    ) -> TaskResult:
+        """
+        Enqueues or applies a job.
+        """
+        ...
+
+
+    def __call__(
+        self,
+        job_or_func: Union[Job, str, Callable],
+        *args,
+        blocking: Optional[bool] = False,
+        broadcast: Optional[bool] = None,
+        return_existing_job: bool = True,
+        **kwargs,
+    ) -> TaskResult:
+        """
+        Enqueues or applies a job.
+        """
+        if blocking: return self.apply(job_or_func, *args, broadcast = broadcast, **kwargs)
+        return self.enqueue(job_or_func, *args, return_existing_job = return_existing_job, **kwargs)
+
 
 
     """
