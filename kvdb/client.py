@@ -10,7 +10,7 @@ import functools
 import contextlib
 
 from lazyops.libs.pooler import ThreadPooler
-from lazyops.libs.proxyobj import ProxyObject
+from lazyops.libs.proxyobj import ProxyObject, LockedSingleton
 from kvdb.types.base import BaseModel, KVDBUrl
 from kvdb.types.contexts import SessionPools, SessionState, GlobalKVDBContext
 from kvdb.components.client import KVDB, AsyncKVDB, ClientT
@@ -44,7 +44,7 @@ from typing import (
 
 ResponseT = TypeVar('ResponseT')
 
-class KVDBSessionManager(abc.ABC):
+class KVDBSessionManager(abc.ABC, LockedSingleton):
     """
     The KVDB Session Manager
     """

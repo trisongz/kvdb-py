@@ -65,8 +65,6 @@ if TYPE_CHECKING:
 
 
 
-
-
 class TaskQueue(abc.ABC):
 
     config: Optional[KVDBTaskQueueConfig] = None
@@ -138,6 +136,39 @@ class TaskQueue(abc.ABC):
         self.post_init(**kwargs)
         self.finalize_init(**kwargs)
         self._kwargs = kwargs
+
+    def configure(self, **kwargs):
+        """
+        Configure the task queue
+        """
+        config_kwargs, kwargs = self.config.extract_config_and_kwargs(**kwargs)
+        self.config.update_config(**config_kwargs)
+        if kwargs.get('queue_name'): self.queue_name = kwargs.pop('queue_name')
+        if kwargs.get('queue_prefix'): self.queue_prefix = kwargs.pop('queue_prefix')
+        for key in self.push_queue_kwargs:
+            if key in kwargs:
+                self.push_queue_kwargs[key] = kwargs.pop(key)
+
+        self.max_concurrency = self.config.max_concurrency
+        self.max_broadcast_concurrency = self.config.max_broadcast_concurrency
+        self._op_sem = asyncio.Semaphore(self.max_concurrency)
+
+        self.logging_max_length = (
+            self.config.truncate_logs if isinstance(self.config.truncate_logs, int) \
+            else None if self.config.truncate_logs is True else 2000
+        )
+        self.worker_log_name = self.config.worker_log_name or f"{self.node_name}:{self.process_id}"
+        self.queue_log_name = self.config.queue_log_name or self.queue_name
+        self.job_key_kwarg = f'{self.config.job_function_kwarg_prefix}key' if self.config.job_function_kwarg_prefix else 'key'
+        self.job_timeout_kwarg = f'{self.config.job_function_kwarg_prefix}timeout' if self.config.job_function_kwarg_prefix else 'timeout'
+        if self._ctx:
+            self._ctx.close()
+            self._ctx = None
+        
+
+
+        
+        
     
     """
     Primary Methods

@@ -128,6 +128,21 @@ class TaskWorker(abc.ABC):
         self.post_init(**kwargs)
 
     
+    def configure(self, **kwargs):
+        """
+        Configures the worker
+        """
+        config_kwargs, kwargs = self.config.extract_config_and_kwargs(**kwargs)
+        self.config.update_config(**config_kwargs)
+        if kwargs.get('timers') and isinstance(kwargs['timers'], dict):
+            self.timers.update_config(kwargs['timers'])
+        if 'queues' in kwargs: self.init_queues(queues = kwargs['queues'], **kwargs)
+        if 'functions' in kwargs: self.init_functions(functions = kwargs['functions'], **kwargs)
+        if 'startup' in kwargs or 'shutdown' in kwargs or 'before_process' in kwargs or 'after_process' in kwargs:
+            self.init_processes(startup = kwargs.get('startup'), shutdown = kwargs.get('shutdown'), before_process = kwargs.get('before_process'), after_process = kwargs.get('after_process'), **kwargs)
+        self.pre_init(**kwargs)
+        self.post_init(**kwargs)
+
     async def start(self):
         """
         Start processing jobs and upkeep tasks.

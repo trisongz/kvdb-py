@@ -8,8 +8,8 @@ import abc
 import makefun
 import threading
 from kvdb.utils.logs import logger
-from kvdb.utils.helpers import lazy_import
-from lazyops.libs.proxyobj import ProxyObject
+from kvdb.utils.helpers import lazy_import, create_cache_key_from_kwargs
+from lazyops.libs.proxyobj import ProxyObject, LockedSingleton
 from types import ModuleType
 from typing import Optional, Dict, Any, Union, TypeVar, Callable, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from .types import (
@@ -30,19 +30,23 @@ if TYPE_CHECKING:
     from .worker import TaskWorker
 
 
-class QueueTaskManager(abc.ABC):
+class QueueTaskManager(abc.ABC, LockedSingleton):
     """
     The Queue Task Manager
     """
     default_queue_name: Optional[str] = 'global'
     queues: Dict[str, QueueTasks] = {}
+
+
     queue_task_class: Type[QueueTasks] = QueueTasks
 
     task_queues: Dict[str, 'TaskQueue'] = {}
     task_queue_class: Type['TaskQueue'] = None
+    task_queue_hashes: Dict[str, str] = {} # Stores the hash of the task queue to determine whether to reconfigure the task queue
 
     task_workers: Dict[str, 'TaskWorker'] = {}
     task_worker_class: Type['TaskWorker'] = None
+    task_worker_hashes: Dict[str, str] = {} # Stores the hash of the task worker to determine whether to reconfigure the task worker
 
     def __init__(self, *args, **kwargs):
         """
@@ -284,12 +288,6 @@ class QueueTaskManager(abc.ABC):
         # logger.info(f'Got functions {functions}, ({len(functions)})')
         return functions
 
-        # return [
-        #     func
-        #     for queue_name in queue_names
-        #     for func in self.get_queue(queue_name).get_functions(worker_attributes, attribute_match_type)
-        # ]
-
 
     def get_cronjobs(
         self,
@@ -357,6 +355,7 @@ class QueueTaskManager(abc.ABC):
         Gets the task queue
         """
         queue_name = queue_name or self.default_queue_name
+        task_queue_hash = create_cache_key_from_kwargs(base = 'task_queue', kwargs = kwargs)
         if queue_name not in self.task_queues:
             self.configure_classes(task_queue_class = task_queue_class)
             with self.lock:
@@ -365,6 +364,13 @@ class QueueTaskManager(abc.ABC):
                     queue_name = queue_name,
                     **kwargs
                 )
+                self.task_queue_hashes[queue_name] = task_queue_hash
+        
+        elif task_queue_hash != self.task_queue_hashes.get(queue_name):
+            with self.lock:
+                self.task_queues[queue_name].configure(**kwargs)
+                self.task_queue_hashes[queue_name] = task_queue_hash
+
         return self.task_queues[queue_name]
     
 
@@ -402,6 +408,7 @@ class QueueTaskManager(abc.ABC):
         Gets the task worker
         """
         worker_name = worker_name or self.default_queue_name
+        task_worker_hash = create_cache_key_from_kwargs(base = 'task_worker',kwargs = kwargs)
         if worker_name not in self.task_workers:
             self.configure_classes(task_worker_class = task_worker_class)
             with self.lock:
@@ -411,6 +418,15 @@ class QueueTaskManager(abc.ABC):
                     queues = self.get_worker_queues(queues, kwargs.get('task_queue_class', None), **kwargs),
                     **kwargs
                 )
+                self.task_worker_hashes[worker_name] = task_worker_hash
+        
+        elif task_worker_hash != self.task_worker_hashes.get(worker_name):
+            with self.lock:
+                self.task_workers[worker_name].configure(
+                    queues = self.get_worker_queues(queues, kwargs.get('task_queue_class', None), **kwargs),
+                    **kwargs
+                )
+                self.task_worker_hashes[worker_name] = task_worker_hash
         return self.task_workers[worker_name]
 
     def register_task_worker(
