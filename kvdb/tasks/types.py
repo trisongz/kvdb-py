@@ -3,16 +3,18 @@ from __future__ import annotations
 """
 Base Task Types
 """
-
+import multiprocessing as mp
 from inspect import signature, Signature
 from pydantic import Field, model_validator
 from kvdb.types.base import BaseModel
 from kvdb.utils.logs import logger
 from kvdb.utils.helpers import is_coro_func, lazy_import, ensure_coro
+from kvdb.io.serializers._pickle import default_pickle
 from lazyops.libs.proxyobj import ProxyObject
 from lazyops.libs.pooler import ThreadPooler
+from multiprocessing import Process
 from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, List, Type, Tuple, Literal, TYPE_CHECKING, overload
-from .utils import AttributeMatchType, determine_match_from_attributes
+from .utils import AttributeMatchType, determine_match_from_attributes, get_func_name
 
 if TYPE_CHECKING:
     from kvdb.components.session import KVDBSession
@@ -32,6 +34,27 @@ FunctionT = TypeVar('FunctionT', bound = Callable[..., ReturnValueT])
 
 TaskResult = TypeVar('TaskResult', 'Job', Any, Awaitable[Any])
 TaskPhase = Literal['context', 'dependency', 'startup', 'shutdown']
+
+class QueueProcess(Process):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._target = default_pickle.dumps(self._target)  # Save the target function as bytes, using dill
+
+    def run(self):
+        if self._target:
+            self._target = default_pickle.loads(self._target)    # Unpickle the target function before executing
+            self._target(*self._args, **self._kwargs)  # Execute the target function
+
+def reduction_dump(obj, file, protocol = None):
+    """
+    Dumps the object to the file
+    """
+    if isinstance(obj, QueueProcess):
+        obj._target = default_pickle.dumps(obj._target)
+    return default_pickle.dump(obj, file, protocol = protocol, fix_imports=False)
+
+
+# mp.reduction.dump = reduction_dump
 
 class TaskFunction(BaseModel):
     """
@@ -71,6 +94,15 @@ class TaskFunction(BaseModel):
     else:
         cronjob: Optional[Any] = None
 
+    @classmethod
+    def build_function_name(cls, func: Callable) -> str:
+        """
+        Builds the function name
+
+        - Can be subclassed to change the function name
+        """
+        return get_func_name(func)
+
     @model_validator(mode = 'after')
     def validate_function(self):
         """
@@ -89,7 +121,7 @@ class TaskFunction(BaseModel):
             elif 'cls' in self.function_signature.parameters:
                 self.function_parent_type = 'class'
 
-        if not self.name: self.name = self.func.__qualname__
+        if not self.name: self.name = self.build_function_name(self.func)
         self.func = ensure_coro(self.func)
         if 'silenced' in self.kwargs:
             self.silenced = self.kwargs.pop('silenced')

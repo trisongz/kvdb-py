@@ -20,7 +20,7 @@ from kvdb.configs.base import SerializerConfig
 from kvdb.utils.retry import get_retry, create_retryable_client
 from kvdb.utils.helpers import full_name, create_cache_key_from_kwargs
 
-from .connection import (
+from .connection_pool import (
     ConnectionPool,
     AsyncConnectionPool,
 )

@@ -12,7 +12,7 @@ from kvdb.types.base import KVDBUrl
 from typing import Union, Callable, Literal, Optional, Type, Any, Iterable, Mapping, overload, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .connection import (
+    from .connection_pool import (
         ConnectionPoolT,
         AsyncConnectionPoolT
     )

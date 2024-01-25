@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, Type, Literal, Union, Callable, List, Ma
 from .base import SerializerConfig
 
 if TYPE_CHECKING:
-    from kvdb.components.connection import ConnectionPoolT, AsyncConnectionPoolT
+    from kvdb.components.connection_pool import ConnectionPoolT, AsyncConnectionPoolT
 
 class KVDBRetryConfig(BaseModel):
     """
@@ -80,11 +80,11 @@ class KVDBPoolConfig(BaseModel):
         """
         pool_class = (self.apool_class if is_async else self.pool_class) if pool_class is None else pool_class
         if pool_class is None:
-            from kvdb.components.connection import ConnectionPool, AsyncConnectionPool
+            from kvdb.components.connection_pool import ConnectionPool, AsyncConnectionPool
             return AsyncConnectionPool if is_async else ConnectionPool
         elif isinstance(pool_class, str):
-            from kvdb.components import connection
-            return getattr(connection, pool_class)
+            from kvdb.components import connection_pool
+            return getattr(connection_pool, pool_class)
         return pool_class
 
 

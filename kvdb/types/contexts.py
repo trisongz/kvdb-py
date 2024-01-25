@@ -24,7 +24,7 @@ from kvdb.utils.helpers import full_name, create_cache_key_from_kwargs
 from typing import Union, Callable, Literal, Optional, Type, Any,  Dict, Iterable, Mapping, overload, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from kvdb.components.connection import (
+    from kvdb.components.connection_pool import (
         ConnectionPool,
         AsyncConnectionPool,
     )

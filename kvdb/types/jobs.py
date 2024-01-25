@@ -539,6 +539,16 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
     
 
     @classmethod
+    def build_function_name(cls, func: Callable) -> str:
+        """
+        Builds the function name
+
+        - Can be subclassed to change the function name
+        """
+        from kvdb.tasks.utils import get_func_name
+        return get_func_name(func)
+
+    @classmethod
     def create(
         cls, 
         job_or_func: Union[str, 'Job', Callable], 
@@ -564,7 +574,7 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
             for k, v in job_kwargs.items():
                 setattr(job, k, v)
         elif callable(job_or_func):
-            job = cls(function = job_or_func.__qualname__, **job_kwargs)
+            job = cls(function = cls.build_function_name(job_or_func), **job_kwargs)
         
         else:
             raise ValueError(f"Invalid job_or_func: {job_or_func} {type(job_or_func)}")

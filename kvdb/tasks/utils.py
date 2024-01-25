@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import typing
 import operator
+import asyncio
+
 from inspect import signature
-from typing import Literal, Union, Dict, Any, Optional, Callable, List, TYPE_CHECKING
+from typing import Literal, Union, Dict, Any, Tuple, Optional, Callable, List, TYPE_CHECKING
 from types import ModuleType, FunctionType
 
 if TYPE_CHECKING:
-    from kvdb.types.jobs import Job
+    from kvdb.types.jobs import Job, CronJob
+    from .types import TaskFunction
+    from .worker import TaskWorker
+
 
 AttributeMatch = Literal['all', 'any', 'none', None]
 AttributeMatchType = Union[AttributeMatch, int]
@@ -113,11 +118,23 @@ def determine_match_from_attributes(
     return False
 
 
-def get_func_name(func: typing.Union[str, typing.Callable]) -> str:
+def get_func_name(func: typing.Union[str, typing.Callable, 'TaskFunction', 'CronJob', 'Job', ], prefix: Optional[str] = None) -> str:
     """
     Returns the function name
     """
-    return func.__qualname__ if callable(func) else func
+    base = f'{prefix}:' if prefix else ''
+    if isinstance(func, str): return f'{base}{func}'
+    if callable(func): return f'{base}{func.__qualname__}'
+
+    # CronJob
+    if hasattr(func, 'function_name') and isinstance(func.function_name, str): return f'{base}{func.function_name}'
+
+    # Job
+    if hasattr(func, 'function') and isinstance(func.function, str): return f'{base}{func.function}'
+
+    # TaskFunction
+    return f'{base}{func.name}' if hasattr(func, 'name') else f'{base}{func}'
+
 
 
 def get_exc_error(
@@ -149,3 +166,18 @@ def is_uninit_method(func: Callable) -> bool:
     Checks if the method is from an non-initialized object
     """
     return type(func) == FunctionType and is_cls_or_self_method(func)
+
+
+def create_task_worker_loop(
+    task_worker: 'TaskWorker',
+    new_loop: Optional[bool] = True,
+) -> Union[asyncio.Task, asyncio.AbstractEventLoop]:
+    """
+    Creates a task worker loop
+    """
+    if new_loop:
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(task_worker.start())
+        return loop
+    
+    return asyncio.create_task(task_worker.start())

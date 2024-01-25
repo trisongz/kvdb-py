@@ -192,6 +192,45 @@ def get_task_worker(
     return TaskManager.get_task_worker(worker_name = worker_name, queues = queues, task_worker_class = task_worker_class, **kwargs)
 
 
+@overload
+async def aget_task_worker(
+    worker_name: Optional[str] = None,
+    queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
+    task_worker_class: Optional[Type['TaskWorker']] = None,
+
+    functions: Optional[List['TaskFunction']] = None,
+    cron_jobs: Optional[List['CronJob']] = None,
+
+    startup: Optional[Union[List[Callable], Callable,]] = None,
+    shutdown: Optional[Union[List[Callable], Callable,]] = None,
+    before_process: Optional[Callable] = None,
+    after_process: Optional[Callable] = None,
+    worker_attributes: Optional[Dict[str, Any]] = None,
+
+    timers: Optional[Union[Dict[str, int], 'WorkerTimerConfig']] = None,
+    max_concurrency: Optional[int] = None,
+    max_broadcast_concurrency: Optional[int] = None,
+    task_queue_class: Optional[Type['TaskQueue']] = None,
+    **kwargs
+) -> 'TaskWorker':
+    """
+    Gets the task worker
+    """
+    ...
+
+
+async def aget_task_worker(
+    worker_name: Optional[str] = None,
+    queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
+    task_worker_class: Optional[Type['TaskWorker']] = None,
+    **kwargs
+) -> 'TaskWorker':
+    """
+    Gets the task worker
+    """
+    return await TaskManager.aget_task_worker(worker_name = worker_name, queues = queues, task_worker_class = task_worker_class, **kwargs)
+
+
 
 def set_default_global_queue_name(name: str):
     """
@@ -441,7 +480,7 @@ async def wait_for_jobs(
     """
     Waits for jobs to finish
     """
-    return await TaskManager.wait_for_jobs(jobs, source_job = source_job, verbose = verbose, raise_exceptions = raise_exceptions, refresh_interval = refresh_interval, **kwargs)
+    return await TaskManager.wait_for_jobs(jobs, source_job = source_job, queue_name = queue_name, verbose = verbose, raise_exceptions = raise_exceptions, refresh_interval = refresh_interval, **kwargs)
 
 
 @overload

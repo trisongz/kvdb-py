@@ -14,7 +14,7 @@ from lazyops.libs.proxyobj import ProxyObject, LockedSingleton
 from kvdb.types.base import BaseModel, KVDBUrl
 from kvdb.types.contexts import SessionPools, SessionState, GlobalKVDBContext
 from kvdb.components.client import KVDB, AsyncKVDB, ClientT
-from kvdb.components.connection import ConnectionPoolT, AsyncConnectionPoolT
+from kvdb.components.connection_pool import ConnectionPoolT, AsyncConnectionPoolT
 from kvdb.components.session import KVDBSession
 from kvdb.configs import settings
 from kvdb.configs.base import SerializerConfig
@@ -44,7 +44,7 @@ from typing import (
 
 ResponseT = TypeVar('ResponseT')
 
-class KVDBSessionManager(abc.ABC, LockedSingleton):
+class KVDBSessionManager(abc.ABC):
     """
     The KVDB Session Manager
     """
@@ -152,7 +152,7 @@ class KVDBSessionManager(abc.ABC, LockedSingleton):
         # Get the serializer config
         serializer_config = SerializerConfig.extract_kwargs(_exclude_none = True, **kwargs)
         kwargs = {k : v for k, v in kwargs.items() if k not in serializer_config}
-        url.set_key(name = name, serializer_config = serializer_config, **kwargs)
+        url.set_key(serializer_config = serializer_config, **kwargs)
 
         # Get the Client Config
         client_config = self.settings.client_config.model_dump(exclude_none = True)

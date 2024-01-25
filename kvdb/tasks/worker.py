@@ -20,9 +20,9 @@ from kvdb.configs.base import WorkerTimerConfig
 from kvdb.types.jobs import CronJob, Job, JobStatus
 from kvdb.utils.helpers import is_coro_func, lazy_import
 from lazyops.libs.proxyobj import ProxyObject
-from typing import Optional, Dict, Any, Union, TypeVar, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from .static import ColorMap
-from .utils import get_exc_error
+from .utils import get_exc_error, get_func_name
 
 from kvdb.utils.helpers import (
     now, 
@@ -127,7 +127,17 @@ class TaskWorker(abc.ABC):
         self.pre_init(**kwargs)
         self.post_init(**kwargs)
 
+
+    @classmethod
+    def build_function_name(cls, func: Callable) -> str:
+        """
+        Builds the function name
+
+        - Can be subclassed to change the function name
+        """
+        return get_func_name(func)
     
+
     def configure(self, **kwargs):
         """
         Configures the worker
@@ -143,7 +153,7 @@ class TaskWorker(abc.ABC):
         self.pre_init(**kwargs)
         self.post_init(**kwargs)
 
-    async def start(self):
+    async def start(self, **kwargs):
         """
         Start processing jobs and upkeep tasks.
         """
@@ -153,6 +163,7 @@ class TaskWorker(abc.ABC):
         self.ctx = {"worker": self, "queues": self.queue_dict, "vars": {}}
         self.task_manager.register_task_worker(self)
         error = None
+        await self.aworker_onstart_pre_init(**kwargs)
         # Run Startup Functions
         try:
             loop = asyncio.get_running_loop()
@@ -176,6 +187,7 @@ class TaskWorker(abc.ABC):
             for _ in range(self.max_broadcast_concurrency):
                 self.broadcast_process_task()
 
+            await self.aworker_onstart_post_init(**kwargs)
             await self.event.wait()
 
         except Exception as e:
@@ -184,11 +196,20 @@ class TaskWorker(abc.ABC):
 
         finally:
             self.logger(kind = "shutdown").warning(f'{self.worker_identity} is shutting down. Error: {error}')
+            await self.aworker_onstop_pre(**kwargs)
             if self.shutdown:
                 for func in self.shutdown:
                     await func(self.ctx)
+            await self.aworker_onstop_post(**kwargs)
             await self.stop()
     
+    def spawn(self, **kwargs):
+        """
+        Spawn the worker in a separate process.
+        """
+        
+
+
     async def stop(self):
         """
         Stop the worker and cleanup.
@@ -474,6 +495,7 @@ class TaskWorker(abc.ABC):
                 
     
 
+
     """
     Initialize the Worker
     """
@@ -662,4 +684,303 @@ class TaskWorker(abc.ABC):
             #     if self.queue.function_tracker_enabled:
             #         _msg += f'\n- {ColorMap.cyan}[Function Tracker Enabled]{ColorMap.reset}: {self.queue.function_tracker_enabled}'
         return _msg
+        
+    """
+    Overrideable Methods
+    """
+
+    async def aworker_onstart_pre_init(self, **kwargs):
+        """
+        Async startup worker init
+        """
+        pass
+
+    async def aworker_onstart_post_init(self, **kwargs):
+        """
+        Async startup worker init
+        """
+        pass
+
+    async def aworker_onstop_pre(self, **kwargs):
+        """
+        Async On Stop Worker
+        """
+        pass
+
+    async def aworker_onstop_post(self, **kwargs):
+        """
+        Async On Stop Worker
+        """
+        pass
+
+
+    """
+    Queue Methods
+    """
+
+    def _get_queue(
+        self, 
+        job_or_func: Union['Job', str, Callable],
+        queue_name: Optional[str] = None, 
+        **kwargs
+    ) -> 'TaskQueue':
+        """
+        Gets the queue
+        """
+        if queue_name is None:
+            if len(self.queues) == 1: queue_name = self.queues[0].queue_name
+            else:
+                function_name = self.build_function_name(job_or_func)
+                if function_name not in self.functions:
+                    raise ValueError(f"Function {function_name} not found in worker {self.name}")
+                queue_name = self.functions[function_name].queue_name
+        
+        if queue_name not in self.queue_dict:
+            raise ValueError(f"Queue {queue_name} not found in worker {self.name}")
+        return self.queue_dict[queue_name]
+        
+
+    @overload
+    async def enqueue(
+        self,
+        job_or_func: Union['Job', str, Callable],
+        *args,
+        queue_name: Optional[str] = None,
+        key: Optional[str] = None,
+        timeout: Optional[int] = None,
+        retries: Optional[int] = None,
+        ttl: Optional[int] = None,
+        retry_delay: Optional[int] = None,
+        retry_backoff: Optional[int] = None,
+        worker_id: Optional[str] = None,
+        worker_name: Optional[str] = None,
+        job_callback: Optional[Callable] = None,
+        job_callback_kwargs: Optional[Dict] = None,
+        return_existing_job: bool = False,
+        **kwargs
+    ) -> Optional['Job']:
+        """
+        Enqueue a job by instance or string.
+
+        Kwargs can be arguments of the function or properties of the job.
+        If a job instance is passed in, it's properties are overriden.
+        """
+        ...
+
+    async def enqueue(
+        self,
+        job_or_func: Union['Job', str, Callable],
+        *args,
+        queue_name: Optional[str] = None,
+        **kwargs
+    ) -> Optional['Job']:
+        """
+        Enqueue a job by instance or string.
+
+        Kwargs can be arguments of the function or properties of the job.
+        If a job instance is passed in, it's properties are overriden.
+        """
+        queue = self._get_queue(job_or_func, queue_name = queue_name, **kwargs)
+        return await queue.enqueue(job_or_func, *args, **kwargs)
+
             
+    @overload
+    async def apply(
+        self,
+        job_or_func: Union['Job', str, Callable],
+        key: Optional[str] = None,
+        timeout: Optional[int] = None,
+        retries: Optional[int] = None,
+        ttl: Optional[int] = None,
+        retry_delay: Optional[int] = None,
+        retry_backoff: Optional[int] = None,
+        worker_id: Optional[str] = None,
+        worker_name: Optional[str] = None,
+        job_callback: Optional[Callable] = None,
+        job_callback_kwargs: Optional[Dict] = None,
+        queue_name: Optional[str] = None,
+
+        broadcast: Optional[bool] = None,
+        worker_names: Optional[List[str]] = None,
+        worker_selector: Optional[Callable] = None,
+        worker_selector_args: Optional[List] = None,
+        worker_selector_kwargs: Optional[Dict] = None,
+        workers_selected: Optional[List[Dict[str, str]]] = None,
+        return_all_results: Optional[bool] = False,
+        
+        **kwargs
+    ) -> Optional[Any]:
+        """
+        Enqueue a job and wait for its result.
+
+        If the job is successful, this returns its result.
+        If the job is unsuccessful, this raises a JobError.
+        """
+        ...
+
+    async def apply(
+        self,
+        job_or_func: Union['Job', str, Callable],
+        queue_name: Optional[str] = None,
+        **kwargs
+    ) -> Optional[Any]:
+        """
+        Enqueue a job and wait for its result.
+
+        If the job is successful, this returns its result.
+        If the job is unsuccessful, this raises a JobError.
+        """
+        queue = self._get_queue(job_or_func, queue_name = queue_name, **kwargs)
+        return await queue.apply(job_or_func, **kwargs)
+
+
+    @overload    
+    async def broadcast(
+        self,
+        job_or_func: Union['Job', str],
+        enqueue: Optional[bool] = True,
+        queue_name: Optional[str] = None,
+        worker_names: Optional[List[str]] = None,
+        worker_selector: Optional[Callable] = None,
+        worker_selector_args: Optional[List] = None,
+        worker_selector_kwargs: Optional[Dict] = None,
+        workers_selected: Optional[List[Dict[str, str]]] = None,
+        **kwargs
+    ) -> List['Job']:
+        """
+        Broadcast a job to all nodes and collect all of their results.
+        
+        job_or_func: Same as Queue.enqueue
+        kwargs: Same as Queue.enqueue
+        timeout: How long to wait for the job to complete before raising a TimeoutError
+        worker_names: List of worker names to run the job on. If provided, will run on these specified workers.
+        worker_selector: Function that takes in a list of workers and returns a list of workers to run the job on. If provided, worker_names will be ignored.
+        """
+        ...
+
+    async def broadcast(
+        self,
+        job_or_func: Union['Job', str],
+        queue_name: Optional[str] = None,
+        **kwargs
+    ) -> List['Job']:
+        """
+        Broadcast a job to all nodes and collect all of their results.
+        
+        job_or_func: Same as Queue.enqueue
+        kwargs: Same as Queue.enqueue
+        timeout: How long to wait for the job to complete before raising a TimeoutError
+        worker_names: List of worker names to run the job on. If provided, will run on these specified workers.
+        worker_selector: Function that takes in a list of workers and returns a list of workers to run the job on. If provided, worker_names will be ignored.
+        """
+
+        queue = self._get_queue(job_or_func, queue_name = queue_name, **kwargs)
+        return await queue.broadcast(job_or_func, **kwargs)
+    
+
+    @overload
+    async def wait_for_job(
+        self,
+        job: 'Job',
+        source_job: Optional['Job'] = None,
+        queue_name: Optional[str] = None,
+        verbose: Optional[bool] = False,
+        raise_exceptions: Optional[bool] = False,
+        refresh_interval: Optional[float] = 0.5,
+        **kwargs,
+    ) -> Any:  # sourcery skip: low-code-quality
+        """
+        Waits for job to finish
+        """
+        ...
+
+    async def wait_for_job(
+        self,
+        job: 'Job',
+        source_job: Optional['Job'] = None,
+        queue_name: Optional[str] = None,
+        verbose: Optional[bool] = False,
+        raise_exceptions: Optional[bool] = False,
+        refresh_interval: Optional[float] = 0.5,
+        **kwargs,
+    ) -> Any:  # sourcery skip: low-code-quality
+        """
+        Waits for job to finish
+        """
+        queue_name = queue_name or job.queue_name
+        queue = self.queue_dict[queue_name]
+        return await queue.wait_for_job(job, source_job = source_job, verbose = verbose, raise_exceptions = raise_exceptions, refresh_interval = refresh_interval, **kwargs)
+
+        
+    @overload
+    async def wait_for_jobs(
+        self,
+        jobs: List['Job'],
+        source_job: Optional['Job'] = None,
+        queue_name: Optional[str] = None,
+        verbose: Optional[bool] = False,
+        raise_exceptions: Optional[bool] = False,
+        refresh_interval: Optional[float] = 0.5,
+        **kwargs,
+    ) -> List[Any]:  # sourcery skip: low-code-quality
+        """
+        Waits for jobs to finish
+        """
+        ...
+
+    async def wait_for_jobs(
+        self,
+        jobs: List['Job'],
+        source_job: Optional['Job'] = None,
+        queue_name: Optional[str] = None,
+        verbose: Optional[bool] = False,
+        raise_exceptions: Optional[bool] = False,
+        refresh_interval: Optional[float] = 0.5,
+        **kwargs,
+    ) -> List[Any]:  # sourcery skip: low-code-quality
+        """
+        Waits for jobs to finish
+        """
+        queue_name = queue_name or jobs[0].queue_name
+        queue = self.queue_dict[queue_name]
+        return await queue.wait_for_jobs(jobs, source_job = source_job, verbose = verbose, raise_exceptions = raise_exceptions, refresh_interval = refresh_interval, **kwargs)
+
+
+    @overload
+    def as_jobs_complete(
+        self,
+        jobs: List['Job'],
+        source_job: Optional['Job'] = None,
+        queue_name: Optional[str] = None,
+        verbose: Optional[bool] = False,
+        raise_exceptions: Optional[bool] = False,
+        refresh_interval: Optional[float] = 0.5,
+        return_results: Optional[bool] = True,
+        cancel_func: Optional[Callable] = None,
+        **kwargs,
+    ) -> AsyncGenerator[Any, None]:
+        """
+        Generator that yields results as they complete
+        """
+        ...
+
+    def as_jobs_complete(
+        self,
+        jobs: List['Job'],
+        source_job: Optional['Job'] = None,
+        queue_name: Optional[str] = None,
+        verbose: Optional[bool] = False,
+        raise_exceptions: Optional[bool] = False,
+        refresh_interval: Optional[float] = 0.5,
+        return_results: Optional[bool] = True,
+        cancel_func: Optional[Callable] = None,
+        **kwargs,
+    ) -> AsyncGenerator[Any, None]:
+        """
+        Generator that yields results as they complete
+        """
+        queue_name = queue_name or jobs[0].queue_name
+        queue = self.queue_dict[queue_name]
+        return queue.as_jobs_complete(jobs, source_job = source_job, verbose = verbose, raise_exceptions = raise_exceptions, refresh_interval = refresh_interval, return_results = return_results, cancel_func = cancel_func, **kwargs)
+
+        

@@ -19,7 +19,7 @@ from .types import (
     TaskFunction,
 )
 
-from .utils import AttributeMatchType, is_uninit_method
+from .utils import AttributeMatchType, is_uninit_method, get_func_name
 
 if TYPE_CHECKING:
     from kvdb.types.jobs import Job, CronJob
@@ -30,14 +30,13 @@ class QueueTasks(abc.ABC):
     """
     The Queue Tasks Object
     """
-    queue_name: Optional[str] = None # The Queue Name
-    context: Dict[str, Any] = {}
-    functions: Dict[str, TaskFunction] = {}
-    queue: Optional['TaskQueue'] = None
-    queue_function: Union[Callable[..., 'TaskQueue'], 'TaskQueue'] = None
-    verbose: Optional[bool] = None
-
-    registered_task_object: Dict[str, Dict[str, Dict]] = {}
+    # queue_name: Optional[str] = None # The Queue Name
+    # context: Dict[str, Any] = {}
+    # functions: Dict[str, TaskFunction] = {}
+    # queue: Optional['TaskQueue'] = None
+    # queue_function: Union[Callable[..., 'TaskQueue'], 'TaskQueue'] = None
+    # verbose: Optional[bool] = None
+    # registered_task_object: Dict[str, Dict[str, Dict]] = {}
 
     def __init__(
         self, 
@@ -50,14 +49,20 @@ class QueueTasks(abc.ABC):
         """
         Initialize the Worker Tasks
         """
-        if queue is not None: self.queue_name = queue
-        if context is not None: self.context = context
+        self.queue_name = queue
+        self.context: Dict[str, Any] = context or {}
+        self.functions: Dict[str, TaskFunction] = {}
+        self.queue: Optional['TaskQueue'] = None
+        self.queue_function: Union[Callable[..., 'TaskQueue'], 'TaskQueue'] = None
+        self.registered_task_object: Dict[str, Dict[str, Dict]] = {}
+
+        # if queue is not None: self.queue_name = queue
+        # if context is not None: self.context = context
         from kvdb.configs import settings
         self.settings = settings
         self.logger = self.settings.logger
         self.autologger = self.settings.autologger
-        if self.verbose is None: self.verbose = self.settings.debug_enabled
-
+        self.verbose: Optional[bool] = kwargs.get('verbose', self.settings.debug_enabled)
         self.configure_classes(task_function_class = task_function_class, cronjob_class = cronjob_class, is_init = True)
 
 
@@ -728,3 +733,21 @@ class QueueTasks(abc.ABC):
         Enqueues or applies a job.
         """
         return self.queue(job_or_func, *args, blocking = blocking, broadcast = broadcast, return_existing_job = return_existing_job, **kwargs)
+    
+
+    # def __getstate__(self):
+    #     # Copy the object's state from self.__dict__ which contains
+    #     # all our instance attributes. Always use the dict.copy()
+    #     # method to avoid modifying the original state.
+    #     state = self.__dict__.copy()
+    #     # Remove the unpicklable entries.
+    #     # del state['']
+    #     logger.info(f'PICKLING {state}')
+    #     return state
+    #     # raise NotImplementedError()
+
+    # def __setstate__(self, state):
+    #     # Restore instance attributes
+    #     logger.info(f'UNPICKLING {state}')
+    #     # self.__dict__.update(state)
+    #     # raise NotImplementedError()

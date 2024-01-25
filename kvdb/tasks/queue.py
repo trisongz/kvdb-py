@@ -165,10 +165,6 @@ class TaskQueue(abc.ABC):
             self._ctx.close()
             self._ctx = None
         
-
-
-        
-        
     
     """
     Primary Methods
@@ -1151,6 +1147,7 @@ class TaskQueue(abc.ABC):
             from kvdb.client import KVDBClient
             self._ctx = KVDBClient.get_session(
                 name = f'tasks:{self.queue_name}',
+                url = self._kwargs.get('url', None),
                 db_id = self.config.queue_db_id,
 
                 pool_max_connections = self.max_concurrency * 10,

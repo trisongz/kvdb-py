@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .base import (
+from .connection import (
     Connection,
     UnixDomainSocketConnection,
     SSLConnection,
@@ -12,7 +12,7 @@ from .base import (
     AsyncSSLConnection,
 
 )
-from .connection import (
+from .connection_pool import (
     
     ConnectionPool,
     BlockingConnectionPool,

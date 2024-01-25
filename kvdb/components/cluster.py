@@ -38,7 +38,7 @@ from redis.exceptions import (
 )
 from kvdb.types.base import KVDBUrl
 from kvdb.backoff import default_backoff
-from kvdb.components.connection import (
+from kvdb.components.connection_pool import (
     ConnectionPool, 
     AsyncConnectionPool, 
     Encoder,
