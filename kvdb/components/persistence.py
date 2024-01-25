@@ -155,24 +155,34 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Encodes a Value
         """
+        # if self.session_serialization_enabled:
+        #     return value
         return self.serializer.encode(value, **kwargs) if self.serializer is not None else value
     
     async def aencode_value(self, value: Union[Any, SchemaType], **kwargs) -> Union[str, bytes]:
         """
         Encodes a Value
         """
+        # logger.info(f'[{self.base_key}] Decoding Value: {value}')
+        # if self.session_serialization_enabled:
+        #     return value
         return await self.serializer.aencode(value, **kwargs) if self.serializer is not None else value
 
     def decode_value(self, value: Union[str, bytes], **kwargs) -> Any:
         """
         Decodes a Value
         """
+        # if self.session_serialization_enabled:
+        #     return value
         return self.serializer.decode(value, **kwargs) if self.serializer is not None else value
     
     async def adecode_value(self, value: Union[str, bytes], **kwargs) -> Any:
         """
         Decodes a Value
         """
+        # logger.info(f'[{self.base_key}] Decoding Value: {value}')
+        # if self.session_serialization_enabled:
+        #     return value
         return await self.serializer.adecode(value, **kwargs) if self.serializer is not None else value
 
 

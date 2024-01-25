@@ -67,8 +67,6 @@ if TYPE_CHECKING:
 
 class TaskQueue(abc.ABC):
 
-    config: Optional[KVDBTaskQueueConfig] = None
-
     @overload
     def __init__(self, config: KVDBTaskQueueConfig, **kwargs): ...
 
@@ -1164,7 +1162,8 @@ class TaskQueue(abc.ABC):
                 health_check_interval = self.config.heartbeat_interval,
                 
                 persistence_name = f'{self.queue_name}.persistence',
-                persistence_serializer = 'json',
+                persistence_serializer = None,
+                # persistence_serializer = 'json', #  if self. is None else self.config.persistence_serializer,
                 persistence_expiration = self.config.job_max_stuck_duration,
                 persistence_async_enabled = True,
                 persistence_base_key = f'{self.queue_prefix}.{self.queue_name}.persistence',
@@ -1379,7 +1378,7 @@ class TaskQueue(abc.ABC):
         """
         Register the Task Queue with the Task Queue Manager
         """
-        from kvdb.tasks import TaskManager
+        from kvdb.tasks.main import TaskManager
         self.queue_tasks = TaskManager.register_task_queue(self)
 
 
@@ -1405,7 +1404,13 @@ class TaskQueue(abc.ABC):
         # self.worker_id = worker_id
         # self.worker_name = worker_name
         # self.worker = worker
-        self.data['workers'][worker.worker_id] = worker.worker_attributes
+        # self.autologger.info(f'Worker: {worker}, {self.data["workers"]}')
+        try:
+            self.data['workers'][worker.worker_id] = worker.worker_attributes
+        except TypeError as e:
+            self.autologger.error(f'Unable to register worker {worker.worker_id}: {self.data["workers"]} {e}')
+            _workers = {worker.worker_id: worker.worker_attributes}
+            self.data['workers'] = _workers
         await self.data.aset(f'heartbeats:{worker.worker_id}', worker.name, ex = int(self.config.heartbeat_interval))
         await self.data._asave_mutation_objects()
         
@@ -1423,7 +1428,12 @@ class TaskQueue(abc.ABC):
         # self.worker_id = worker_id
         # self.worker_name = worker_name
         # self.worker = worker
-        self.data['workers'][worker.worker_id] = worker.worker_attributes
+        try:
+            self.data['workers'][worker.worker_id] = worker.worker_attributes
+        except TypeError as e:
+            self.autologger.error(f'Unable to register worker {worker.worker_id}: {self.data["workers"]} {e}')
+            _workers = {worker.worker_id: worker.worker_attributes}
+            self.data['workers'] = _workers
         self.data.set(f'heartbeats:{worker.worker_id}', worker.name, ex = int(self.config.heartbeat_interval))
         self.data._save_mutation_objects()
         

@@ -30,13 +30,6 @@ class QueueTasks(abc.ABC):
     """
     The Queue Tasks Object
     """
-    # queue_name: Optional[str] = None # The Queue Name
-    # context: Dict[str, Any] = {}
-    # functions: Dict[str, TaskFunction] = {}
-    # queue: Optional['TaskQueue'] = None
-    # queue_function: Union[Callable[..., 'TaskQueue'], 'TaskQueue'] = None
-    # verbose: Optional[bool] = None
-    # registered_task_object: Dict[str, Dict[str, Dict]] = {}
 
     def __init__(
         self, 
@@ -319,6 +312,7 @@ class QueueTasks(abc.ABC):
                 
                 setattr(obj, '__init__', __taskinit__)
                 setattr(obj, '__task_post_init_hook__', __task_post_init_hook__)
+                # globals
             return obj
     
         return object_decorator

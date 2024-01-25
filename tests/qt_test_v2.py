@@ -54,7 +54,7 @@ async def entrypoint_v3():
     q = tasks.get_task_queue(queue_name = 'global', debug_enabled = True)
     x = TestWorker()
     
-    n_workers = 10
+    n_workers = 5
 
     with anyio.move_on_after(20):
         # tasks.TaskManager.spawn_task_workers(

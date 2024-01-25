@@ -113,7 +113,9 @@ class JsonSerializer(BaseSerializer):
         """
         Decode the value with the JSON Library
         """
+        # logger.info(f'Value Dict: {value}')
         try:
+            # logger.info(f'Value Dict: {value}')
             value = self.jsonlib.loads(value, **kwargs)
             return deserialize_object(value)
         except Exception as e:

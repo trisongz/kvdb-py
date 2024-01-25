@@ -140,7 +140,7 @@ class TaskQueueConfig(SerializerConfig, BaseModel):
     queue_prefix: Optional[str] = Field('_kvq_', description = 'The prefix for job keys')
     queue_db_id: Optional[int] = Field(3, description = 'The database number to use')
     cronjob_prefix: Optional[str] = 'cronjob'
-    serializer: Optional[str] = 'json'
+    serializer: Optional[str] = None # 'json'
 
     job_prefix: Optional[str] = 'job'
     job_key_method: Optional[str] = 'uuid4'

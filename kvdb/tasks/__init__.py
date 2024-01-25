@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 
-from .main import TaskManager
-from .queue import TaskQueue
 from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
+    import asyncio
+    import multiprocessing as mp
     from .types import TaskFunction, AttributeMatchType
-    from .main import Ctx, ReturnValue, ReturnValueT, FunctionT, TaskPhase, TaskResult, QueueTasks, ModuleType
     from .tasks import QueueTasks, Job
+    from .queue import TaskQueue
     from .worker import TaskWorker, WorkerTimerConfig, CronJob
+    from .main import Ctx, ReturnValue, ReturnValueT, FunctionT, TaskPhase, TaskResult, QueueTasks, ModuleType
 
 
 @overload
 def register(
     name: Optional[str] = None,
-    function: Optional[FunctionT] = None,
+    function: Optional['FunctionT'] = None,
     phase: Optional['TaskPhase'] = None,
     silenced: Optional[bool] = None,
     silenced_stages: Optional[List[str]] = None,
@@ -24,7 +25,7 @@ def register(
     queue_name: Optional[str] = None,
     disable_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
-    attribute_match_type: Optional[AttributeMatchType] = None,
+    attribute_match_type: Optional['AttributeMatchType'] = None,
     **kwargs
 ) -> Callable[['FunctionT'], 'FunctionT']:
     """
@@ -40,6 +41,7 @@ def register(
     """
     Registers a function to the queue_name
     """
+    from .main import TaskManager
     return TaskManager.register(queue_name = queue_name, **kwargs)
 
 
@@ -54,7 +56,7 @@ def create_context(
     cronjob: Optional[bool] = None,
     disable_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
-    attribute_match_type: Optional[AttributeMatchType] = None,
+    attribute_match_type: Optional['AttributeMatchType'] = None,
     context: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> 'QueueTasks':
@@ -71,6 +73,7 @@ def create_context(
     """
     Creates a context
     """
+    from .main import TaskManager
     return TaskManager.create_context(queue_name = queue_name, context = context, **kwargs)
 
 
@@ -86,7 +89,7 @@ def register_object(
     cronjob: Optional[bool] = None,
     disable_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
-    attribute_match_type: Optional[AttributeMatchType] = None,
+    attribute_match_type: Optional['AttributeMatchType'] = None,
     context: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> 'ModuleType':
@@ -110,6 +113,7 @@ def register_object(
     that are subsequently overridden by present values when @register
     is called
     """
+    from .main import TaskManager
     return TaskManager.register_object(queue_name = queue_name, **kwargs)
 
 
@@ -150,6 +154,7 @@ def get_task_queue(
     """
     Gets a task queue
     """
+    from .main import TaskManager
     return TaskManager.get_task_queue(queue_name = queue_name, task_queue_class = task_queue_class, **kwargs)
 
 
@@ -189,6 +194,7 @@ def get_task_worker(
     """
     Gets the task worker
     """
+    from .main import TaskManager
     return TaskManager.get_task_worker(worker_name = worker_name, queues = queues, task_worker_class = task_worker_class, **kwargs)
 
 
@@ -228,6 +234,7 @@ async def aget_task_worker(
     """
     Gets the task worker
     """
+    from .main import TaskManager
     return await TaskManager.aget_task_worker(worker_name = worker_name, queues = queues, task_worker_class = task_worker_class, **kwargs)
 
 
@@ -236,6 +243,7 @@ def set_default_global_queue_name(name: str):
     """
     Updates the default global queue name
     """
+    from .main import TaskManager
     TaskManager.default_queue_name = name
 
 
@@ -282,6 +290,7 @@ async def enqueue(
     Kwargs can be arguments of the function or properties of the job.
     If a job instance is passed in, it's properties are overriden.
     """
+    from .main import TaskManager
     return await TaskManager.enqueue(job_or_func, *args, queue_name = queue_name, **kwargs)
 
 @overload
@@ -328,6 +337,7 @@ async def apply(
     If the job is successful, this returns its result.
     If the job is unsuccessful, this raises a JobError.
     """
+    from .main import TaskManager
     return await TaskManager.apply(job_or_func, queue_name = queue_name, **kwargs)
 
 @overload    
@@ -367,6 +377,7 @@ async def broadcast(
     worker_names: List of worker names to run the job on. If provided, will run on these specified workers.
     worker_selector: Function that takes in a list of workers and returns a list of workers to run the job on. If provided, worker_names will be ignored.
     """
+    from .main import TaskManager
     return await TaskManager.broadcast(job_or_func, queue_name = queue_name, **kwargs)
 
 
@@ -420,6 +431,7 @@ async def map(
     """
     Enqueue multiple jobs and collect all of their results.
     """
+    from .main import TaskManager
     return await TaskManager.map(job_or_func, iter_kwargs, queue_name = queue_name, **kwargs)
         
 
@@ -450,6 +462,7 @@ async def wait_for_job(
     """
     Waits for job to finish
     """
+    from .main import TaskManager
     return await TaskManager.wait_for_job(job, source_job = source_job, queue_name = queue_name, verbose = verbose, raise_exceptions = raise_exceptions, refresh_interval = refresh_interval, **kwargs)
 
     
@@ -480,6 +493,7 @@ async def wait_for_jobs(
     """
     Waits for jobs to finish
     """
+    from .main import TaskManager
     return await TaskManager.wait_for_jobs(jobs, source_job = source_job, queue_name = queue_name, verbose = verbose, raise_exceptions = raise_exceptions, refresh_interval = refresh_interval, **kwargs)
 
 
@@ -514,5 +528,174 @@ def as_jobs_complete(
     """
     Generator that yields results as they complete
     """
+    from .main import TaskManager
     return TaskManager.as_jobs_complete(jobs, source_job = source_job, queue_name  = queue_name, verbose = verbose, raise_exceptions = raise_exceptions, refresh_interval = refresh_interval, return_results = return_results, cancel_func = cancel_func, **kwargs)
     
+
+"""
+Worker Spawn Methods
+"""
+
+@overload
+def spawn_new_task_worker(
+    worker_name: Optional[str] = None,
+    worker_imports: Optional[Union[str, List[str]]] = None,
+    worker_cls: Optional[str] = None,
+    worker_class: Optional[Type['TaskWorker']] = None,
+    worker_config: Optional[Dict[str, Any]] = None,
+    worker_queues: Optional[Union[str, List[str]]] = None,
+    
+    worker_functions: Optional[List['TaskFunction']] = None,
+    worker_cron_jobs: Optional[List['CronJob']] = None,
+    worker_startup: Optional[Union[List[Callable], Callable,]] = None,
+    worker_shutdown: Optional[Union[List[Callable], Callable,]] = None,
+    worker_before_process: Optional[Callable] = None,
+    worker_after_process: Optional[Callable] = None,
+    worker_attributes: Optional[Dict[str, Any]] = None,
+
+    queue_names: Optional[Union[str, List[str]]] = None,
+    queue_config: Optional[Dict[str, Any]] = None,
+    queue_class: Optional[Type['TaskQueue']] = None,
+
+    max_concurrency: Optional[int] = None,
+    max_broadcast_concurrency: Optional[int] = None,
+
+    debug_enabled: Optional[bool] = False,
+    
+    # Controls the method in which the worker is spawned
+    use_new_event_loop: Optional[bool] = None,
+    use_asyncio_task: Optional[bool] = False,
+    disable_worker_start: Optional[bool] = False,
+
+    **kwargs,
+) -> 'TaskWorker':  # sourcery skip: low-code-quality
+    """
+    Spawns a new task worker 
+
+    This method allows initialization of a new task worker with a new process through
+    various mechanisms.
+
+    If `worker_cls` is specified, then the worker class is imported and instantiated
+      - If the `worker_cls` is a Type[TaskWorker], then it is instantiated directly
+      - If the `worker_cls` is an initialized TaskWorker, then it is used directly and configured
+    
+    If `worker_class` is specified, then it is instantiated directly and configured
+    
+    If `worker_imports` is specified, then the provided functions/modules are imported to
+    initialize any registrations of tasks/cron jobs
+        Example: worker_imports = ['my_module.tasks', 'my_module.tasks.init_function']
+
+    `queue_names` are initialized prior to `worker_queues` to ensure that
+    all tasks are registered before the worker starts
+    """
+    ...
+
+def spawn_new_task_worker(
+    **kwargs,
+) -> 'TaskWorker':  # sourcery skip: low-code-quality
+    """
+    Spawns a new task worker
+    """
+    from .spawn import spawn_new_task_worker
+    return spawn_new_task_worker(**kwargs)
+
+
+@overload
+def start_task_workers(
+    num_workers: Optional[int] = 1,
+    start_index: Optional[int] = None,
+
+    worker_name: Optional[str] = 'global',
+    worker_name_sep: Optional[str] = '-',
+
+    worker_imports: Optional[Union[str, List[str]]] = None,
+    worker_cls: Optional[str] = None,
+    worker_class: Optional[Type['TaskWorker']] = None,
+    worker_config: Optional[Dict[str, Any]] = None,
+    worker_queues: Optional[Union[str, List[str]]] = None,
+    
+    worker_functions: Optional[List['TaskFunction']] = None,
+    worker_cron_jobs: Optional[List['CronJob']] = None,
+    worker_startup: Optional[Union[List[Callable], Callable,]] = None,
+    worker_shutdown: Optional[Union[List[Callable], Callable,]] = None,
+    worker_before_process: Optional[Callable] = None,
+    worker_after_process: Optional[Callable] = None,
+    worker_attributes: Optional[Dict[str, Any]] = None,
+
+    queue_names: Optional[Union[str, List[str]]] = None,
+    queue_config: Optional[Dict[str, Any]] = None,
+    queue_class: Optional[Type['TaskQueue']] = None,
+
+    max_concurrency: Optional[int] = None,
+    max_broadcast_concurrency: Optional[int] = None,
+
+    debug_enabled: Optional[bool] = False,
+    disable_env_name: Optional[bool] = False,
+    method: Optional[str] = 'mp',
+    use_new_event_loop: Optional[bool] = None,
+    disable_worker_start: Optional[bool] = False,
+    terminate_timeout: Optional[float] = 5.0,
+    **kwargs,
+) -> Union[Dict[str, Dict[str, Union[mp.Process, asyncio.Task, 'TaskWorker']]], List['TaskWorker']]:
+    """
+    Starts multiple task workers using either multiprocessing or asyncio.tasks
+
+    Method can be either `Multiprocessing` (`mp`, `process`) or `asyncio.Task` (`tasks`, `asyncio`)
+
+    If `disable_worker_start` is True, then the workers are initialized but not started and 
+    the worker objects are returned
+
+    This method allows initialization of multiple task workers with new processes through
+    various mechanisms.
+
+    - `num_workers` specifies the number of workers to start
+    - `start_index` specifies the starting index for the worker names
+    - `worker_name` specifies the worker name prefix
+    - `worker_name_sep` specifies the worker name separator
+
+    If `worker_cls` is specified, then the worker class is imported and instantiated
+      - If the `worker_cls` is a Type[TaskWorker], then it is instantiated directly
+      - If the `worker_cls` is an initialized TaskWorker, then it is used directly and configured
+    
+    If `worker_imports` is specified, then the provided functions/modules are imported to
+    initialize any registrations of tasks/cron jobs
+        Example: worker_imports = ['my_module.tasks', 'my_module.tasks.init_function']
+
+    `queue_names` are initialized prior to `worker_queues` to ensure that
+    all tasks are registered before the worker starts
+    """
+    ...
+
+
+def start_task_workers(
+    **kwargs
+) -> Union[Dict[str, Dict[str, Union[mp.Process, asyncio.Task, 'TaskWorker']]], List['TaskWorker']]:
+    """
+    Starts multiple task workers using either multiprocessing or asyncio.tasks
+
+    Method can be either `Multiprocessing` (`mp`, `process`) or `asyncio.Task` (`tasks`, `asyncio`)
+
+    If `disable_worker_start` is True, then the workers are initialized but not started and 
+    the worker objects are returned
+
+    This method allows initialization of multiple task workers with new processes through
+    various mechanisms.
+
+    - `num_workers` specifies the number of workers to start
+    - `start_index` specifies the starting index for the worker names
+    - `worker_name` specifies the worker name prefix
+    - `worker_name_sep` specifies the worker name separator
+
+    If `worker_cls` is specified, then the worker class is imported and instantiated
+      - If the `worker_cls` is a Type[TaskWorker], then it is instantiated directly
+      - If the `worker_cls` is an initialized TaskWorker, then it is used directly and configured
+    
+    If `worker_imports` is specified, then the provided functions/modules are imported to
+    initialize any registrations of tasks/cron jobs
+        Example: worker_imports = ['my_module.tasks', 'my_module.tasks.init_function']
+
+    `queue_names` are initialized prior to `worker_queues` to ensure that
+    all tasks are registered before the worker starts
+    """
+    from .spawn import start_task_workers
+    return start_task_workers(**kwargs)

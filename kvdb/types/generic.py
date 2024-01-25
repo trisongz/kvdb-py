@@ -12,7 +12,7 @@ from typing_extensions import Literal, Self, TypeAlias
 from redis.compat import Protocol
 
 if TYPE_CHECKING:
-    from kvdb.components.connection import (
+    from kvdb.components.connection_pool import (
         ConnectionPool,
         AsyncConnectionPool
     )

@@ -72,7 +72,8 @@ class Encoder:
         """
         Return a unicode string from the bytes-like representation
         """
-        if self.decode_responses or force:
+        # print('decode', value)
+        if self.decode_responses or force: 
             if isinstance(value, memoryview):
                 value = value.tobytes()
             if isinstance(value, bytes):
@@ -81,6 +82,7 @@ class Encoder:
                     with contextlib.suppress(Exception):
                         return self.serializer.decode(value)
                 value = value.decode(self.encoding, self.encoding_errors)
+            
         return value
     
     async def aencode(self, value) -> bytes:

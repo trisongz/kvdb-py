@@ -5,8 +5,6 @@ The Main Task Queue Manager
 """
 
 import abc
-import anyio
-import atexit
 import makefun
 import asyncio
 import threading
@@ -29,7 +27,6 @@ from .types import (
     TaskFunction,
 )
 from .tasks import QueueTasks
-from .utils import create_task_worker_loop
 
 if TYPE_CHECKING:
     from kvdb.types.jobs import Job, CronJob
@@ -42,29 +39,25 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
     The Queue Task Manager
     """
     default_queue_name: Optional[str] = 'global'
-    queues: Dict[str, QueueTasks] = {}
-
-
-    queue_task_class: Type[QueueTasks] = QueueTasks
-
-    task_queues: Dict[str, 'TaskQueue'] = {}
-    task_queue_class: Type['TaskQueue'] = None
-    task_queue_hashes: Dict[str, str] = {} # Stores the hash of the task queue to determine whether to reconfigure the task queue
-
-    task_workers: Dict[str, 'TaskWorker'] = {}
-    task_worker_class: Type['TaskWorker'] = None
-    task_worker_hashes: Dict[str, str] = {} # Stores the hash of the task worker to determine whether to reconfigure the task worker
-
-    # If we start using multiple processes, we need to store the processes and tasks
-    task_worker_processes: Dict[str, mp.Process] = {}
-    # task_worker_tasks: Dict[str, Tuple[asyncio.Task, asyncio.BaseEventLoop]] = {}
-    task_worker_tasks: Dict[str, Union[asyncio.Task, asyncio.BaseEventLoop]] = {}
 
     def __init__(self, *args, **kwargs):
         """
         Initializes the Queue Task Manager
         """
         from kvdb.configs import settings
+        self.queues: Dict[str, QueueTasks] = {}
+
+
+        self.queue_task_class: Type[QueueTasks] = QueueTasks
+
+        self.task_queues: Dict[str, 'TaskQueue'] = {}
+        self.task_queue_class: Type['TaskQueue'] = None
+        self.task_queue_hashes: Dict[str, str] = {} # Stores the hash of the task queue to determine whether to reconfigure the task queue
+
+        self.task_workers: Dict[str, 'TaskWorker'] = {}
+        self.task_worker_class: Type['TaskWorker'] = None
+        self.task_worker_hashes: Dict[str, str] = {} # Stores the hash of the task worker to determine whether to reconfigure the task worker
+
         self.settings = settings
         self.logger = self.settings.logger
         self.autologger = self.settings.autologger
@@ -305,6 +298,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         if isinstance(queue_names, str) and queue_names == 'all': return list(self.queues.keys())
         if queue_names is None: queue_names = [self.default_queue_name]
         if not isinstance(queue_names, list): queue_names = [queue_names]
+        if 'all' in queue_names: queue_names = list(self.queues.keys())
         return queue_names
 
 
@@ -506,21 +500,31 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
         task_worker_class: Optional[Type['TaskWorker']] = None,
         disable_lock: Optional[bool] = None,
+        queue_config: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> 'TaskWorker':
         """
         Gets the task worker
         """
         worker_name = worker_name or self.default_queue_name
-        task_worker_hash = create_cache_key_from_kwargs(base = 'task_worker',kwargs = kwargs)
-        task_queue_class = kwargs.pop('task_queue_class', None)
+        task_worker_hash = create_cache_key_from_kwargs(base = 'task_worker', kwargs = kwargs)
+        queue_config = queue_config or {}
+        if 'task_queue_class' in queue_config:
+            task_queue_class = queue_config.pop('task_queue_class')
+        else:
+            task_queue_class = kwargs.pop('task_queue_class', None)
         if worker_name not in self.task_workers:
             self.configure_classes(task_worker_class = task_worker_class)
             with self._get_lock(disable_lock):
                 task_worker_class = task_worker_class or self.task_worker_class
                 self.task_workers[worker_name] = task_worker_class(
                     worker_name = worker_name,
-                    queues = self.get_worker_queues(queues, task_queue_class = task_queue_class, disable_lock = disable_lock, **kwargs),
+                    queues = self.get_worker_queues(
+                        queues, 
+                        task_queue_class = task_queue_class, 
+                        disable_lock = disable_lock, 
+                        **queue_config
+                    ),
                     **kwargs
                 )
                 self.task_worker_hashes[worker_name] = task_worker_hash
@@ -528,7 +532,12 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         elif task_worker_hash != self.task_worker_hashes.get(worker_name):
             with self._get_lock(disable_lock):
                 self.task_workers[worker_name].configure(
-                    queues = self.get_worker_queues(queues, task_queue_class = task_queue_class, disable_lock = disable_lock, **kwargs),
+                    queues = self.get_worker_queues(
+                        queues, 
+                        task_queue_class = task_queue_class, 
+                        disable_lock = disable_lock, 
+                        **queue_config
+                    ),
                     **kwargs
                 )
                 self.task_worker_hashes[worker_name] = task_worker_hash
@@ -579,29 +588,38 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
 
     def get_task_worker_from_import(
         self,
+        worker_name: Optional[str] = None,
         worker_cls: Optional[str] = None,
-        settings: Optional[Dict[str, Any]] = None,
+        worker_config: Optional[Dict[str, Any]] = None,
         queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
         task_worker_class: Optional[Type['TaskWorker']] = None,
         disable_lock: Optional[bool] = None,
+        queue_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> 'TaskWorker':
         """
-        Initializes a TaskWorker from an imported worker_cls or settings
+        Initializes a TaskWorker from an imported worker_cls or worker_config
         """
+        worker_config = worker_config or {}
         if isinstance(worker_cls, str):
             worker_cls: 'TaskQueue' = lazy_import(worker_cls)
             if isinstance(worker_cls, type):
                 task_worker_class = worker_cls
             else:
+                queue_kwargs = queue_kwargs or {}
                 worker_cls.configure(
-                    queues = self.get_worker_queues(queues, disable_lock = disable_lock, **kwargs),
+                    worker_name = worker_name,
+                    queues = self.get_worker_queues(
+                        queues, 
+                        disable_lock = disable_lock, 
+                        **queue_kwargs,
+                    ),
+                    **worker_config,
                     **kwargs
                 )
                 return worker_cls
         
-        settings = settings or {}
-        return self.get_task_worker(queues = queues, task_worker_class = task_worker_class, disable_lock = disable_lock, **settings, **kwargs)
+        return self.get_task_worker(worker_name = worker_name, queues = queues, task_worker_class = task_worker_class, disable_lock = disable_lock, **worker_config, **kwargs)
 
 
     """
@@ -934,265 +952,6 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         task_queue = self.get_task_queue(queue_name)
         return task_queue(job_or_func, *args, blocking = blocking, broadcast = broadcast, return_existing_job = return_existing_job, **kwargs)
-
-    """
-    Task Worker Start/Spawn Methods
-
-    - Currently Spawn doesn't work due to thread.locks
-    """
-
-    def spawn_task_worker_init(
-        self,
-        worker_name: Optional[str] = None,
-        worker_cls: Optional[str] = None,
-        task_worker: Optional['TaskWorker'] = None,
-        settings: Optional[Dict[str, Any]] = None,
-        queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
-        task_worker_class: Optional[Type['TaskWorker']] = None,
-        index: Optional[int] = None,
-        add_env_name: Optional[bool] = None,
-        **kwargs
-    ):
-        """
-        Spawns a TaskWorker from an imported worker_cls or settings
-        """
-        index = index or 0
-        worker_name = worker_name or self.default_queue_name
-        if add_env_name is None: add_env_name = self.settings.in_k8s
-        if add_env_name and self.settings.app_env.name not in worker_name: worker_name = f'{worker_name}.{self.settings.app_env.name}'
-        if str(index) not in worker_name:
-            worker_name = f'{worker_name}.{index}'
-        if not task_worker:
-            task_worker = self.get_task_worker_from_import(worker_name = worker_name, worker_cls = worker_cls, settings = settings, queues = queues, task_worker_class = task_worker_class, disable_lock=True, **kwargs)
-        else:
-            task_worker.configure(queues = queues, worker_name = worker_name, **kwargs)
-        loop = asyncio.new_event_loop()
-        loop.run_until_complete(task_worker.start())
-
-    def spawn_task_worker(
-        self,
-        worker_name: Optional[str] = None,
-        worker_cls: Optional[str] = None,
-        task_worker: Optional['TaskWorker'] = None,
-        settings: Optional[Dict[str, Any]] = None,
-        queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
-        task_worker_class: Optional[Type['TaskWorker']] = None,
-        index: Optional[int] = None,
-        add_env_name: Optional[bool] = None,
-        **kwargs
-    ) -> 'mp.Process':
-        """
-        Spawns a TaskWorker from an imported worker_cls or settings
-        """
-        index = index or 0
-        if worker_name is None and task_worker: worker_name = task_worker.worker_name
-        worker_name = worker_name or self.default_queue_name
-        if add_env_name is None: add_env_name = self.settings.in_k8s
-        if add_env_name and self.settings.app_env.name not in worker_name: worker_name = f'{worker_name}.{self.settings.app_env.name}'
-        if str(index) not in worker_name:
-            worker_name = f'{worker_name}.{index}'
-        if worker_name in self.task_worker_processes:
-            logger.warning(f'Worker {worker_name} already running')
-            return
-        if task_worker is None:
-            task_worker = self.get_task_worker_from_import(worker_name = worker_name, worker_cls = worker_cls, settings = settings, queues = queues, task_worker_class = task_worker_class, disable_lock=True, **kwargs)
-        else:
-            task_worker.configure(queues = queues, worker_name = worker_name, **kwargs)
-        # context = mp.get_context('fork')
-        from .types import QueueProcess
-        p = QueueProcess(target = create_task_worker_loop, args = (task_worker, ))
-        p.start()
-        self.task_worker_processes[worker_name] = p
-        if not self.exit_set:
-            atexit.register(self.stop_task_workers, method = 'spawn')
-            self.exit_set = True
-        return p
-
-    def spawn_task_workers(
-        self,
-        num_workers: int = 1,
-        worker_name: Optional[str] = None,
-        worker_cls: Optional[str] = None,
-        task_worker: Optional['TaskWorker'] = None,
-        settings: Optional[Dict[str, Any]] = None,
-        queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
-        task_worker_class: Optional[Type['TaskWorker']] = None,
-        index: Optional[Union[int, str]] = 'auto',
-        add_env_name: Optional[bool] = None,
-        **kwargs
-    ) -> List['mp.Process']:
-        """
-        Spawns a Group of TaskWorkers from an imported worker_cls or settings
-        """
-        if index == 'auto': index = self.task_worker_base_index
-        processes = []
-        self._remove_locks()
-        for i in range(num_workers):
-            p = self.spawn_task_worker(
-                worker_name = worker_name,
-                worker_cls = worker_cls,
-                task_worker = task_worker,
-                settings = settings,
-                queues = queues,
-                task_worker_class = task_worker_class,
-                index = index + i,
-                add_env_name = add_env_name,
-                **kwargs
-            )
-            processes.append(p)
-        return processes
-
-
-    def start_task_worker(
-        self,
-        worker_name: Optional[str] = None,
-        worker_cls: Optional[str] = None,
-        task_worker: Optional['TaskWorker'] = None,
-        settings: Optional[Dict[str, Any]] = None,
-        queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
-        task_worker_class: Optional[Type['TaskWorker']] = None,
-        index: Optional[int] = None,
-        add_env_name: Optional[bool] = None,
-        new_loop: Optional[bool] = True,
-        **kwargs
-    ) -> Union[asyncio.Task, 'asyncio.AbstractEventLoop']:
-        """
-        Spawns a TaskWorker from an imported worker_cls or settings
-        """
-        index = index or 0
-        if worker_name is None and task_worker: worker_name = task_worker.worker_name
-        worker_name = worker_name or self.default_queue_name
-        if add_env_name is None: add_env_name = self.settings.in_k8s
-        if add_env_name and self.settings.app_env.name not in worker_name: worker_name = f'{worker_name}.{self.settings.app_env.name}'
-        if str(index) not in worker_name:
-            worker_name = f'{worker_name}.{index}'
-        if worker_name in self.task_worker_processes:
-            logger.warning(f'Worker {worker_name} already running')
-            return
-        if task_worker is None:
-            task_worker = self.get_task_worker_from_import(worker_name = worker_name, worker_cls = worker_cls, settings = settings, queues = queues, task_worker_class = task_worker_class, disable_lock=True, **kwargs)
-        else:
-            task_worker.configure(queues = queues, worker_name = worker_name, **kwargs)
-        
-        task_or_loop = create_task_worker_loop(task_worker, new_loop = new_loop)
-        self.task_worker_tasks[worker_name] = task_or_loop
-        if not self.exit_set:
-            atexit.register(self.stop_task_workers, method = 'start')
-            self.exit_set = True
-
-        return task_or_loop
-    
-    async def start_task_workers(
-        self,
-        num_workers: int = 1,
-        worker_name: Optional[str] = None,
-        worker_cls: Optional[str] = None,
-        task_worker: Optional['TaskWorker'] = None,
-        settings: Optional[Dict[str, Any]] = None,
-        queues: Union[List['TaskQueue', str], 'TaskQueue', str] = None,
-        task_worker_class: Optional[Type['TaskWorker']] = None,
-        index: Optional[int] = 'auto',
-        add_env_name: Optional[bool] = None,
-        new_loop: Optional[bool] = False,
-        **kwargs
-    ) -> List[Union[asyncio.Task, 'asyncio.AbstractEventLoop']]:
-        """
-        Spawns a Group of TaskWorkers from an imported worker_cls or settings
-        """
-        if index == 'auto': index = self.task_worker_base_index
-        tasks = []
-        for i in range(num_workers):
-            task_or_loop = self.start_task_worker(
-                worker_name = worker_name,
-                worker_cls = worker_cls,
-                task_worker = task_worker,
-                settings = settings,
-                queues = queues,
-                task_worker_class = task_worker_class,
-                index = index + i,
-                add_env_name = add_env_name,
-                new_loop = new_loop,
-                **kwargs
-            )
-            await asyncio.sleep(0.5)
-            tasks.append(task_or_loop)
-        return tasks
-
-
-    def register_task_worker_start(
-        self,
-        task_worker: 'TaskWorker',
-    ):
-        """
-        Registers the task worker start
-        """
-        pass
-
-    def stop_task_worker_spawn(
-        self,
-        worker_name: str,
-        timeout: Optional[int] = 5.0,
-        **kwargs
-    ):
-        """
-        Terminates the task worker process
-        """
-        process = self.task_worker_processes.pop(worker_name, None)
-        if process is None: return
-        if process._closed: return
-        process.join(timeout)
-        try:
-            process.terminate()
-        except Exception as e:
-            logger.error(f'Error Stopping process {worker_name}: {e}')
-        try:
-            signal.pthread_kill(process.ident, signal.SIGKILL)
-            process.join(timeout)
-            process.terminate()
-        except Exception as e:
-            logger.error(f'Error Killing process {worker_name}: {e}')
-            with contextlib.suppress(Exception):
-                process.kill()
-                process.close()
-    
-
-    def stop_task_worker_start(
-        self,
-        worker_name: str,
-        timeout: Optional[int] = 5.0,
-        **kwargs
-    ):
-        """
-        Terminates the task worker loop
-        """
-        task_or_loop = self.task_worker_tasks.pop(worker_name, None)
-        if task_or_loop is None: return
-
-        with anyio.move_on_after(timeout):
-            if isinstance(task_or_loop, asyncio.Task):
-                task_or_loop.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    asyncio.run_coroutine_threadsafe(task_or_loop, task_or_loop.get_loop()).result()
-            else:
-                task_or_loop.stop()
-                task_or_loop.close()
-                
-
-    
-    def stop_task_workers(
-        self,
-        worker_names: Optional[List[str]] = None,
-        method: Optional[Literal['spawn', 'start']] = 'start',
-        **kwargs
-    ):
-        """
-        Stops the task workers processes
-        """
-        worker_names = worker_names or list(self.task_worker_processes.keys())
-        func = getattr(self, f'stop_task_worker_{method}')
-        for worker_name in worker_names:
-            func(worker_name, **kwargs)
-
 
 
 

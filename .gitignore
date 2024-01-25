@@ -24,3 +24,9 @@ tests/private_*
 !tests/
 tests/test_cron.py
 out/**
+kvdb/.data/kvdb.tmp.json
+kvdb/dummy_tasks.py
+tests/qt_test_v2.py
+tests/qt_test_v4.py
+tests/qt_test_v5.py
+tests/qt_test_v2.py

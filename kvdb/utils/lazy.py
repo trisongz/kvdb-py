@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from kvdb.configs.main import KVDBSettings
     from kvdb.types.common import AppEnv
     from lazyops.libs.fastapi_utils.types.persistence import TemporaryData
-    from kvdb.components.base import Connection
+    from kvdb.components.connection import Connection
 
 _temp_data: Optional['TemporaryData'] = None
 _kvdb_settings: Optional['KVDBSettings'] = None

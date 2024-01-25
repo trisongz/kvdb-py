@@ -19,11 +19,12 @@ requirements = [
     "backoff",
     "redis",
     "hiredis",
-    "trio",
+    # "trio",
     # "structlog",
     "xxhash",
     "makefun",
-    "lazyops>=0.2.67",
+    "lazyops>=0.2.69",
+    "typer",
     'typing-extensions; python_version<"3.8"',
 ]
 
@@ -37,10 +38,12 @@ args = {
     'install_requires': requirements,
     'include_package_data': True,
     'long_description': root.joinpath('README.md').read_text(encoding='utf-8'),
-    'entry_points': {},
-    'extras_require': {
-        "hiredis": ["hiredis>=1.0.0"],
+    'entry_points': {
+        'console_scripts': [
+            'kvdb-task = kvdb.tasks.cli:main',
+        ],
     },
+    'extras_require': {},
 }
 
 

@@ -62,7 +62,7 @@ class TaskWorker(abc.ABC):
 
     SIGNALS = [signal.SIGINT, signal.SIGTERM] if os.name != "nt" else [signal.SIGTERM]
 
-    config: Optional[KVDBTaskQueueConfig] = None
+    # config: Optional[KVDBTaskQueueConfig] = None
 
     @overload
     def __init__(self, config: KVDBTaskQueueConfig, **kwargs): ...
@@ -119,13 +119,15 @@ class TaskWorker(abc.ABC):
         self.timers = WorkerTimerConfig()
         if timers and isinstance(timers, dict):
             self.timers.update_config(timers)
-        
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self.main_task: Optional[asyncio.Task] = None
         self.init_queues(queues = queues, task_queue_class = task_queue_class, **kwargs)
         self.cls_init(**kwargs)
         self.init_functions(functions = functions, cronjobs = cronjobs, **kwargs)
         self.init_processes(startup = startup, shutdown = shutdown, before_process = before_process, after_process = after_process, **kwargs)
         self.pre_init(**kwargs)
         self.post_init(**kwargs)
+        self.finalize_init(**kwargs)
 
 
     @classmethod
@@ -137,6 +139,23 @@ class TaskWorker(abc.ABC):
         """
         return get_func_name(func)
     
+    @property
+    def loop(self) -> asyncio.AbstractEventLoop:
+        """
+        Returns the event loop
+        """
+        if not self._loop: 
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError as e:
+                logger.error(f"Error getting running loop: {e}")
+                try:
+                    self._loop = asyncio.get_event_loop()
+                except RuntimeError as e:
+                    logger.error(f"Error getting event loop: {e}")
+                    self._loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(self._loop)
+        return self._loop
 
     def configure(self, **kwargs):
         """
@@ -152,6 +171,7 @@ class TaskWorker(abc.ABC):
             self.init_processes(startup = kwargs.get('startup'), shutdown = kwargs.get('shutdown'), before_process = kwargs.get('before_process'), after_process = kwargs.get('after_process'), **kwargs)
         self.pre_init(**kwargs)
         self.post_init(**kwargs)
+        self.finalize_init(**kwargs)
 
     async def start(self, **kwargs):
         """
@@ -166,8 +186,10 @@ class TaskWorker(abc.ABC):
         await self.aworker_onstart_pre_init(**kwargs)
         # Run Startup Functions
         try:
-            loop = asyncio.get_running_loop()
-            for signum in self.SIGNALS: loop.add_signal_handler(signum, self.event.set)
+            # loop = asyncio.get_running_loop()
+            # for signum in self.SIGNALS: loop.add_signal_handler(signum, self.event.set)
+            # loop = asyncio.get_running_loop()
+            for signum in self.SIGNALS: self.loop.add_signal_handler(signum, self.event.set)
             for queue in self.queues:
                 await queue.ctx.aclient.initialize()
             
@@ -203,12 +225,25 @@ class TaskWorker(abc.ABC):
             await self.aworker_onstop_post(**kwargs)
             await self.stop()
     
-    def spawn(self, **kwargs):
+    def run(self, **kwargs):
         """
-        Spawn the worker in a separate process.
+        Sync Function to run the worker
         """
-        
+        self.main_task = self.loop.create_task(self.run(**kwargs))
+        try:
+            self.loop.run_until_complete(self.main_task)
+        except asyncio.CancelledError:  # pragma: no cover
+            # happens on shutdown, fine
+            pass
+        finally:
+            self.loop.run_until_complete(self.stop)
 
+    async def async_run(self, **kwargs):
+        """
+        Async Function to run the worker
+        """
+        self.main_task = asyncio.create_task(self.start(**kwargs))
+        await self.main_task
 
     async def stop(self):
         """
@@ -218,8 +253,11 @@ class TaskWorker(abc.ABC):
         all_tasks = list(self.tasks)
         self.tasks.clear()
         for task in all_tasks:
-            task.cancel()
+            if not task.done():
+                task.cancel()
+        if self.main_task: self.main_task.cancel()
         await asyncio.gather(*all_tasks, return_exceptions=True)
+
 
     def logger(self, job: 'Job' = None, kind: str = "enqueue", queue: Optional['TaskQueue'] = None) -> 'Logger':
         """
@@ -303,18 +341,29 @@ class TaskWorker(abc.ABC):
                     if self.event.is_set(): return
                     self.autologger.trace(f"Error in upkeep task {func.__name__}", e)
                 await asyncio.sleep(sleep)
-
         return [
-            asyncio.create_task(poll(self.abort, self.timers.abort)),
-            asyncio.create_task(poll(self.schedule, self.timers.schedule)),
-            asyncio.create_task(poll(self.sweep, self.timers.sweep)),
+            self.loop.create_task(poll(self.abort, self.timers.abort)),
+            self.loop.create_task(poll(self.schedule, self.timers.schedule)),
+            self.loop.create_task(poll(self.sweep, self.timers.sweep)),
             # asyncio.create_task(
             #     poll(self.queue.stats, self.timers.stats, self.timers.stats + 1)
             # ),
-            asyncio.create_task(
+            self.loop.create_task(
                 poll(self.heartbeat, self.timers.heartbeat, self.heartbeat_ttl)
             ),
         ]
+    
+        # return [
+        #     asyncio.create_task(poll(self.abort, self.timers.abort)),
+        #     asyncio.create_task(poll(self.schedule, self.timers.schedule)),
+        #     asyncio.create_task(poll(self.sweep, self.timers.sweep)),
+        #     # asyncio.create_task(
+        #     #     poll(self.queue.stats, self.timers.stats, self.timers.stats + 1)
+        #     # ),
+        #     asyncio.create_task(
+        #         poll(self.heartbeat, self.timers.heartbeat, self.heartbeat_ttl)
+        #     ),
+        # ]
     
     async def sort_jobs(self, jobs: List['Job']) -> Dict[str, List['Job']]:
         """
@@ -415,7 +464,7 @@ class TaskWorker(abc.ABC):
             # res = await function(context, *(job.args or ()), **(job.kwargs or {}))
             try:
                 contextvar = contextvars.copy_context()
-                task = asyncio.create_task(function(context, *(job.args or ()), **(job.kwargs or {})), context = contextvar)
+                task = self.loop.create_task(function(context, *(job.args or ()), **(job.kwargs or {})), context = contextvar)
             except Exception as e:
                 # self.logger(job = job, kind = "process").error(
                 #     f"Failed to create task for [{job.function}] {function} with error: {e}.\nKwargs: {job.kwargs}"
@@ -478,7 +527,7 @@ class TaskWorker(abc.ABC):
         if previous_task: self.tasks.discard(previous_task)
         if not self.event.is_set():
             for queue_name in self.queue_names:
-                new_task = asyncio.create_task(self.process_queue(queue_name = queue_name, concurrency_id = concurrency_id))
+                new_task = self.loop.create_task(self.process_queue(queue_name = queue_name, concurrency_id = concurrency_id))
                 self.tasks.add(new_task)
                 new_task.add_done_callback(functools.partial(self.process_task, concurrency_id = concurrency_id))
     
@@ -489,7 +538,7 @@ class TaskWorker(abc.ABC):
         if previous_task and isinstance(previous_task, asyncio.Task): self.tasks.discard(previous_task)
         if not self.event.is_set():
             for queue_name in self.queue_names:
-                new_task = asyncio.create_task(self.process_broadcast(queue_name))
+                new_task = self.loop.create_task(self.process_broadcast(queue_name))
                 self.tasks.add(new_task)
                 new_task.add_done_callback(self.broadcast_process_task)
                 
