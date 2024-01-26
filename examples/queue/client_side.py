@@ -27,17 +27,14 @@ To run this example, you will need to run the following commands:
 
 import sys
 import asyncio
-
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 import dummy_tasks
 from kvdb import tasks
-
+from kvdb.utils.logs import logger
 
 async def entrypoint():
-
-
     # Initialize and register the tasks
     x = dummy_tasks.TestWorker()
 
@@ -52,17 +49,27 @@ async def entrypoint():
     await q1.enqueue('TestWorker.task1')
     # await x.task1(blocking = False)
 
-    await q2.enqueue(dummy_tasks.my_task)
-    await dummy_tasks.my_task(blocking = False)
-
     await q1.enqueue('TestWorker.task2')
-    await x.task2(blocking = False)
 
+    # You can also enqueue a function directly by passing the function
+    await q2.enqueue(dummy_tasks.my_task)
+
+    # Additionally, since the underlying function is patched with the register decorator
+    # you can also call the function directly and it will be executed as a task
+    await dummy_tasks.my_task(blocking = False)
+    await x.task2(blocking = False)
     await q1(x.task1, blocking = False)
+
+    # If `blocking` is set to `True`, then the task will be executed and will wait for the result
+
+    # If `blocking` is set to `False`, then the task will be executed and will not wait for the result, but instead return a `Job` object
+
+    result_1 = await x.task2(blocking = True)
+    result_2 = await q1(x.task1, blocking = True)
+
+    logger.info(f'result_1: {result_1}')
+    logger.info(f'result_2: {result_2}')
 
 
 if __name__ == '__main__':
     asyncio.run(entrypoint())
-
-
-    
