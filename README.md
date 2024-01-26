@@ -76,10 +76,12 @@ This will be able to remotely execute the tasks from `examples/queue/dummy_tasks
 To run this example, you will need to run the following commands:
 
   Terminal 1:
+
     ```bash
     # cwd: examples/queue
     $ kvdb-task -i "dummy_tasks.initializer" -n 1 -q "test" -q "global"
 
+    # Output:
     - [Worker ID]: 63f0e517-e3bd-4d6c-xxx-xxxx [Worker Name]: global-local-0 [Node Name]: computer.local 
     - [Concurrency]: 150/jobs, 50/broadcasts
     - [Queues]:
@@ -88,7 +90,9 @@ To run this example, you will need to run the following commands:
     - [global]    @ redis://localhost:6379/3 DB: 3, 2 functions, 0 cron jobs
             [Functions]: `['TestWorker.task1', 'TestWorker.task2']
     ```
+
   Terminal 2:
+
     ```bash
     # cwd: examples/queue
     $ python client_side.py
