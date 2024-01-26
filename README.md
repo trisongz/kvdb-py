@@ -197,10 +197,13 @@ if __name__ == '__main__':
 
 Below are two examples of how to use the caching functionality of `kvdb-py`. The first example demonstrates how to use the caching functionality with any functions, and the second example demonstrates how to use the caching functionality with an object.
 
-See:
-    - [examples/cache/basic.py](./examples/cache/basic.py) for an example of how to use caching with functions
-    - [examples/cache/objects.py](./examples/cache/objects.py) for an example of how to use caching with an object
-    - [examples/cache/context.py](./examples/cache/context.py) for an example of how to use caching with a pre-defined context
+See the following files for more examples:
+
+- [examples/cache/basic.py](./examples/cache/basic.py) for an example of how to use caching with functions
+
+- [examples/cache/objects.py](./examples/cache/objects.py) for an example of how to use caching with an object
+
+- [examples/cache/context.py](./examples/cache/context.py) for an example of how to use caching with a pre-defined context
 
 
 ```python
