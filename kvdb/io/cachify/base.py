@@ -10,10 +10,12 @@ import anyio
 import backoff
 import inspect
 import functools
+import makefun
 import contextlib
 
+
 from pydantic import Field, model_validator, validator, root_validator
-from kvdb.types.base import BaseModel
+from kvdb.types.base import BaseModel, computed_field
 from kvdb.types.common import CachePolicy
 from kvdb.types.generic import ENOVAL
 from kvdb.configs.caching import KVDBCachifyConfig
@@ -22,6 +24,7 @@ from kvdb.utils.lazy import lazy_import
 from kvdb.utils.helpers import create_cache_key_from_kwargs, is_coro_func, ensure_coro, full_name, timeout, is_classmethod
 from lazyops.utils import timed_cache
 from lazyops.utils.lazy import get_function_name
+from lazyops.libs.persistence import PersistentDict
 from lazyops.libs.pooler import ThreadPooler
 from typing import Optional, Dict, Any, Callable, List, Union, TypeVar, Tuple, Awaitable, Type, overload, TYPE_CHECKING
 
@@ -35,10 +38,11 @@ ReturnValueT = Union[ReturnValue, Awaitable[ReturnValue]]
 FunctionT = TypeVar('FunctionT', bound = Callable[..., ReturnValueT])
 
 
-class CachifyConfig(KVDBCachifyConfig):
+class Cachify(KVDBCachifyConfig):
     """
     The Cachify Config
     """
+    function_name: Optional[str] = Field(None, description = 'The name of the function')
     kwarg_override_prefix: Optional[str] = Field(None, description = 'The prefix for the kwargs that override the default config')
     has_async_loop: Optional[bool] = Field(None, description = 'Whether or not the async loop is running', exclude = True)
     session_available: Optional[bool] = Field(None, description = 'Whether or not the session is available', exclude = True)
@@ -95,7 +99,7 @@ class CachifyConfig(KVDBCachifyConfig):
             values['cache_max_size_policy'] = CachePolicy(values['cache_max_size_policy'])
         return values
         
-    @root_validator()
+    @root_validator(pre = True)
     def validate_attrs(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         """
         Validates the attributes
@@ -103,7 +107,7 @@ class CachifyConfig(KVDBCachifyConfig):
         return cls.validate_kws(values)
 
     @model_validator(mode = 'after')
-    def validate_cachify_config(self):
+    def validateself_config(self):
         """
         Validates the cachify config
         """
@@ -149,6 +153,17 @@ class CachifyConfig(KVDBCachifyConfig):
                     cache_kwargs['ttl'] = kwargs.pop(kw)
                     break
         return cache_kwargs, kwargs
+    
+    @computed_field
+    @property
+    def data(self) -> PersistentDict:
+        """
+        Returns the persistent data
+        """
+        return self.session.create_persistence(
+            base_key=f'{self.cache_field}:data',
+            serializer=self.serializer,
+        )
 
 
     def get_key(self, key: str) -> str:
@@ -172,7 +187,9 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         if self.cache_field is not None: return self.cache_field
         if self.name:  self.cache_field = self.name(func, *args, **kwargs) if callable(self.name) else self.name
-        else: self.cache_field = full_name(func)
+        else: 
+            self.cache_field = full_name(func)
+            if self.prefix: self.cache_field = f'{self.prefix}:{self.cache_field}'
         return self.cache_field
     
     async def abuild_hash_name(self, func: Callable, *args, **kwargs) -> str:
@@ -180,8 +197,10 @@ class CachifyConfig(KVDBCachifyConfig):
         Builds the name for the function
         """
         if self.cache_field is not None: return self.cache_field
-        if self.name:  self.cache_field = await ThreadPooler.asyncish(self.name, func, *args, **kwargs) if callable(self.name) else self.name
-        else: self.cache_field = full_name(func)
+        if self.name: self.cache_field = await ThreadPooler.asyncish(self.name, func, *args, **kwargs) if callable(self.name) else self.name
+        else: 
+            self.cache_field = full_name(func)
+            if self.prefix: self.cache_field = f'{self.prefix}:{self.cache_field}'
         return self.cache_field
     
 
@@ -191,13 +210,13 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         hash_func = self.keybuilder or create_cache_key_from_kwargs
         return hash_func(
-            base = self.prefix,
+            # base = self.prefix,
             args = args, 
             kwargs = kwargs, 
             typed = self.typed, 
             exclude_keys = self.exclude_keys,
-            exclude_null_values = self.exclude_null_values_in_hash,
-            exclude_default_values = self.exclude_default_values_in_hash,
+            exclude_null = self.exclude_null_values_in_hash,
+            exclude_defaults = self.exclude_default_values_in_hash,
             is_classmethod = self.is_class_method,
         )
     
@@ -210,13 +229,13 @@ class CachifyConfig(KVDBCachifyConfig):
         hash_func = self.keybuilder or create_cache_key_from_kwargs
         return await ThreadPooler.asyncish(
             hash_func, 
-            base = self.prefix,
+            # base = self.prefix,
             args = args, 
             kwargs = kwargs, 
             typed = self.typed, 
             exclude_keys = self.exclude_keys,
-            exclude_null_values = self.exclude_null_values_in_hash,
-            exclude_default_values = self.exclude_default_values_in_hash,
+            exclude_null = self.exclude_null_values_in_hash,
+            exclude_defaults = self.exclude_default_values_in_hash,
             is_classmethod = self.is_class_method,
         )
     
@@ -331,7 +350,7 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         Sets the value in the cache
         """
-        if self.hset_enabled: return self.client.hset(self.cache_field, key, value)
+        if self.hset_enabled: return self.client.hset(self.cache_field, key = key, value = value)
         return self.client.set(self.get_key(key), value)
 
     def _delete(self, key: str) -> None:
@@ -449,8 +468,14 @@ class CachifyConfig(KVDBCachifyConfig):
         Clears the cache
         """
         with self.safely():
-            if keys: return self.client.hdel(self.cache_field, keys)
-            return self.client.delete(self.cache_field)
+            if keys: 
+                if self.hset_enabled: return self.client.hdel(self.cache_field, *keys)
+                return self.client.delete(*[self.get_key(k) for k in keys])
+            self.data.clear()
+            if self.hset_enabled: 
+                return self.client.delete(self.cache_field)
+            keys = self.client.keys(self.get_key(self.cache_field, '*'))
+            return self.client.delete(*keys)
     
 
     """
@@ -488,9 +513,10 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         Returns the number of default keys
         """
-        n = 1
-        if self.cache_max_size is not None: n += 3
-        return n
+        return 0
+        # n = 1
+        # if self.cache_max_size is not None: n += 3
+        # return n
     
     @property
     def super_verbose(self) -> bool:
@@ -506,8 +532,9 @@ class CachifyConfig(KVDBCachifyConfig):
         Returns the number of hits
         """
         with self.safely():
-            val = self._get('hits')
-            return int(val) if val else 0
+            return self.data.get('hits', 0)
+            # val = self._get('hits')
+            # return int(val) if val else 0
     
 
     @property
@@ -516,8 +543,9 @@ class CachifyConfig(KVDBCachifyConfig):
         Returns the number of hits
         """
         with self.safely():
-            val = await self._get('hits')
-            return int(val) if val else 0
+            return await self.data.aget('hits', 0)
+            # val = await self._get('hits')
+            # return int(val) if val else 0
             
     @property
     def num_keys(self) -> int:
@@ -592,8 +620,7 @@ class CachifyConfig(KVDBCachifyConfig):
         Returns the keyhits of the cache
         """
         with self.safely():
-            val = self._get('keyhits')
-            return {k.decode(): int(v) for k, v in val.items()} if val else {}
+            return self.data.get('keyhits', {})
         
         
     @property
@@ -602,8 +629,7 @@ class CachifyConfig(KVDBCachifyConfig):
         Returns the keyhits of the cache
         """
         with self.safely():
-            val = await self._get('keyhits')
-            return {k.decode(): int(v) for k, v in val.items()} if val else {}
+            return await self.data.aget('keyhits', {})
         
     @property
     def cache_timestamps(self) -> Dict[str, float]:
@@ -611,8 +637,7 @@ class CachifyConfig(KVDBCachifyConfig):
         Returns the timestamps of the cache
         """
         with self.safely():
-            val = self._get('timestamps')
-            return {k.decode(): float(v) for k, v in val.items()} if val else {}
+            return self.data.get('timestamps', {})
     
     @property
     async def acache_timestamps(self) -> Dict[str, float]:
@@ -620,8 +645,7 @@ class CachifyConfig(KVDBCachifyConfig):
         Returns the timestamps of the cache
         """
         with self.safely():
-            val = await self._get('timestamps')
-            return {k.decode(): float(v) for k, v in val.items()} if val else {}
+            return await self.data.aget('timestamps', {})
         
     
     @property
@@ -630,8 +654,7 @@ class CachifyConfig(KVDBCachifyConfig):
         Returns the expirations of the cache
         """
         with self.safely():
-            val = self._get('expirations')
-            return {k.decode(): float(v) for k, v in val.items()} if val else {}
+            return self.data.get('expirations', {})
     
     @property
     async def acache_expirations(self) -> Dict[str, float]:
@@ -639,8 +662,7 @@ class CachifyConfig(KVDBCachifyConfig):
         Returns the expirations of the cache
         """
         with self.safely():
-            val = await self._get('expirations')
-            return {k.decode(): float(v) for k, v in val.items()} if val else {}
+            return await self.data.aget('expirations', {})
     
     @property
     def cache_info(self) -> Dict[str, Any]:
@@ -687,7 +709,7 @@ class CachifyConfig(KVDBCachifyConfig):
             with anyio.move_on_after(timeout = self.timeout):
                 yield
         else:
-            with timeout(self.timeout, raise_errors = False):
+            with timeout(int(self.timeout), raise_errors = False):
                 yield
     
 
@@ -728,52 +750,75 @@ class CachifyConfig(KVDBCachifyConfig):
         Invalidates the cache
         """
         with self.safely():
-            return self._delete(key, 'hits', 'timestamps', 'expirations', 'keyhits')
+            if key in self.cache_keyhits:
+                _ = self.data['keyhits'].pop(key, None)
+            if key in self.cache_timestamps:
+                _ = self.data['timestamps'].pop(key, None)
+            if key in self.cache_expirations:
+                _ = self.data['expirations'].pop(key, None)
+            self.data.flush()
+            return self._delete(key)
+            # return self._delete(key, 'hits', 'timestamps', 'expirations', 'keyhits')
 
     def add_hit(self):
         """
         Adds a hit to the cache
         """
         with self.safely():
-            return self._incr('hits')
+            if not self.data.contains('hits'): self.data.set('hits', 0)
+            try:
+                self.data['hits'] += 1
+            except Exception as e:
+                self.data.set('hits', 1)
+
+    async def aadd_hit(self):
+        """
+        Adds a hit to the cache
+        """
+        with self.safely():
+            if not await self.data.acontains('hits'): await self.data.aset('hits', 0)
+            try:
+                self.data['hits'] += 1
+            except Exception as e:
+                await self.data.aset('hits', 1)
 
     def add_key_hit(self, key: str):
         """
         Adds a hit to the cache key
         """
         with self.safely():
-            key_hits = self._get('keyhits') or {}
+            key_hits = self.data.get('keyhits', {})
             if key not in key_hits: key_hits[key] = 0
             key_hits[key] += 1
-            self._set('keyhits', key_hits)
+            self.data['keyhits'] = key_hits
 
     async def aadd_key_hit(self, key: str):
         """
         Adds a hit to the cache key
         """
         with self.safely():
-            key_hits = await self._get('keyhits') or {}
+            key_hits = await self.data.aget('keyhits', {}) #  or {}
             if key not in key_hits: key_hits[key] = 0
             key_hits[key] += 1
-            await self._set('keyhits', key_hits)
+            await self.data.aset('keyhits', key_hits)
 
     async def aadd_key_timestamp(self, key: str):
         """
         Adds a timestamp to the cache key
         """
         with self.safely():
-            timestamps = await self._get('timestamps') or {}
+            timestamps = await self.data.aget('timestamps', {})
             timestamps[key] = time.time()
-            await self._set('timestamps', timestamps)
+            await self.data.aset('timestamps', timestamps)
     
     def add_key_timestamp(self, key: str):
         """
         Adds a timestamp to the cache key
         """
         with self.safely():
-            timestamps = self._get('timestamps') or {}
+            timestamps = self.data.get('timestamps', {})
             timestamps[key] = time.time()
-            self._set('timestamps', timestamps)
+            self.data['timestamps'] = timestamps
 
     def add_key_expiration(self, key: str, ttl: int):
         """
@@ -781,9 +826,9 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         with self.safely():
             if self.hset_enabled:
-                expirations = self._get('expirations') or {}
+                expirations = self.data.get('expirations', {})
                 expirations[key] = time.time() + ttl
-                self._set('expirations', expirations)
+                self.data['expirations'] = expirations
                 return
             self._expire(key, ttl)
 
@@ -793,9 +838,9 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         with self.safely():
             if self.hset_enabled:
-                expirations = await self._get('expirations') or {}
+                expirations = await self.data.aget('expirations', {})
                 expirations[key] = time.time() + ttl
-                await self._set('expirations', expirations)
+                await self.data.aset('expirations', expirations)
                 return
             await self._expire(key, ttl)
 
@@ -804,22 +849,26 @@ class CachifyConfig(KVDBCachifyConfig):
         Expires the cache keys
         """
         with self.safely():
-            expirations = self._get('expirations') or {}
+            expirations = self.data.get('expirations', {})
+            if not isinstance(expirations, dict): expirations = {}
             to_delete = [
                 key
                 for key, expiration in expirations.items()
                 if time.time() > expiration
             ]
             if to_delete: 
-                keyhits = self._get('keyhits') or {}
-                timestamps = self._get('timestamps') or {}
+                keyhits = self.data.get('keyhits', {})
+                if not isinstance(keyhits, dict): keyhits = {}
+                timestamps = self.data.get('timestamps', {})
+                if not isinstance(timestamps, dict): timestamps = {}
                 for key in to_delete:
                     keyhits.pop(key, None)
                     timestamps.pop(key, None)
                     expirations.pop(key, None)
-                self._set('expirations', expirations)
-                self._set('keyhits', keyhits)
-                self._set('timestamps', timestamps)
+                self.data['expirations'] = expirations
+                self.data['keyhits'] = keyhits
+                self.data['timestamps'] = timestamps
+                if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(to_delete)} Expired Keys: {to_delete}')
                 self.clear(to_delete)
     
     async def aexpire_cache_expired_keys(self):
@@ -827,22 +876,26 @@ class CachifyConfig(KVDBCachifyConfig):
         Expires the cache keys
         """
         with self.safely():
-            expirations = await self._get('expirations') or {}
+            expirations = await self.data.aget('expirations', {})
+            if not isinstance(expirations, dict): expirations = {}
             to_delete = [
                 key
                 for key, expiration in expirations.items()
                 if time.time() > expiration
             ]
             if to_delete: 
-                keyhits = await self._get('keyhits') or {}
-                timestamps = await self._get('timestamps') or {}
+                keyhits = await self.data.aget('keyhits', {})
+                if not isinstance(keyhits, dict): keyhits = {}
+                timestamps = await self.data.aget('timestamps', {})
+                if not isinstance(timestamps, dict): timestamps = {}
                 for key in to_delete:
                     keyhits.pop(key, None)
                     timestamps.pop(key, None)
                     expirations.pop(key, None)
-                await self._set('expirations', expirations)
-                await self._set('keyhits', keyhits)
-                await self._set('timestamps', timestamps)
+                await self.data.aset('expirations', expirations)
+                await self.data.aset('keyhits', keyhits)
+                await self.data.aset('timestamps', timestamps)
+                if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(to_delete)} Expired Keys: {to_delete}')
                 await self.clear(to_delete)
 
 
@@ -856,37 +909,37 @@ class CachifyConfig(KVDBCachifyConfig):
         if self.verbosity: logger.info(f'[{self.cache_field}] Cache Max Size Reached: {num_keys}/{self.cache_max_size}. Running Cache Policy: {self.cache_max_size_policy}')
         if self.cache_max_size_policy == CachePolicy.LRU:
             # Least Recently Used
-            timestamps = self._get('timestamps') or {}
+            timestamps = self.data.get('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity: logger.info(f'[{self.cache_field}- LRU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             self.clear(keys_to_delete)
             return
         
         if self.cache_max_size_policy == CachePolicy.LFU:
             # Least Frequently Used
-            key_hits = self._get('keyhits') or {}
+            key_hits = self.data.get('keyhits', {})
             keys_to_delete = sorted(key_hits, key = key_hits.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity: logger.info(f'[{self.cache_field} - LFU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             self.clear(keys_to_delete)
             return
         
         if self.cache_max_size_policy == CachePolicy.FIFO:
             # First In First Out
-            timestamps = self._get('timestamps') or {}
+            timestamps = self.data.get('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get, reverse = True)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity: logger.info(f'[{self.cache_field} - FIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             self.clear(keys_to_delete)
             return
         
         if self.cache_max_size_policy == CachePolicy.LIFO:
             # Last In First Out
-            timestamps = self._get('timestamps') or {}
+            timestamps = self.data.get('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity: logger.info(f'[{self.cache_field} - LIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             self.clear(keys_to_delete)
             return
     
@@ -901,37 +954,37 @@ class CachifyConfig(KVDBCachifyConfig):
         if self.verbosity: logger.info(f'[{self.cache_field}] Cache Max Size Reached: {num_keys}/{self.cache_max_size}. Running Cache Policy: {self.cache_max_size_policy}')
         if self.cache_max_size_policy == CachePolicy.LRU:
             # Least Recently Used
-            timestamps = await self.session.aclient.hget(self.cache_field, 'timestamps') or {}
-            keys_to_delete = sorted(timestamps, key = timestamps.get)[:num_keys - self.cache_max_size]
+            timestamps = await self.data.aget('timestamps', {})
+            keys_to_delete = sorted(timestamps, key = timestamps.get, reverse=True)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity: logger.info(f'[{self.cache_field} - LRU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             await self.clear(keys_to_delete)
             return
         
         if self.cache_max_size_policy == CachePolicy.LFU:
             # Least Frequently Used
-            key_hits = await self.session.aclient.hget(self.cache_field, 'keyhits') or {}
+            key_hits = await self.data.aget('keyhits', {})
             keys_to_delete = sorted(key_hits, key = key_hits.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity: logger.info(f'[{self.cache_field} - LFU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             await self.clear(keys_to_delete)
             return
         
         if self.cache_max_size_policy == CachePolicy.FIFO:
             # First In First Out
-            timestamps = await self.session.aclient.hget(self.cache_field, 'timestamps') or {}
+            timestamps = await self.data.aget('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get, reverse = True)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity: logger.info(f'[{self.cache_field} - FIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             await self.clear(keys_to_delete)
             return
         
         if self.cache_max_size_policy == CachePolicy.LIFO:
             # Last In First Out
-            timestamps = await self.session.aclient.hget(self.cache_field, 'timestamps') or {}
+            timestamps = await self.data.aget('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity: logger.info(f'[{self.cache_field} - LIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             await self.clear(keys_to_delete)
             return
 
@@ -950,7 +1003,7 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         Runs the cache policies
         """
-        await self.add_hit()
+        await self.aadd_hit()
         if not self.hset_enabled or self.cache_max_size is None: return
         await self.aadd_key_timestamp(key)
         await self.aadd_key_hit(key)
@@ -981,7 +1034,8 @@ class CachifyConfig(KVDBCachifyConfig):
             if self.verbosity: logger.trace(f'[{self.cache_field}:{key}] Retrieve Exception', error = e)
             return ENOVAL
         
-        ThreadPooler.background(self.validate_cache_policies, key, *args, cache_kwargs = cache_kwargs, **kwargs)
+        # ThreadPooler.threadpool_task(self.validate_cache_policies, key, *args, cache_kwargs = cache_kwargs, **kwargs)
+        self.validate_cache_policies(key, *args, cache_kwargs = cache_kwargs, **kwargs)
         try:
             result = self.decode_hit(value, *args, **kwargs)
             if result is not None: return result
@@ -1029,7 +1083,7 @@ class CachifyConfig(KVDBCachifyConfig):
         try:
             with self.safely():
                 self._set(key, self.encode_hit(value, *args, **kwargs))
-                self.add_key_expiration(key, cache_kwargs.get('ttl') or self.ttl)
+                self.add_key_expiration(key, (cache_kwargs.get('ttl') or self.ttl))
         except TimeoutError:
             if self.super_verbose: logger.error(f'[{self.cache_field}:{key}] Set Timeout')
         except Exception as e:
@@ -1042,7 +1096,7 @@ class CachifyConfig(KVDBCachifyConfig):
         try:
             with self.safely():
                 await self._set(key, self.encode_hit(value, *args, **kwargs))
-                await self.aadd_key_expiration(key, cache_kwargs.get('ttl') or self.ttl)
+                await self.aadd_key_expiration(key, (cache_kwargs.get('ttl') or self.ttl))
         except TimeoutError:
             if self.super_verbose: logger.error(f'[{self.cache_field}:{key}] Set Timeout')
         except Exception as e:
@@ -1064,7 +1118,8 @@ class CachifyConfig(KVDBCachifyConfig):
         if not self.has_post_init_hook: return
         if self.has_ran_post_init_hook: return
         if self.verbosity: logger.info(f'[{self.cache_field}] Running Post Init Hook')
-        ThreadPooler.background(self.post_init_hook, func, *args, **kwargs)
+        # ThreadPooler.threadpool_task(self.post_init_hook, func, *args, **kwargs)
+        self.post_init_hook(func, *args, **kwargs)
         self.has_ran_post_init_hook = True
 
 
@@ -1084,8 +1139,8 @@ class CachifyConfig(KVDBCachifyConfig):
         """
         if not self.has_post_call_hook: return
         if self.super_verbose: logger.info(f'[{self.cache_field}] Running Post Call Hook')
-        ThreadPooler.background(self.post_call_hook, result, *args, is_hit = is_hit, **kwargs)
-
+        self.post_call_hook(result, *args, is_hit = is_hit, **kwargs)
+        # ThreadPooler.threadpool_task(self.post_call_hook, result, *args, is_hit = is_hit, **kwargs)
 
     async def arun_post_call_hook(self, result: Any, *args, is_hit: Optional[bool] = None, **kwargs) -> None:
         """
@@ -1096,47 +1151,54 @@ class CachifyConfig(KVDBCachifyConfig):
         ThreadPooler.background_task(self.post_call_hook, result, *args, is_hit = is_hit, **kwargs)
 
 
-
-def cachify_sync(
-    session: 'KVDBSession',
-    _cachify: CachifyConfig,
-) -> FunctionT:
-    """
-    [Sync] Creates a cachified function
-    """
-
-    _cachify.session = session
-    _cachify.is_async = False
-    if _cachify.retry_enabled:
-        _retry_func_wrapper = functools.partial(
-            backoff.on_exception,
-            backoff.expo, 
-            exception = Exception, 
-            giveup = _cachify.retry_giveup_callable,
-            factor = 5,
-        )
-
-    def decorator(func: FunctionT):
-        if _cachify.retry_enabled:
-            func = _retry_func_wrapper(max_tries = _cachify.retry_max_attempts + 1)(func)
+    def create_sync_decorator(self, func: FunctionT) -> Callable[..., ReturnValueT]:
+        """
+        Creates the sync wrapper
+        """
+        self.is_async = False
+        if self.retry_enabled:
+            _retry_func_wrapper = functools.partial(
+                backoff.on_exception,
+                backoff.expo, 
+                exception = Exception, 
+                giveup = self.retry_giveup_callable,
+                factor = 5,
+            )
+            func = _retry_func_wrapper(max_tries = self.retry_max_attempts + 1)(func)
         
         _current_cache_key = None
         _current_was_cached = False
 
-        @functools.wraps(func)
+        def is_session_available():
+            if self.session_available is None:
+                with contextlib.suppress(Exception):
+                    self.session.ping()
+                    self.session_available = True
+            return self.session_available
+        
+
+        @makefun.wraps(func)
         def wrapper(*args, **kwargs):
+            """
+            Inner wrapper
+            """
             nonlocal _current_cache_key, _current_was_cached
 
+            if not is_session_available():
+                with contextlib.suppress(Exception):
+                    return timed_cache(secs = self.ttl)(func)(*args, **kwargs)
+                return func(*args, **kwargs)
+
             # Set the cache field
-            _cachify.build_hash_name(func, *args, **kwargs)
-            _cachify.validate_is_class_method(func)
-            _cachify.run_post_init_hook(func, *args, **kwargs)
+            self.build_hash_name(func, *args, **kwargs)
+            self.validate_is_class_method(func)
+            self.run_post_init_hook(func, *args, **kwargs)
             
-            cachify_kwargs, kwargs = _cachify.extract_cache_kwargs(**kwargs)
+            cachify_kwargs, kwargs = self.extract_cache_kwargs(**kwargs)
 
             # Check if we should disable the cache
-            if _cachify.should_disable(*args, cache_kwargs = cachify_kwargs, **kwargs):
-                if _cachify.super_verbose: logger.info('Disabling', prefix = _cachify.cache_field, colored = True)
+            if self.should_disable(*args, cache_kwargs = cachify_kwargs, **kwargs):
+                if self.super_verbose: logger.info('Disabling', prefix = self.cache_field, colored = True)
                 return func(*args, **kwargs)
             
             # Get the cache key
@@ -1145,42 +1207,42 @@ def cachify_sync(
 
             
             # Check if we should invalidate
-            if _cachify.should_invalidate(*args, cache_kwargs = cachify_kwargs, **kwargs):
-                if _cachify.verbosity: logger.info('Invalidating', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
-                _cachify.invalidate_cache(cache_key)
+            if self.should_invalidate(*args, cache_kwargs = cachify_kwargs, **kwargs):
+                if self.verbosity: logger.info('Invalidating', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                self.invalidate_cache(cache_key)
             
             # Check if we have a cache hit
-            value = _cachify.retrieve(cache_key, *args, cache_kwargs = cachify_kwargs, **kwargs)
+            value = self.retrieve(cache_key, *args, cache_kwargs = cachify_kwargs, **kwargs)
             if value == ENOVAL:
                 try:
                     value = func(*args, **kwargs)
-                    if _cachify.should_cache_value(value):
-                        if _cachify.super_verbose: logger.info('Caching Value', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
-                        _cachify.set(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
-                    if _cachify.super_verbose: logger.info('Cache Miss', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
-                    _cachify.run_post_call_hook(value, *args, is_hit = False, **kwargs)
+                    if self.should_cache_value(value):
+                        if self.super_verbose: logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                        self.set(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
+                    if self.super_verbose: logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                    self.run_post_call_hook(value, *args, is_hit = False, **kwargs)
                     return value
                 
                 except Exception as e:
-                    if _cachify.verbosity: logger.trace(f'[{_cachify.cache_field}:{cache_key}] Exception', error = e)
-                    if _cachify.raise_exceptions: raise e
+                    if self.verbosity: logger.trace(f'[{self.cache_field}:{cache_key}] Exception', error = e)
+                    if self.raise_exceptions: raise e
                     return None
             _current_was_cached = True
-            if _cachify.super_verbose: logger.info('Cache Hit', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
-            _cachify.run_post_call_hook(value, *args, is_hit = True, **kwargs)
+            if self.super_verbose: logger.info('Cache Hit', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+            self.run_post_call_hook(value, *args, is_hit = True, **kwargs)
             return value
 
         def __cache_key__(*args, **kwargs) -> str:
             """
             Returns the cache key
             """
-            return _cachify.build_hash_key(*args, **kwargs)
+            return self.build_hash_key(*args, **kwargs)
         
         def is_cached() -> bool:
             """
             Returns whether or not the function is cached
             """
-            return _cachify._exists(_current_cache_key)
+            return self._exists(_current_cache_key)
         
         def was_cached() -> bool:
             """
@@ -1188,629 +1250,331 @@ def cachify_sync(
             """
             return _current_was_cached
         
+        def clear(keys: Optional[Union[str, List[str]]] = None, **kwargs) -> Optional[int]:
+            """
+            Clears the cache
+            """
+            return self.clear(keys = keys)
+        
+        def num_hits(*args, **kwargs) -> int:
+            """
+            Returns the number of hits
+            """
+            return self.num_hits
+        
+        def num_keys(**kwargs) -> int:
+            """
+            Returns the number of keys
+            """
+            return self.num_keys
+        
+        def cache_keys(**kwargs) -> List[str]:
+            """
+            Returns the keys
+            """
+            return self.cache_keys
+        
+        def cache_values(**kwargs) -> List[Any]:
+            """
+            Returns the values
+            """
+            return self.cache_values
+        
+        def cache_items(**kwargs) -> Dict[str, Any]:
+            """
+            Returns the items
+            """
+            return self.cache_items
+        
+        def invalidate_key(key: str, **kwargs) -> int:
+            """
+            Invalidates the cache
+            """
+            return self.invalidate_cache(key)
+        
+        def cache_timestamps(**kwargs) -> Dict[str, float]:
+            """
+            Returns the timestamps
+            """
+            return self.cache_timestamps
+        
+        def cache_keyhits(**kwargs) -> Dict[str, int]:
+            """
+            Returns the keyhits
+            """
+            return self.cache_keyhits
+        
+        def cache_policy(**kwargs) -> Dict[str, Union[int, CachePolicy]]:
+            """
+            Returns the cache policy
+            """
+            return {
+                'max_size': self.cache_max_size,
+                'max_size_policy': self.cache_max_size_policy,
+            }
+
+        def cache_config(**kwargs) -> Dict[str, Any]:
+            """
+            Returns the cache config
+            """
+            values = self.model_dump(exclude = {'session'})
+            for k, v in values.items():
+                if callable(v): values[k] = get_function_name(v)
+            return values
+
+        def cache_info(**kwargs) -> Dict[str, Any]:
+            """
+            Returns the info for the cache
+            """
+            return self.cache_info
+        
+        def cache_update(**kwargs) -> Dict[str, Any]:
+            """
+            Updates the cache config
+            """
+            self.update(**kwargs)
+            return cache_config(**kwargs)
+        
         wrapper.__cache_key__ = __cache_key__
         wrapper.is_cached = is_cached
         wrapper.was_cached = was_cached
+        wrapper.clear = clear
+        wrapper.num_hits = num_hits
+        wrapper.num_keys = num_keys
+        wrapper.cache_keys = cache_keys
+        wrapper.cache_values = cache_values
+        wrapper.cache_items = cache_items
+        wrapper.invalidate_key = invalidate_key
+        wrapper.cache_timestamps = cache_timestamps
+        wrapper.cache_keyhits = cache_keyhits
+        wrapper.cache_policy = cache_policy
+        wrapper.cache_config = cache_config
+        wrapper.cache_info = cache_info
+        wrapper.cache_update = cache_update
         return wrapper
-    
-    return decorator
 
 
-def cachify_async(
-    session: 'KVDBSession',
-    _cachify: CachifyConfig,
-) -> Callable[..., ReturnValueT]:
-    """
-    [Async] Creates a cachified function
-    """
-    _cachify.session = session
-    _cachify.is_async = True
-    if _cachify.retry_enabled:
-        _retry_func_wrapper = functools.partial(
-            backoff.on_exception,
-            backoff.expo, 
-            exception = Exception, 
-            giveup = _cachify.retry_giveup_callable,
-            factor = 5,
-        )
 
-    def decorator(func: FunctionT):
-        if _cachify.retry_enabled: func = _retry_func_wrapper(max_tries = _cachify.retry_max_attempts + 1)(func)
+    def create_async_decorator(
+        self,
+        func: FunctionT,
+    ) -> Callable[..., ReturnValueT]:
+        """
+        Creates the async wrapper
+        """
+        self.is_async = True
+        if self.retry_enabled:
+            _retry_func_wrapper = functools.partial(
+                backoff.on_exception,
+                backoff.expo, 
+                exception = Exception, 
+                giveup = self.retry_giveup_callable,
+                factor = 5,
+            )
+            func = _retry_func_wrapper(max_tries = self.retry_max_attempts + 1)(func)
         
         _current_cache_key = None
         _current_was_cached = False
 
+        async def is_session_available():
+            if self.session_available is None:
+                with contextlib.suppress(Exception):
+                    with anyio.move_on_after(1.0):
+                        if await self.session.aping():
+                            self.session_available = True
+            return self.session_available
+
+        
+
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
+            """
+            Inner wrapper
+            """
             nonlocal _current_cache_key, _current_was_cached
+            if not await is_session_available():
+                with contextlib.suppress(Exception):
+                    return await timed_cache(secs = self.ttl)(func)(*args, **kwargs)
+                return await func(*args, **kwargs)
 
             # Set the cache field
-            await _cachify.abuild_hash_name(func, *args, **kwargs)
-            _cachify.validate_is_class_method(func)
-            await _cachify.arun_post_init_hook(func, *args, **kwargs)
-            cachify_kwargs, kwargs = _cachify.extract_cache_kwargs(**kwargs)
+            await self.abuild_hash_name(func, *args, **kwargs)
+            self.validate_is_class_method(func)
+            await self.arun_post_init_hook(func, *args, **kwargs)
+            cachify_kwargs, kwargs = self.extract_cache_kwargs(**kwargs)
 
             # Check if we should disable the cache
-            if await _cachify.ashould_disable(*args, cache_kwargs = cachify_kwargs, **kwargs):
-                if _cachify.super_verbose: logger.info('Disabling', prefix = _cachify.cache_field, colored = True)
-                return func(*args, **kwargs)
+            if await self.ashould_disable(*args, cache_kwargs = cachify_kwargs, **kwargs):
+                if self.super_verbose: logger.info('Disabling', prefix = self.cache_field, colored = True)
+                return await func(*args, **kwargs)
             
             # Get the cache key
             cache_key = await wrapper.__cache_key__(*args, **kwargs)
             _current_cache_key = cache_key
             
             # Check if we should invalidate
-            if await _cachify.ashould_invalidate(*args, cache_kwargs = cachify_kwargs, **kwargs):
-                if _cachify.verbosity: logger.info('Invalidating', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
-                await _cachify.invalidate_cache(cache_key)
+            if await self.ashould_invalidate(*args, cache_kwargs = cachify_kwargs, **kwargs):
+                if self.verbosity: logger.info('Invalidating', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                await self.invalidate_cache(cache_key)
             
             # Check if we have a cache hit
-            value = await _cachify.aretrieve(cache_key, *args, cache_kwargs = cachify_kwargs, **kwargs)
+            value = await self.aretrieve(cache_key, *args, cache_kwargs = cachify_kwargs, **kwargs)
             if value == ENOVAL:
                 try:
-                    value = func(*args, **kwargs)
-                    if await _cachify.ashould_cache_value(value):
-                        if _cachify.super_verbose: logger.info('Caching Value', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
-                        await _cachify.aset(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
-                    if _cachify.super_verbose: logger.info('Cache Miss', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
-                    await _cachify.arun_post_call_hook(value, *args, is_hit = False, **kwargs)
+                    value = await func(*args, **kwargs)
+                    if await self.ashould_cache_value(value):
+                        if self.super_verbose: logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                        await self.aset(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
+                    if self.super_verbose: logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                    await self.arun_post_call_hook(value, *args, is_hit = False, **kwargs)
                     return value
                 
                 except Exception as e:
-                    if _cachify.verbosity: logger.trace(f'[{_cachify.cache_field}:{cache_key}] Exception', error = e)
-                    if _cachify.raise_exceptions: raise e
+                    if self.verbosity: logger.trace(f'[{self.cache_field}:{cache_key}] Exception', error = e)
+                    if self.raise_exceptions: raise e
                     return None
             
             _current_was_cached = True
-            if _cachify.super_verbose: logger.info('Cache Hit', prefix = f'{_cachify.cache_field}:{cache_key}', colored = True)
-            await _cachify.arun_post_call_hook(value, *args, is_hit = True, **kwargs)
+            if self.super_verbose: logger.info('Cache Hit', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+            await self.arun_post_call_hook(value, *args, is_hit = True, **kwargs)
             return value
 
         async def __cache_key__(*args, **kwargs) -> str:
             """
             Returns the cache key
             """
-            return await _cachify.abuild_hash_key(*args, **kwargs)
+            return await self.abuild_hash_key(*args, **kwargs)
         
         def is_cached() -> bool:
             """
             Returns whether or not the function is cached
             """
-            return _cachify._exists(_current_cache_key)
+            return self._exists(_current_cache_key)
         
         def was_cached() -> bool:
             """
             Returns whether or not the function was cached
             """
             return _current_was_cached
+                
+
+        async def clear(keys: Optional[Union[str, List[str]]] = None, **kwargs) -> Optional[int]:
+            """
+            Clears the cache
+            """
+            return await self.clear(keys = keys)
         
+        async def num_hits(*args, **kwargs) -> int:
+            """
+            Returns the number of hits
+            """
+            return await self.anum_hits
+        
+        async def num_keys(**kwargs) -> int:
+            """
+            Returns the number of keys
+            """
+            return await self.anum_keys
+        
+        async def cache_keys(**kwargs) -> List[str]:
+            """
+            Returns the keys
+            """
+            return await self.acache_keys
+        
+        async def cache_values(**kwargs) -> List[Any]:
+            """
+            Returns the values
+            """
+            return await self.acache_values
+        
+        async def cache_items(**kwargs) -> Dict[str, Any]:
+            """
+            Returns the items
+            """
+            return await self.acache_items
+        
+        async def invalidate_key(key: str, **kwargs) -> int:
+            """
+            Invalidates the cache
+            """
+            return await self.invalidate_cache(key)
+        
+        async def cache_timestamps(**kwargs) -> Dict[str, float]:
+            """
+            Returns the timestamps
+            """
+            return await self.acache_timestamps
+        
+        async def cache_keyhits(**kwargs) -> Dict[str, int]:
+            """
+            Returns the keyhits
+            """
+            return await self.acache_keyhits
+        
+        async def cache_policy(**kwargs) -> Dict[str, Union[int, CachePolicy]]:
+            """
+            Returns the cache policy
+            """
+            return {
+                'max_size': self.cache_max_size,
+                'max_size_policy': self.cache_max_size_policy,
+            }
+
+        async def cache_config(**kwargs) -> Dict[str, Any]:
+            """
+            Returns the cache config
+            """
+            values = self.model_dump(exclude = {'session'})
+            for k, v in values.items():
+                if callable(v): values[k] = get_function_name(v)
+            return values
+
+        async def cache_info(**kwargs) -> Dict[str, Any]:
+            """
+            Returns the info for the cache
+            """
+            return await self.acache_info
+        
+        async def cache_update(**kwargs) -> Dict[str, Any]:
+            """
+            Updates the cache config
+            """
+            self.update(**kwargs)
+            return await cache_config(**kwargs)
+
+
         wrapper.__cache_key__ = __cache_key__
         wrapper.is_cached = is_cached
         wrapper.was_cached = was_cached
+        wrapper.clear = clear
+        wrapper.num_hits = num_hits
+        wrapper.num_keys = num_keys
+        wrapper.cache_keys = cache_keys
+        wrapper.cache_values = cache_values
+        wrapper.cache_items = cache_items
+        wrapper.invalidate_key = invalidate_key
+        wrapper.cache_timestamps = cache_timestamps
+        wrapper.cache_keyhits = cache_keyhits
+        wrapper.cache_policy = cache_policy
+        wrapper.cache_config = cache_config
+        wrapper.cache_info = cache_info
+        wrapper.cache_update = cache_update
         return wrapper
     
-    return decorator
 
 
-
-def fallback_sync_wrapper(
-    func: FunctionT, 
-    session: 'KVDBSession', 
-    _cachify: CachifyConfig,
-) -> FunctionT:
-    """
-    [Sync] Handles the fallback wrapper
-    """
-
-    _sess_ctx: Optional['KVDBSession'] = None
-
-    def _get_sess():
-        nonlocal _sess_ctx
-        if _sess_ctx is None:
-            with contextlib.suppress(Exception):
-                if session.client.ping(): _sess_ctx = session
-        return _sess_ctx
-    
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def __call__(
+        self,
+        function: FunctionT,
+    ) -> Callable[..., ReturnValueT]:
         """
-        The wrapper for cachify
+        Performs the decorator
         """
-        _sess = _get_sess()
-        if _sess is None:
-            with contextlib.suppress(Exception):
-                return timed_cache(secs = _cachify.ttl)(func)(*args, **kwargs)
-            return func(*args, **kwargs)
-        return cachify_sync(_sess, _cachify)(func)(*args, **kwargs)
-
-    def clear(keys: Optional[Union[str, List[str]]] = None, **kwargs) -> Optional[int]:
-        """
-        Clears the cache
-        """
-        return _cachify.clear(keys = keys)
-    
-    def num_hits(*args, **kwargs) -> int:
-        """
-        Returns the number of hits
-        """
-        return _cachify.num_hits
-    
-    def num_keys(**kwargs) -> int:
-        """
-        Returns the number of keys
-        """
-        return _cachify.num_keys
-    
-    def cache_keys(**kwargs) -> List[str]:
-        """
-        Returns the keys
-        """
-        return _cachify.cache_keys
-    
-    def cache_values(**kwargs) -> List[Any]:
-        """
-        Returns the values
-        """
-        return _cachify.cache_values
-    
-    def cache_items(**kwargs) -> Dict[str, Any]:
-        """
-        Returns the items
-        """
-        return _cachify.cache_items
-    
-    def invalidate_key(key: str, **kwargs) -> int:
-        """
-        Invalidates the cache
-        """
-        return _cachify.invalidate_cache(key)
-    
-    def cache_timestamps(**kwargs) -> Dict[str, float]:
-        """
-        Returns the timestamps
-        """
-        return _cachify.cache_timestamps
-    
-    def cache_keyhits(**kwargs) -> Dict[str, int]:
-        """
-        Returns the keyhits
-        """
-        return _cachify.cache_keyhits
-    
-    def cache_policy(**kwargs) -> Dict[str, Union[int, CachePolicy]]:
-        """
-        Returns the cache policy
-        """
-        return {
-            'max_size': _cachify.cache_max_size,
-            'max_size_policy': _cachify.cache_max_size_policy,
-        }
-
-    def cache_config(**kwargs) -> Dict[str, Any]:
-        """
-        Returns the cache config
-        """
-        values = _cachify.model_dump(exclude = {'session'})
-        for k, v in values.items():
-            if callable(v): values[k] = get_function_name(v)
-        return values
-
-    def cache_info(**kwargs) -> Dict[str, Any]:
-        """
-        Returns the info for the cache
-        """
-        return _cachify.cache_info
-    
-    def cache_update(**kwargs) -> Dict[str, Any]:
-        """
-        Updates the cache config
-        """
-        _cachify.update(**kwargs)
-        return cache_config(**kwargs)
-
-    wrapper.clear = clear
-    wrapper.num_hits = num_hits
-    wrapper.num_keys = num_keys
-    wrapper.cache_keys = cache_keys
-    wrapper.cache_values = cache_values
-    wrapper.cache_items = cache_items
-    wrapper.invalidate_key = invalidate_key
-    wrapper.cache_timestamps = cache_timestamps
-    wrapper.cache_keyhits = cache_keyhits
-    wrapper.cache_policy = cache_policy
-    wrapper.cache_config = cache_config
-    wrapper.cache_info = cache_info
-    wrapper.cache_update = cache_update
-    return wrapper
-
-
-
-def fallback_async_wrapper(
-    func: FunctionT, 
-    session: 'KVDBSession', 
-    _cachify: CachifyConfig,
-) -> FunctionT:
-    """
-    [Async] Handles the fallback wrapper
-    """
-
-    _sess_ctx: Optional['KVDBSession'] = None
-
-    async def _get_sess():
-        nonlocal _sess_ctx
-        if _sess_ctx is None:
-            with contextlib.suppress(Exception):
-                with anyio.fail_after(1.0):
-                    if await session.aclient.ping(): _sess_ctx = session
-            if _cachify.verbosity and _sess_ctx is None: logger.error('Could not connect to KVDB')
-        return _sess_ctx
-
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        """
-        The wrapper for cachify
-        """
-        _sess = await _get_sess()
-        if _sess is None:
-            with contextlib.suppress(Exception):
-                return await timed_cache(secs = _cachify.ttl)(func)(*args, **kwargs)
-            return await func(*args, **kwargs)
-        return await cachify_async(_sess, _cachify)(func)(*args, **kwargs)
-
-    async def clear(keys: Optional[Union[str, List[str]]] = None, **kwargs) -> Optional[int]:
-        """
-        Clears the cache
-        """
-        return await _cachify.aclear(keys = keys)
-    
-    async def num_hits(*args, **kwargs) -> int:
-        """
-        Returns the number of hits
-        """
-        return await _cachify.anum_hits
-    
-    async def num_keys(**kwargs) -> int:
-        """
-        Returns the number of keys
-        """
-        return await _cachify.anum_keys
-    
-    async def cache_keys(**kwargs) -> List[str]:
-        """
-        Returns the keys
-        """
-        return await _cachify.acache_keys
-    
-    async def cache_values(**kwargs) -> List[Any]:
-        """
-        Returns the values
-        """
-        return await _cachify.acache_values
-    
-    async def cache_items(**kwargs) -> Dict[str, Any]:
-        """
-        Returns the items
-        """
-        return await _cachify.acache_items
-    
-    async def invalidate_key(key: str, **kwargs) -> int:
-        """
-        Invalidates the cache
-        """
-        return await _cachify.invalidate_cache(key)
-    
-    async def cache_timestamps(**kwargs) -> Dict[str, float]:
-        """
-        Returns the timestamps
-        """
-        return await _cachify.acache_timestamps
-    
-    async def cache_keyhits(**kwargs) -> Dict[str, int]:
-        """
-        Returns the keyhits
-        """
-        return await _cachify.acache_keyhits
-    
-    async def cache_policy(**kwargs) -> Dict[str, Union[int, CachePolicy]]:
-        """
-        Returns the cache policy
-        """
-        return {
-            'max_size': _cachify.cache_max_size,
-            'max_size_policy': _cachify.cache_max_size_policy,
-        }
-
-    async def cache_config(**kwargs) -> Dict[str, Any]:
-        """
-        Returns the cache config
-        """
-        values = _cachify.model_dump(exclude = {'session'})
-        for k, v in values.items():
-            if callable(v): values[k] = get_function_name(v)
-        return values
-
-    async def cache_info(**kwargs) -> Dict[str, Any]:
-        """
-        Returns the info for the cache
-        """
-        return await _cachify.acache_info
-    
-    async def cache_update(**kwargs) -> Dict[str, Any]:
-        """
-        Updates the cache config
-        """
-        _cachify.update(**kwargs)
-        return await cache_config(**kwargs)
-
-    wrapper.clear = clear
-    wrapper.num_hits = num_hits
-    wrapper.num_keys = num_keys
-    wrapper.cache_keys = cache_keys
-    wrapper.cache_values = cache_values
-    wrapper.cache_items = cache_items
-    wrapper.invalidate_key = invalidate_key
-    wrapper.cache_timestamps = cache_timestamps
-    wrapper.cache_keyhits = cache_keyhits
-    wrapper.cache_policy = cache_policy
-    wrapper.cache_config = cache_config
-    wrapper.cache_info = cache_info
-    wrapper.cache_update = cache_update
-
-    return wrapper
-
-
-@overload
-def cachify(
-    ttl: Optional[int] = 60 * 10, # 10 minutes
-    ttl_kws: Optional[List[str]] = ['cache_ttl'], # The keyword arguments to use for the ttl
-
-    keybuilder: Optional[Callable] = None,
-    name: Optional[Union[str, Callable]] = None,
-    typed: Optional[bool] = True,
-    exclude_keys: Optional[List[str]] = None,
-    exclude_null: Optional[bool] = True,
-    exclude_exceptions: Optional[Union[bool, List[Exception]]] = True,
-    prefix: Optional[str] = '_kvc_', # The prefix to use for the cache if keybuilder is not present
-
-    exclude_null_values_in_hash: Optional[bool] = None,
-    exclude_default_values_in_hash: Optional[bool] = None,
-
-    disabled: Optional[Union[bool, Callable]] = None,
-    disabled_kws: Optional[List[str]] = ['cache_disable'], # If present and True, disable the cache
-    
-    invalidate_after: Optional[Union[int, Callable]] = None,
-    
-    invalidate_if: Optional[Callable] = None,
-    invalidate_kws: Optional[List[str]] = ['cache_invalidate'], # If present and True, invalidate the cache
-
-    overwrite_if: Optional[Callable] = None,
-    overwrite_kws: Optional[List[str]] = ['cache_overwrite'], # If present and True, overwrite the cache
-
-    retry_enabled: Optional[bool] = False,
-    retry_max_attempts: Optional[int] = 3, # Will retry 3 times
-    retry_giveup_callable: Optional[Callable[..., bool]] = None,
-
-    timeout: Optional[float] = 5.0,
-    verbosity: Optional[int] = None,
-
-    raise_exceptions: Optional[bool] = True,
-
-    encoder: Optional[Union[str, Callable]] = None,
-    decoder: Optional[Union[str, Callable]] = None,
-
-    # Allow for custom hit setters and getters
-    hit_setter: Optional[Callable] = None,
-    hit_getter: Optional[Callable] = None,
-
-    # Allow for max cache size
-    cache_max_size: Optional[int] = None,
-    cache_max_size_policy: Optional[Union[str, CachePolicy]] = CachePolicy.LFU, # 'LRU' | 'LFU' | 'FIFO' | 'LIFO'
-
-    # Allow for post-init hooks
-    post_init_hook: Optional[Union[str, Callable]] = None,
-    
-    # Allow for post-call hooks
-    post_call_hook: Optional[Union[str, Callable]] = None,
-    hset_enabled: Optional[bool] = True,
-
-    session: Optional['KVDBSession'] = None,
-    session_name: Optional[str] = None,
-    session_kwargs: Optional[Dict[str, Any]] = None,
-) -> Callable[[FunctionT], FunctionT]:  # sourcery skip: default-mutable-arg
-    """
-    Creates a new cachify decorator
-
-    Args:
-
-        ttl (Optional[int], optional): The time to live for the cache. Defaults to 60 * 10 (10 minutes).
-        ttl_kws (Optional[List[str]], optional): The keyword arguments to use for the ttl. Defaults to ['cache_ttl'].
-        keybuilder (Optional[Callable], optional): The keybuilder function to use. Defaults to None.
-        name (Optional[Union[str, Callable]], optional): The name of the cache. Defaults to None.
-        typed (Optional[bool], optional): Whether or not to use typed caching. Defaults to True.
-        exclude_keys (Optional[List[str]], optional): The keys to exclude from the cache. Defaults to None.
-        exclude_null (Optional[bool], optional): Whether or not to exclude null values from the cache. Defaults to True.
-        exclude_exceptions (Optional[Union[bool, List[Exception]]], optional): Whether or not to exclude exceptions from the cache. Defaults to True.
-        prefix (Optional[str], optional): The prefix to use for the cache if keybuilder is not present. Defaults to '_kvc_'.
-        exclude_null_values_in_hash (Optional[bool], optional): Whether or not to exclude null values from the hash. Defaults to None.
-        exclude_default_values_in_hash (Optional[bool], optional): Whether or not to exclude default values from the hash. Defaults to None.
-        disabled (Optional[Union[bool, Callable]], optional): Whether or not to disable the cache. Defaults to None.
-        disabled_kws (Optional[List[str]], optional): The keyword arguments to use for the disabled flag. Defaults to ['cache_disable'].
-        invalidate_after (Optional[Union[int, Callable]], optional): The time to invalidate the cache after. Defaults to None.
-        invalidate_if (Optional[Callable], optional): The function to use to invalidate the cache. Defaults to None.
-        invalidate_kws (Optional[List[str]], optional): The keyword arguments to use for the invalidate flag. Defaults to ['cache_invalidate'].
-        overwrite_if (Optional[Callable], optional): The function to use to overwrite the cache. Defaults to None.
-        overwrite_kws (Optional[List[str]], optional): The keyword arguments to use for the overwrite flag. Defaults to ['cache_overwrite'].
-        retry_enabled (Optional[bool], optional): Whether or not to enable retries. Defaults to False.
-        retry_max_attempts (Optional[int], optional): The maximum number of retries. Defaults to 3.
-        retry_giveup_callable (Optional[Callable[..., bool]], optional): The function to use to give up on retries. Defaults to None.
-        timeout (Optional[float], optional): The timeout for the cache. Defaults to 5.0.
-        verbosity (Optional[int], optional): The verbosity level. Defaults to None.
-        raise_exceptions (Optional[bool], optional): Whether or not to raise exceptions. Defaults to True.
-        encoder (Optional[Union[str, Callable]], optional): The encoder to use. Defaults to None.
-        decoder (Optional[Union[str, Callable]], optional): The decoder to use. Defaults to None.
-        hit_setter (Optional[Callable], optional): The hit setter to use. Defaults to None.
-        hit_getter (Optional[Callable], optional): The hit getter to use. Defaults to None.
-        cache_max_size (Optional[int], optional): The maximum size of the cache. Defaults to None.
-        cache_max_size_policy (Optional[Union[str, CachePolicy]], optional): The cache policy to use. Defaults to CachePolicy.LFU.
-        post_init_hook (Optional[Union[str, Callable]], optional): The post init hook to use. Defaults to None.
-        post_call_hook (Optional[Union[str, Callable]], optional): The post call hook to use. Defaults to None.
-        hset_enabled (Optional[bool], optional): Whether or not to enable hset/hget/hdel/hmset/hmget/hmgetall. Defaults to True.
-        session (Optional['KVDBSession'], optional): The session to use. Defaults to None.
-        session_name (Optional[str], optional): The session name to use. Defaults to None.
-        session_kwargs (Optional[Dict[str, Any]], optional): The session kwargs to use. Defaults to None.
-    """
-    ...
-
-
-
-def cachify(
-    session: Optional[Union['KVDBSession', str]] = None,
-    session_name: Optional[str] = None,
-    session_kwargs: Optional[Dict[str, Any]] = None,
-    **kwargs
-) -> Callable[[FunctionT], FunctionT]:
-    """
-    This version implements a custom KeyDB caching decorator
-    that utilizes hset/hget/hdel/hmset/hmget/hmgetall
-    instead of the default set/get/del
-    """
-    from kvdb.configs import settings
-    base_kwargs = settings.cache.model_dump(exclude_none=True, exclude_unset=True)
-    base_kwargs.update(kwargs)
-    _cachify = CachifyConfig(**base_kwargs)
-    def decorator(func: FunctionT) -> FunctionT:
-        """
-        The decorator for cachify
-        """
-        nonlocal session, session_name, session_kwargs
-        if session and isinstance(session, str):
-            session_name = session
-            session = None
-        if session is None: 
-            session_kwargs = session_kwargs or {}
-            from kvdb.client import KVDBClient
-            session = KVDBClient.get_session(
-                name = session_name, 
-                **session_kwargs
-            )
-        if inspect.iscoroutinefunction(func):
-            return fallback_async_wrapper(func, session, _cachify)
-        else:
-            return fallback_sync_wrapper(func, session, _cachify)
-    return decorator
-
-
-
-@overload
-def create_cachify(
-    ttl: Optional[int] = 60 * 10, # 10 minutes
-    ttl_kws: Optional[List[str]] = ['cache_ttl'], # The keyword arguments to use for the ttl
-
-    keybuilder: Optional[Callable] = None,
-    name: Optional[Union[str, Callable]] = None,
-    typed: Optional[bool] = True,
-    exclude_keys: Optional[List[str]] = None,
-    exclude_null: Optional[bool] = True,
-    exclude_exceptions: Optional[Union[bool, List[Exception]]] = True,
-    prefix: Optional[str] = '_kvc_',
-
-    exclude_null_values_in_hash: Optional[bool] = None,
-    exclude_default_values_in_hash: Optional[bool] = None,
-
-    disabled: Optional[Union[bool, Callable]] = None,
-    disabled_kws: Optional[List[str]] = ['cache_disable'], # If present and True, disable the cache
-    
-    invalidate_after: Optional[Union[int, Callable]] = None,
-    
-    invalidate_if: Optional[Callable] = None,
-    invalidate_kws: Optional[List[str]] = ['cache_invalidate'], # If present and True, invalidate the cache
-
-    overwrite_if: Optional[Callable] = None,
-    overwrite_kws: Optional[List[str]] = ['cache_overwrite'], # If present and True, overwrite the cache
-
-    retry_enabled: Optional[bool] = False,
-    retry_max_attempts: Optional[int] = 3, # Will retry 3 times
-    retry_giveup_callable: Optional[Callable[..., bool]] = None,
-    
-    timeout: Optional[float] = 5.0,
-    verbosity: Optional[int] = None,
-
-    raise_exceptions: Optional[bool] = True,
-
-    encoder: Optional[Union[str, Callable]] = None,
-    decoder: Optional[Union[str, Callable]] = None,
-
-    # Allow for custom hit setters and getters
-    hit_setter: Optional[Callable] = None,
-    hit_getter: Optional[Callable] = None,
-
-    # Allow for max cache size
-    cache_max_size: Optional[int] = None,
-    cache_max_size_policy: Optional[Union[str, CachePolicy]] = CachePolicy.LFU, # 'LRU' | 'LFU' | 'FIFO' | 'LIFO'
-
-    # Allow for post-init hooks
-    post_init_hook: Optional[Union[str, Callable]] = None,
-    
-    # Allow for post-call hooks
-    post_call_hook: Optional[Union[str, Callable]] = None,
-    hset_enabled: Optional[bool] = True,
-
-    session: Optional['KVDBSession'] = None,
-    session_name: Optional[str] = None,
-    session_kwargs: Optional[Dict[str, Any]] = None,
-) -> Callable[[FunctionT], FunctionT]:  # sourcery skip: default-mutable-arg
-    """
-    Creates a new cachify partial decorator that
-    passes the kwargs to the cachify decorator before it is applied
-
-    Args:
-
-        ttl (Optional[int], optional): The time to live for the cache. Defaults to 60 * 10 (10 minutes).
-        ttl_kws (Optional[List[str]], optional): The keyword arguments to use for the ttl. Defaults to ['cache_ttl'].
-        keybuilder (Optional[Callable], optional): The keybuilder function to use. Defaults to None.
-        name (Optional[Union[str, Callable]], optional): The name of the cache. Defaults to None.
-        typed (Optional[bool], optional): Whether or not to use typed caching. Defaults to True.
-        exclude_keys (Optional[List[str]], optional): The keys to exclude from the cache. Defaults to None.
-        exclude_null (Optional[bool], optional): Whether or not to exclude null values from the cache. Defaults to True.
-        exclude_exceptions (Optional[Union[bool, List[Exception]]], optional): Whether or not to exclude exceptions from the cache. Defaults to True.
-        prefix (Optional[str], optional): The prefix to use for the cache if keybuilder is not present. Defaults to '_kvc_'.
-        exclude_null_values_in_hash (Optional[bool], optional): Whether or not to exclude null values from the hash. Defaults to None.
-        exclude_default_values_in_hash (Optional[bool], optional): Whether or not to exclude default values from the hash. Defaults to None.
-        disabled (Optional[Union[bool, Callable]], optional): Whether or not to disable the cache. Defaults to None.
-        disabled_kws (Optional[List[str]], optional): The keyword arguments to use for the disabled flag. Defaults to ['cache_disable'].
-        invalidate_after (Optional[Union[int, Callable]], optional): The time to invalidate the cache after. Defaults to None.
-        invalidate_if (Optional[Callable], optional): The function to use to invalidate the cache. Defaults to None.
-        invalidate_kws (Optional[List[str]], optional): The keyword arguments to use for the invalidate flag. Defaults to ['cache_invalidate'].
-        overwrite_if (Optional[Callable], optional): The function to use to overwrite the cache. Defaults to None.
-        overwrite_kws (Optional[List[str]], optional): The keyword arguments to use for the overwrite flag. Defaults to ['cache_overwrite'].
-        retry_enabled (Optional[bool], optional): Whether or not to enable retries. Defaults to False.
-        retry_max_attempts (Optional[int], optional): The maximum number of retries. Defaults to 3.
-        retry_giveup_callable (Optional[Callable[..., bool]], optional): The function to use to give up on retries. Defaults to None.
-        timeout (Optional[float], optional): The timeout for the cache. Defaults to 5.0.
-        verbosity (Optional[int], optional): The verbosity level. Defaults to None.
-        raise_exceptions (Optional[bool], optional): Whether or not to raise exceptions. Defaults to True.
-        encoder (Optional[Union[str, Callable]], optional): The encoder to use. Defaults to None.
-        decoder (Optional[Union[str, Callable]], optional): The decoder to use. Defaults to None.
-        hit_setter (Optional[Callable], optional): The hit setter to use. Defaults to None.
-        hit_getter (Optional[Callable], optional): The hit getter to use. Defaults to None.
-        cache_max_size (Optional[int], optional): The maximum size of the cache. Defaults to None.
-        cache_max_size_policy (Optional[Union[str, CachePolicy]], optional): The cache policy to use. Defaults to CachePolicy.LFU.
-        post_init_hook (Optional[Union[str, Callable]], optional): The post init hook to use. Defaults to None.
-        post_call_hook (Optional[Union[str, Callable]], optional): The post call hook to use. Defaults to None.
-        hset_enabled (Optional[bool], optional): Whether or not to enable hset/hget/hdel/hmset/hmget/hmgetall. Defaults to True.
-        session (Optional['KVDBSession'], optional): The session to use. Defaults to None.
-        session_name (Optional[str], optional): The session name to use. Defaults to None.
-        session_kwargs (Optional[Dict[str, Any]], optional): The session kwargs to use. Defaults to None.
-    """
-    ...
-
-
-
-def create_cachify(
-    **kwargs,
-):
-    """
-    Creates a new `cachify` partial decorator with the given kwargs
-    """
-    return functools.partial(cachify, **kwargs)
-
+        if not self.is_enabled: return function
+        if self.verbosity and self.verbosity > 4:
+            logger.info(f'[{self.cache_field}] Cachifying Function: {get_function_name(function)} ({is_coro_func(function)}), {self.model_dump()}')
+        if is_coro_func(function):
+            return self.create_async_decorator(function)
+        return self.create_sync_decorator(function)
+            

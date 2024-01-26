@@ -87,6 +87,9 @@ class KVDBCachifyConfig(SerializerConfig, BaseModel):
     # Allow for post-call hooks
     post_call_hook: Optional[Union[str, Callable]] = None
 
+
+    serializer: Optional[str] = 'json'
+    
     # Private
     cache_field: Optional[str] = None
     is_class_method: Optional[bool] = None

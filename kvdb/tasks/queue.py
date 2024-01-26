@@ -1150,27 +1150,33 @@ class TaskQueue(abc.ABC):
 
                 pool_max_connections = self.max_concurrency * 10,
                 apool_max_connections = self.max_concurrency ** 2,
-
-                serializer = self.config.serializer,
-                serializer_kwargs = self.config.serializer_kwargs,
-                compression = self.config.compression,
-                compression_level = self.config.compression_level,
-
                 socket_keepalive = self.config.socket_keepalive,
                 socket_timeout = self.config.socket_timeout,
                 socket_connect_timeout = self.config.socket_connect_timeout,
                 health_check_interval = self.config.heartbeat_interval,
-                
-                persistence_name = f'{self.queue_name}.persistence',
-                persistence_serializer = None,
-                # persistence_serializer = 'json', #  if self. is None else self.config.persistence_serializer,
-                persistence_expiration = self.config.job_max_stuck_duration,
-                persistence_async_enabled = True,
-                persistence_base_key = f'{self.queue_prefix}.{self.queue_name}.persistence',
-                persistence_hset_disabled = True,
                 set_as_ctx = False,
             )
         return self._ctx
+    
+
+    @property
+    def data(self) -> 'PersistentDict':
+        """
+        Returns the data
+        """
+        if self._data is None: 
+            self._data = self.ctx.create_persistence(
+                name = f'{self.queue_name}.persistence',
+                serializer = self.config.serializer,
+                serializer_kwargs = self.config.serializer_kwargs,
+                # serializer = 'json', #  if self. is None else self.config.persistence_serializer,
+                expiration = self.config.job_max_stuck_duration,
+                async_enabled = True,
+                base_key = f'{self.queue_prefix}.{self.queue_name}.persistence',
+                hset_disabled = True,
+
+            )
+        return self._data
     
     @property
     def push_queue(self) -> PushQueue:
@@ -1215,13 +1221,6 @@ class TaskQueue(abc.ABC):
         """
         return self.settings.logger if self.config.debug_enabled else self.settings.autologger
     
-    @property
-    def data(self) -> 'PersistentDict':
-        """
-        Returns the data
-        """
-        if self._data is None: self._data = self.ctx.persistence
-        return self._data
 
     def logger(
         self, 
@@ -1396,7 +1395,8 @@ class TaskQueue(abc.ABC):
         Register the worker with the queue
         """
         if self.worker_registered.get(worker.worker_id): return
-        await self.data.asetdefault('workers', {})
+        # await self.data.asetdefault('workers', {})
+        
         self.worker_registered[worker.worker_id] = True
         atexit.register(self.deregister_worker_on_exit, worker_id = worker.worker_id)
         # worker_id = worker.worker_id
@@ -1405,14 +1405,17 @@ class TaskQueue(abc.ABC):
         # self.worker_name = worker_name
         # self.worker = worker
         # self.autologger.info(f'Worker: {worker}, {self.data["workers"]}')
+        workers = await self.data.aget('workers', {})
         try:
-            self.data['workers'][worker.worker_id] = worker.worker_attributes
+            workers[worker.worker_id] = worker.worker_attributes
+            # self.data['workers'][worker.worker_id] = worker.worker_attributes
+            await self.data.aset('workers', workers)
         except TypeError as e:
             self.autologger.error(f'Unable to register worker {worker.worker_id}: {self.data["workers"]} {e}')
             _workers = {worker.worker_id: worker.worker_attributes}
             self.data['workers'] = _workers
         await self.data.aset(f'heartbeats:{worker.worker_id}', worker.name, ex = int(self.config.heartbeat_interval))
-        await self.data._asave_mutation_objects()
+        # await self.data._asave_mutation_objects()
         
     
     def register_worker(self, worker: 'TaskWorker'):
@@ -1420,7 +1423,7 @@ class TaskQueue(abc.ABC):
         Register the worker with the queue
         """
         if self.worker_registered.get(worker.worker_id): return
-        self.data.setdefault('workers', {})
+        # self.data.setdefault('workers', {})
         self.worker_registered[worker.worker_id] = True
         atexit.register(self.deregister_worker_on_exit, worker_id = worker.worker_id)
         # worker_id = worker.worker_id
@@ -1428,14 +1431,17 @@ class TaskQueue(abc.ABC):
         # self.worker_id = worker_id
         # self.worker_name = worker_name
         # self.worker = worker
+        workers = self.data.get('workers', {})
         try:
-            self.data['workers'][worker.worker_id] = worker.worker_attributes
+            workers[worker.worker_id] = worker.worker_attributes
+            self.data.set('workers', workers)
+            # self.data['workers'][worker.worker_id] = worker.worker_attributes
         except TypeError as e:
             self.autologger.error(f'Unable to register worker {worker.worker_id}: {self.data["workers"]} {e}')
             _workers = {worker.worker_id: worker.worker_attributes}
             self.data['workers'] = _workers
         self.data.set(f'heartbeats:{worker.worker_id}', worker.name, ex = int(self.config.heartbeat_interval))
-        self.data._save_mutation_objects()
+        # self.data._save_mutation_objects()
         
     
     def deregister_worker_on_exit(self, worker_id: Optional[str] = None):
@@ -1444,6 +1450,11 @@ class TaskQueue(abc.ABC):
         """
         # worker_id = worker_id or self.worker_id
         self.data.delete(f'heartbeats:{worker_id}')
-        _ = self.data['workers'].pop(worker_id, None)
-        self.data._save_mutation_objects()
+        # workers = self.data.get('workers', {})
+        # self.autologger.warning(f'Deregistering worker {worker_id}: {workers}')
+        try:
+            _ = self.data['workers'].pop(worker_id, None)
+            self.data._save_mutation_objects()
+        except Exception as e:
+            self.autologger.error(f'Unable to deregister worker {worker_id}: {e}')
 

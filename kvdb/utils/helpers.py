@@ -91,7 +91,9 @@ def create_cache_key_from_kwargs(
     kwargs: Optional[Dict[str, Any]] = None, 
     typed: Optional[bool] = False,
     exclude: Optional[List[str]] = None,
+    exclude_keys: Optional[List[str]] = None,
     exclude_null: Optional[bool] = True,
+    exclude_defaults: Optional[bool] = None,
     sep: Optional[str] = ":",
     is_classmethod: Optional[bool] = None,
 ) -> str:
@@ -108,6 +110,8 @@ def create_cache_key_from_kwargs(
     if kwargs:
         if exclude: kwargs = {k: v for k, v in kwargs.items() if k not in exclude}
         if exclude_null: kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        if exclude_keys: kwargs = {k: v for k, v in kwargs.items() if k not in exclude_keys}
+        if exclude_defaults: kwargs = {k: v for k, v in kwargs.items() if not inspect.Parameter.empty(v)}
         key += (ENOVAL,)
         sorted_items = sorted(kwargs.items())
 
@@ -211,25 +215,3 @@ class timeout:
         signal.alarm(0)
 
 
-def build_dict_from_str(
-    data: str,
-    **kwargs
-) -> Union[List[Any], Dict[str, Any]]:
-    """
-    Helper to build a dictionary from a string
-    """
-    import json
-    if (data.startswith('[') and data.endswith(']')) or (data.startswith('{') and data.endswith('}')):
-        return json.loads(data)
-    return build_dict_from_list(data.split(','), **kwargs)
-
-
-def build_dict_from_list(
-    data: List[str],
-    seperator: str = '=',
-) -> Dict[str, Any]:
-    """
-    Builds a dictionary from a list of strings
-    """
-    import json
-    return json.loads(str(dict([item.split(seperator) for item in data])))

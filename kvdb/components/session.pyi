@@ -61,6 +61,14 @@ class KVDBSession(abc.ABC):
         """
         Initializes the encoder
         """
+    def disable_serialization(self, decode_responses: Optional[bool] = None):
+        """
+        Disable Serialization in the Encoder
+        """
+    def enable_serialization(self, serializer: Optional['SerializerT'] = None, decode_responses: Optional[bool] = None):
+        """
+        Enable Serialization in the Encoder
+        """
     def init_cache_config(self, **kwargs: Any) -> None:
         """
         Initializes the cache config
@@ -68,6 +76,15 @@ class KVDBSession(abc.ABC):
     def init_state(self, **kwargs: Any) -> None:
         """
         Initializes the session state
+        """
+    def create_persistence(
+        self,
+        name: Optional[str] = None,
+        base_key: Optional[str] = None,
+        **kwargs,
+    ) -> 'PersistentDict':
+        """
+        Create a new persistence instance
         """
     def pubsub(self, retryable: typing.Optional[bool] = ..., **kwargs) -> PubSubT:
         """

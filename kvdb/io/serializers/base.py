@@ -7,6 +7,7 @@ Base Serializers
 import abc
 import zlib
 import hashlib
+from copy import deepcopy
 from kvdb.types.base import BaseModel
 from kvdb.utils.logs import logger
 from kvdb.utils.pool import Pooler
@@ -93,17 +94,25 @@ class BaseSerializer(abc.ABC):
         """
         Copies the serializer
         """
-        base_kwargs = {
-            'compressor': self.compressor,
-            'previous_compressor': self.previous_compressor,
-            'encoding': self.encoding,
-            'raise_errors': self.raise_errors,
-            'enable_deprecation_support': self.enable_deprecation_support,
-            'is_encoder': self.is_encoder,
-        }
-        base_kwargs.update(self._kwargs)
-        base_kwargs.update(kwargs)
-        return self.__class__(**base_kwargs)
+        new = deepcopy(self)
+        for k, v in kwargs.items():
+            if hasattr(new, k):
+                setattr(new, k, v)
+            else:
+                new._kwargs[k] = v
+            # setattr(new, k, v)
+        return new
+        # base_kwargs = {
+        #     'compressor': self.compressor,
+        #     'previous_compressor': self.previous_compressor,
+        #     'encoding': self.encoding,
+        #     'raise_errors': self.raise_errors,
+        #     'enable_deprecation_support': self.enable_deprecation_support,
+        #     'is_encoder': self.is_encoder,
+        # }
+        # base_kwargs.update(self._kwargs)
+        # base_kwargs.update(kwargs)
+        # return self.__class__(**base_kwargs)
 
     @property
     def compression_enabled(self) -> bool:

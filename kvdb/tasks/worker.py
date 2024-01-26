@@ -712,12 +712,18 @@ class TaskWorker(abc.ABC):
             if len(self.queues) == 1:
                 _msg += f'\n- {ColorMap.cyan}[Queue]{ColorMap.reset}: {ColorMap.bold}{self.queues[0].queue_name} @ {self.queues[0].ctx.url.safe_url} DB: {self.queues[0].ctx.url.db_id}{ColorMap.reset}'
                 _msg += f'\n- {ColorMap.cyan}[Registered]{ColorMap.reset}: {ColorMap.bold}{len(self.functions)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'
+                _msg += f'\n      \t[Functions]: `{[list(self.functions.keys())]}`'
+                if self.cronjobs:
+                    _msg += f'\n      \t[Cron Jobs]: `{[list(self.cronjobs.keys())]}`'
+                
             else:
                 _msg += f'\n- {ColorMap.cyan}[Queues]{ColorMap.reset}:'
                 for queue in self.queues:
                     queue_funcs = [f for f in self.functions.values() if f.queue_name == queue.queue_name]
-                    _msg += f'\n   - {ColorMap.bold}[{queue.queue_name}]\t @ {queue.ctx.url} DB: {queue.ctx.url.db_id}, {len(queue_funcs)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'            
-            
+                    _msg += f'\n   - {ColorMap.bold}[{queue.queue_name}]\t @ {queue.ctx.url} DB: {queue.ctx.url.db_id}, {len(queue_funcs)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'
+                    _msg += f'\n      \t[Functions]: `{[f.function_name for f in queue_funcs]}`'
+                    if self.cronjobs:
+                        _msg += f'\n      \t[Cron Jobs]: `{[f.function_name for f in self.cronjobs.values() if f.queue_name == queue.queue_name]}`'
             # if self.verbose_startup:
             #     _msg += f'\n- {ColorMap.cyan}[Worker Attributes]{ColorMap.reset}: {self.worker_attributes}'
             #     if self._is_ctx_retryable:

@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional, Union, Type
 from kvdb.utils.lazy import lazy_import
+from kvdb.types.generic import (
+    ENCODER_SERIALIZER_PREFIX,
+    ENCODER_SERIALIZER_PREFIX_LEN,
+    ENCODER_SERIALIZER_PREFIX_BYTES,
+    ENCODER_SERIALIZER_PREFIX_BYTES_LEN,
+)
 from .base import BaseSerializer, ObjectValue, SchemaType, BaseModel, logger
 from .utils import is_primitive, serialize_object, deserialize_object
 
@@ -78,8 +84,7 @@ class JsonSerializer(BaseSerializer):
             # logger.info(f'Value Dict: {value_dict}')
             return self.jsonlib.dumps(value_dict, **kwargs)
         except Exception as e:
-            # if not self.is_encoder: 
-            logger.trace(f'Error Encoding Value: |r|({type(value)})|e| {str(value)[:1000]}', e, colored = True)
+            if not self.is_encoder: logger.trace(f'Error Encoding Value: |r|({type(value)})|e| {str(value)[:1000]}', e, colored = True)
         try:
             return self.jsonlib.dumps(value, **kwargs)
         except Exception as e:
@@ -108,18 +113,32 @@ class JsonSerializer(BaseSerializer):
             if not self.is_encoder: logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
+    
+    def check_encoded_value(self, value: Union[str, bytes]) -> Union[str, bytes]:
+        """
+        Check the encoded value to remove the prefix
+        """
+        if isinstance(value, bytes):
+            logger.info(f'Value Bytes: {value}')
+            if value.startswith(ENCODER_SERIALIZER_PREFIX_BYTES):
+                value = value[ENCODER_SERIALIZER_PREFIX_BYTES_LEN:]
+        elif isinstance(value, str):
+            logger.info(f'Value Str: {value}')
+            if value.startswith(ENCODER_SERIALIZER_PREFIX):
+                value = value[ENCODER_SERIALIZER_PREFIX_LEN:]
+        return value
 
     def decode_value(self, value: str, **kwargs) -> Union[SchemaType, Dict, Any]:
         """
         Decode the value with the JSON Library
         """
-        # logger.info(f'Value Dict: {value}')
         try:
-            # logger.info(f'Value Dict: {value}')
+            # value = self.check_encoded_value(value)
             value = self.jsonlib.loads(value, **kwargs)
             return deserialize_object(value)
         except Exception as e:
-            if not self.is_encoder: logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+            if not self.is_encoder: 
+                logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
 

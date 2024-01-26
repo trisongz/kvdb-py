@@ -135,6 +135,19 @@ class ConnectionPool(_ConnectionPool):
         which requires both serialization and decode_responses to be enabled
         """
         return self.encoder.serialization_enabled
+    
+    def enable_serialization(self, serializer: Optional['SerializerT'] = None, decode_responses: Optional[bool] = None):
+        """
+        Enable Serialization in the Encoder
+        """
+        self.encoder.enable_serialization(serializer = serializer, decode_responses = decode_responses)
+
+    def disable_serialization(self, decode_responses: Optional[bool] = None):
+        """
+        Disable Serialization in the Encoder
+        """
+        self.encoder.disable_serialization(decode_responses=decode_responses)
+
 
     def get_init_kwargs(self, **kwargs) -> Dict[str, Any]:
         """
@@ -526,6 +539,18 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         which requires both serialization and decode_responses to be enabled
         """
         return self.encoder.serialization_enabled
+    
+    def enable_serialization(self, serializer: Optional['SerializerT'] = None, decode_responses: Optional[bool] = None):
+        """
+        Enable Serialization in the Encoder
+        """
+        self.encoder.enable_serialization(serializer = serializer, decode_responses = decode_responses)
+
+    def disable_serialization(self, decode_responses: Optional[bool] = None):
+        """
+        Disable Serialization in the Encoder
+        """
+        self.encoder.disable_serialization(decode_responses=decode_responses)
 
     
     def get_init_kwargs(self, **kwargs) -> Dict[str, Any]:

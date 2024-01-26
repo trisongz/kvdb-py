@@ -54,7 +54,7 @@ def start(
     kwargs = locals()
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
     from kvdb.utils.logs import logger
-    from kvdb.utils.helpers import build_dict_from_list, build_dict_from_str
+    from lazyops.utils.helpers import build_dict_from_list, build_dict_from_str
     from kvdb.tasks.spawn import start_task_workers, lazy_worker_import
 
     if worker_config:

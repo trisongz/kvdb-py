@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from kvdb.components.client import KVDB, AsyncKVDB, ClientT
     from kvdb.components.pipeline import Pipeline, AsyncPipeline, PipelineT, AsyncPipelineT
     from kvdb.components.session import KVDBSession
-
+    from kvdb.io.encoder import Encoder, SerializerT
 
 class SessionPools(BaseModel):
     """
@@ -62,6 +62,20 @@ class SessionPools(BaseModel):
             pool=self.pool.with_db_id(db_id),
             apool=self.apool.with_db_id(db_id),
         )
+    
+
+    def enable_serialization(self, serializer: Optional['SerializerT'] = None, decode_responses: Optional[bool] = None):
+        """
+        Enable Serialization in the Encoder
+        """
+        self.pool.enable_serialization(serializer = serializer, decode_responses = decode_responses)
+
+    def disable_serialization(self, decode_responses: Optional[bool] = None):
+        """
+        Disable Serialization in the Encoder
+        """
+        self.pool.disable_serialization(decode_responses=decode_responses)
+
 
     async def arecreate_pools(
         self,

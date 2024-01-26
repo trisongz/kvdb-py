@@ -96,6 +96,7 @@ class KVDBSession(abc.ABC):
         self.init_state(**kwargs)
         self._version: Optional[str] = None
         self._persistence: Optional['PersistentDict'] = None
+        self._persistence_ctx: Dict[str, 'PersistentDict'] = {}
         self._kwargs = kwargs
 
 
@@ -117,12 +118,30 @@ class KVDBSession(abc.ABC):
                 _include = ('raise_errors'), 
                 **kwargs
             )
+
             # self.settings.logger.info(f'Initializing serializer for {self.name}, {_serializer_kwargs}')
             serializer = settings.client_config.get_serializer(
                 serializer = serializer,
                 **_serializer_kwargs,
             )
+            if self.settings.debug:
+                self.settings.logger.info(f'Initialized serializer for {self.name}, {serializer.name if serializer else None} {_serializer_kwargs}')
         self.serializer = serializer
+
+
+    def enable_serialization(self, serializer: Optional['SerializerT'] = None, decode_responses: Optional[bool] = None):
+        """
+        Enable Serialization in the Encoder
+        """
+        self.encoder.enable_serialization(serializer = serializer, decode_responses = decode_responses)
+        self.pool.enable_serialization(serializer = serializer, decode_responses = decode_responses)
+
+    def disable_serialization(self, decode_responses: Optional[bool] = None):
+        """
+        Disable Serialization in the Encoder
+        """
+        self.encoder.disable_serialization(decode_responses=decode_responses)
+        self.pool.disable_serialization(decode_responses=decode_responses)
 
     def init_encoder(
         self, 
@@ -264,6 +283,36 @@ class KVDBSession(abc.ABC):
     """
     Component Methods
     """
+
+    def create_persistence(
+        self,
+        name: Optional[str] = None,
+        base_key: Optional[str] = None,
+        **kwargs,
+    ) -> 'PersistentDict':
+        """
+        Create a new persistence instance
+        """
+        # name = name or self.name
+        # if name in self._persistence_ctx:
+        #     return self._persistence_ctx[name]
+    
+        from .persistence import KVDBStatefulBackend
+        persistence_config = self.settings.persistence.model_dump(exclude_none = True)
+        persistence_kwargs = self.settings.persistence.extract_kwargs(_prefix = 'persistence_', _exclude_none = True, **self._kwargs)
+        if persistence_kwargs: persistence_config.update(persistence_kwargs)
+        if 'name' not in persistence_config: persistence_config['name'] = self.name
+        if base_key is not None: persistence_config['base_key'] = base_key
+        persistence_config.update(kwargs)
+        base_key = persistence_config.get('base_key')
+        if base_key in self._persistence_ctx:
+            return self._persistence_ctx[base_key]
+        p = KVDBStatefulBackend.as_persistent_dict(
+            session = self,
+            **persistence_config,
+        )
+        self._persistence_ctx[base_key] = p
+        return p
 
     def pubsub(
         self, 

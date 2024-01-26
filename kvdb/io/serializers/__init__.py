@@ -13,7 +13,8 @@ def get_serializer(
     """
     Returns a Serializer
     """
-    serializer = serializer or "pickle"
+    if serializer == 'auto':  serializer = None
+    serializer = serializer or "json"
     if serializer in {"json", "orjson", "ujson", "simdjson"}:
         if serializer != "json" and "jsonlib" not in kwargs:
             kwargs["jsonlib"] = serializer

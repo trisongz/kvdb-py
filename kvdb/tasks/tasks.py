@@ -9,6 +9,7 @@ import makefun
 from inspect import signature, Parameter, Signature
 from kvdb.utils.logs import logger
 from kvdb.utils.helpers import is_coro_func, lazy_import
+from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method
 from typing import Optional, Dict, Any, Union, Callable, Type, List, Tuple, AsyncGenerator, Iterable, TYPE_CHECKING, overload
 from types import ModuleType
 from .types import (
@@ -19,7 +20,7 @@ from .types import (
     TaskFunction,
 )
 
-from .utils import AttributeMatchType, is_uninit_method, get_func_name
+from .utils import AttributeMatchType, get_func_name
 
 if TYPE_CHECKING:
     from kvdb.types.jobs import Job, CronJob
@@ -285,34 +286,25 @@ class QueueTasks(abc.ABC):
             """
             The decorator that patches the object
             """
-            if not hasattr(obj, '__taskinit__'):
-                task_obj_id = f'{obj.__module__}.{obj.__name__}'
-                # logger.info(f'[{task_obj_id}] - Registering Task Object')
-
-                setattr(obj, '__src_init__', obj.__init__)
-                setattr(obj, '__task_obj_id__', task_obj_id)
+            _obj_id = f'{obj.__module__}.{obj.__name__}'
+            patch_object_for_kvdb(obj)
+            if _obj_id not in self.registered_task_object: self.registered_task_object[_obj_id] = {}
+            if not hasattr(obj, '__kvdb_task_init__'):
                 
-                if task_obj_id not in self.registered_task_object: self.registered_task_object[task_obj_id] = {}
-
-                def __taskinit__(_self, *args, **kwargs):
-                    _self.__task_post_init_hook__(_self, *args, **kwargs)
-
-                def __task_post_init_hook__(_self, *args, **kwargs):
-                    # logger.info(f'[{_self}] - Initializing Task Functions')
-                    _self.__src_init__(*args, **kwargs)
-                    task_functions = self.registered_task_object[_self.__task_obj_id__]
+                def __kvdb_task_init__(_self, obj_id: str, *args, **kwargs):
+                    """
+                    Intiailizes the object for tasks
+                    """    
+                    task_functions = self.registered_task_object[obj_id]
                     for func, task_partial_kws in task_functions.items():
-                        # logger.info(f'[{_self}] - Registering Task Function: {func}')
                         func_kws = partial_kws.copy()
                         func_kws.update(task_partial_kws)
                         out_func = self.register(function = getattr(_self, func), **func_kws)
-                        # if self.functions[func]
                         if not func_kws.get('disable_patch'):
                             setattr(_self, func, out_func)
                 
-                setattr(obj, '__init__', __taskinit__)
-                setattr(obj, '__task_post_init_hook__', __task_post_init_hook__)
-                # globals
+                setattr(obj, '__kvdb_task_init__', __kvdb_task_init__)
+                obj.__kvdb_initializers__.append('__kvdb_task_init__')
             return obj
     
         return object_decorator

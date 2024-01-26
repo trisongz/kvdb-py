@@ -3,15 +3,19 @@ from __future__ import annotations
 import contextlib
 from kvdb.errors import DataError
 from kvdb.utils.pool import Pooler
+from kvdb.utils.logs import logger
+from kvdb.types.generic import (
+    ENCODER_SERIALIZER_PREFIX,
+    ENCODER_SERIALIZER_PREFIX_LEN,
+    ENCODER_SERIALIZER_PREFIX_BYTES,
+    ENCODER_SERIALIZER_PREFIX_BYTES_LEN,
+)
 from typing import Any, Dict, Optional, Type, Union, Callable, TYPE_CHECKING
 import redis._parsers.encoders
 
 if TYPE_CHECKING:
     from .serializers import SerializerT, ObjectValue
 
-# Add support for this to enable faster encoding and decoding by detecting the type
-ENCODER_SERIALIZER_PREFIX = b'_kvdbenc_'
-ENCODER_SERIALIZER_PREFIX_LEN = len(ENCODER_SERIALIZER_PREFIX)
 
 class Encoder:
     """
@@ -31,12 +35,46 @@ class Encoder:
         self.encoding = encoding
         self.encoding_errors = encoding_errors
         
-        if serializer is not None: serializer = serializer.copy(
-            raise_errors = True
-        )
+        if serializer is not None: 
+            serializer = serializer.copy(
+                raise_errors = True
+            )
+            serializer.is_encoder = True
         self.serializer = serializer
         self.decode_responses = decode_responses if decode_responses is not None else \
             self.serializer is not None
+        self._kwargs = kwargs
+        self._kwargs['decode_responses'] = decode_responses
+        self._kwargs['serializer'] = serializer
+    
+    def enable_serialization(self, serializer: Optional['SerializerT'] = None, decode_responses: Optional[bool] = None):
+        """
+        Enable serialization
+        """
+        if serializer is not None: 
+            serializer = serializer.copy(
+                raise_errors = True
+            )
+            serializer.is_encoder = True
+        else:
+            serializer = self._kwargs['serializer']
+        self.serializer = serializer
+        if decode_responses is not None:
+            self.decode_responses = decode_responses
+        else:
+            self.decode_responses = self._kwargs['decode_responses']
+            if self.decode_responses is None:
+                self.decode_responses = True
+
+    def disable_serialization(self, decode_responses: Optional[bool] = None):
+        """
+        Disable serialization
+        """
+        self.serializer = None
+        if decode_responses is not None:
+            self.decode_responses = decode_responses
+        else:
+            self.decode_responses = self._kwargs['decode_responses']
     
     @property
     def serialization_enabled(self) -> bool:
@@ -65,24 +103,27 @@ class Encoder:
             _serialized = True
         if isinstance(value, str):
             value = value.encode(self.encoding, self.encoding_errors)
-        if _serialized: value = ENCODER_SERIALIZER_PREFIX + value
+        if _serialized: value = ENCODER_SERIALIZER_PREFIX_BYTES + value
         return value
 
     def decode(self, value, force=False) -> 'ObjectValue':
         """
         Return a unicode string from the bytes-like representation
         """
-        # print('decode', value)
-        if self.decode_responses or force: 
+        if self.decode_responses or force or self.serialization_enabled: 
             if isinstance(value, memoryview):
                 value = value.tobytes()
+            
             if isinstance(value, bytes):
-                if self.serializer is not None and value[:ENCODER_SERIALIZER_PREFIX_LEN] == ENCODER_SERIALIZER_PREFIX:
-                    value = value[ENCODER_SERIALIZER_PREFIX_LEN:]
+                if self.serializer is not None and value[:ENCODER_SERIALIZER_PREFIX_BYTES_LEN] == ENCODER_SERIALIZER_PREFIX_BYTES:
+                    value = value[ENCODER_SERIALIZER_PREFIX_BYTES_LEN:]
                     with contextlib.suppress(Exception):
                         return self.serializer.decode(value)
                 value = value.decode(self.encoding, self.encoding_errors)
-            
+            elif isinstance(value, str):
+                if self.serializer is not None and value[:ENCODER_SERIALIZER_PREFIX_LEN] == ENCODER_SERIALIZER_PREFIX:
+                    value = value[ENCODER_SERIALIZER_PREFIX_LEN:]
+                    return self.serializer.decode(value)
         return value
     
     async def aencode(self, value) -> bytes:

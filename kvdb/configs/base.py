@@ -23,7 +23,7 @@ class SerializerConfig(BaseModel):
     The Serializer Config
     """
 
-    serializer: Optional[str] = 'json'
+    serializer: Optional[str] = None # 'json'
     serializer_kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict, description = 'The kwargs to pass to the serializer')
 
     # Compression Support for the Serializer
@@ -68,6 +68,8 @@ class SerializerConfig(BaseModel):
         compression = self.compression if compression is None else compression
         compression_level = self.compression_level if compression_level is None else compression_level
         encoding = self.encoding if encoding is None else encoding
+        if serializer is None:
+            return None
         return get_serializer(
             serializer = serializer,
             serializer_kwargs = serializer_kwargs,
@@ -140,7 +142,7 @@ class TaskQueueConfig(SerializerConfig, BaseModel):
     queue_prefix: Optional[str] = Field('_kvq_', description = 'The prefix for job keys')
     queue_db_id: Optional[int] = Field(3, description = 'The database number to use')
     cronjob_prefix: Optional[str] = 'cronjob'
-    serializer: Optional[str] = None # 'json'
+    serializer: Optional[str] = 'json'
 
     job_prefix: Optional[str] = 'job'
     job_key_method: Optional[str] = 'uuid4'

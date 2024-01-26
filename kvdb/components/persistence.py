@@ -109,7 +109,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         self._kwargs['expiration'] = expiration
         self._kwargs['name'] = name
         self._kwargs['keyjoin'] = keyjoin
-        # logger.info(f'[{self.base_key}] Initialized KVDBStatefulBackend with {self._kwargs}')
+        if kvdb_settings.debug:
+            logger.info(f'[{self.base_key}] Initialized KVDBStatefulBackend with {self._kwargs}')
 
     @classmethod
     def as_persistent_dict(
@@ -155,8 +156,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Encodes a Value
         """
-        # if self.session_serialization_enabled:
-        #     return value
+        if self.session_serialization_enabled: return value
         return self.serializer.encode(value, **kwargs) if self.serializer is not None else value
     
     async def aencode_value(self, value: Union[Any, SchemaType], **kwargs) -> Union[str, bytes]:
@@ -164,16 +164,17 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Encodes a Value
         """
         # logger.info(f'[{self.base_key}] Decoding Value: {value}')
-        # if self.session_serialization_enabled:
-        #     return value
+        if self.session_serialization_enabled: return value
         return await self.serializer.aencode(value, **kwargs) if self.serializer is not None else value
 
     def decode_value(self, value: Union[str, bytes], **kwargs) -> Any:
         """
         Decodes a Value
         """
+        # logger.info(f'[{self.base_key}] Decoding Value: {value}')
         # if self.session_serialization_enabled:
         #     return value
+        if self.session_serialization_enabled: return value
         return self.serializer.decode(value, **kwargs) if self.serializer is not None else value
     
     async def adecode_value(self, value: Union[str, bytes], **kwargs) -> Any:
@@ -183,6 +184,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         # logger.info(f'[{self.base_key}] Decoding Value: {value}')
         # if self.session_serialization_enabled:
         #     return value
+        if self.session_serialization_enabled: return value
         return await self.serializer.adecode(value, **kwargs) if self.serializer is not None else value
 
 
