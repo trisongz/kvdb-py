@@ -79,7 +79,9 @@ session2.set(new_model.name, new_model)
 ---
 ### Task Queues
 
-This is a client-side example of how to use kvdb-py tasks
+This is a client-side example of how to use kvdb-py tasks.
+
+By Default, `tasks` will use `db_id=3` for the task queue to prevent collisions with other data. You can change this by passing `db_id` to the `register` decorator or `create_context` function. If you do, ensure that the queue you are using also uses the same `db_id`.
 
 This will be able to remotely execute the tasks from `examples/queue/dummy_tasks.py`
 
