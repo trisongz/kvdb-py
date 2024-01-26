@@ -75,28 +75,28 @@ This will be able to remotely execute the tasks from `examples/queue/dummy_tasks
 
 To run this example, you will need to run the following commands:
 
-  Terminal 1:
+Terminal 1:
 
-    ```bash
-    # cwd: examples/queue
-    $ kvdb-task -i "dummy_tasks.initializer" -n 1 -q "test" -q "global"
+```bash
+# cwd: examples/queue
+$ kvdb-task -i "dummy_tasks.initializer" -n 1 -q "test" -q "global"
 
-    # Output:
-    - [Worker ID]: 63f0e517-e3bd-4d6c-xxx-xxxx [Worker Name]: global-local-0 [Node Name]: computer.local 
-    - [Concurrency]: 150/jobs, 50/broadcasts
-    - [Queues]:
-    - [test]      @ redis://localhost:6379/3 DB: 3, 1 functions, 0 cron jobs
-            [Functions]: `['my_task']`
-    - [global]    @ redis://localhost:6379/3 DB: 3, 2 functions, 0 cron jobs
-            [Functions]: `['TestWorker.task1', 'TestWorker.task2']
-    ```
+# Output:
+- [Worker ID]: 63f0e517-e3bd-4d6c-xxx-xxxx [Worker Name]: global-local-0 [Node Name]: computer.local 
+- [Concurrency]: 150/jobs, 50/broadcasts
+- [Queues]:
+- [test]      @ redis://localhost:6379/3 DB: 3, 1 functions, 0 cron jobs
+        [Functions]: `['my_task']`
+- [global]    @ redis://localhost:6379/3 DB: 3, 2 functions, 0 cron jobs
+        [Functions]: `['TestWorker.task1', 'TestWorker.task2']
+```
 
-  Terminal 2:
+Terminal 2:
 
-    ```bash
-    # cwd: examples/queue
-    $ python client_side.py
-    ```
+```bash
+# cwd: examples/queue
+$ python client_side.py
+```
 
 ```python
 # dummy_task.py
