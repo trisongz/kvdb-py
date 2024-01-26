@@ -5,11 +5,21 @@
 
 This library builds upon the experience of my previous library, [aiokeydb-py](https://github.com/trisongz/aiokeydb-py) and the learnings and take-aways from maintaining it and using it in production. While `aiokeydb` supports `redispy` < 5.0, this library only supports `redispy` >= 5.0. 
 
+Supports:
+
+- [x] Redis
+- [x] KeyDB
+- [x] Dragonfly
+- [ ] Memcached
+- [ ] DynamoDB
+- [ ] tikv
+
+
 The goals of this library are:
 
 - Provide a simple abstraction over the Redis client that allows both async and sync code, and adding minor tweaks in underlying implementation to make it more performant, and dynamic.
 
-- Provide a unified interface for interacting with various Key-Value DBs, such as Redis, Memcached, etc. Inspired by (gokv)[https://github.com/philippgille/gokv]
+- Provide a unified interface for interacting with various Key-Value DBs, such as Redis, Memcached, etc. Inspired by [gokv](https://github.com/philippgille/gokv)
 
 - Enable interacting with multiple Key-Value DBs at the same time, with the same API
 
