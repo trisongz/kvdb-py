@@ -29,9 +29,14 @@ The goals of this library are:
 
 ### Why not use `redispy` directly?
 
-`Redispy` is a great library, and this library itself is built on top of it. However, `redispy` lacks certain quality of life features that make it ready to use out of the box without having to extend the library to support these features. The implementation of `redispy` assumes that you are using either/or the async or sync client, and does not provide a unified interface for both, where in some cases, you might want to use the async client, and in some cases, you might want to use the sync client. This library provides a unified interface for both, and allows you to use both the async and sync client at the same time, with the same API.
+`Redispy` is a great library, and this library itself is built on top of it. However, `redispy` lacks certain quality of life features that make it ready to use out of the box without having to extend the library to support these features. 
 
-Additionally, `kvdb` has a management client that allows you to manage multiple Key-Value DBs, as well as managing the underlying connection pools.
+`kvdb` also provides a powerful in-flight serialization and deserialization mechanism that allows you to store almost any type of object in the Key-Value DB without having to worry about serializing and deserializing the data prior to storing it. This is done by storing the object's type and any additional metadata required to reconstruct the object. You can read more about this in the [Serialization](./examples/sessions/README.md#session-serialization) section.
+
+Additionally, `kvdb` provides a unified async and sync interface for interacting with the Key-Value DB, rather than having to use two separate clients and instantiate two separate connections, defined as a `KVDBSession`. Each underlying `session` can share the same connection pool, so long as the `ConnectionPool` configuration is the same, meaning spawning multiple sessions will not saturate the connection pool.
+
+`kvdb` utilizes singleton objects that manage instances of objects, such as `KVDBSession` and `Cachify`. This helps ensure performance and reduce memory usage by preventing the creation of multiple instances of the same object.
+
 
 ## Installation
 
