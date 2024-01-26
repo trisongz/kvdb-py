@@ -125,11 +125,10 @@ class CachifyContext(abc.ABC):
                 )
             else:
                 kwargs = self._extract_session_kwargs()
-                # if 'serializer' not in kwargs:
-                #     kwargs['serializer'] = 'json'
+                if 'url' not in kwargs: kwargs['url'] = self._kwargs.get('url', None)
+                if 'db_id' not in kwargs: kwargs['db_id'] = self._kwargs.get('db_id', self.config.db_id)
                 self._session = KVDBClient.get_session(
                     name = f'cachify:{self.cache_name}',
-                    db_id = self._kwargs.get('db_id'),
                     set_as_ctx = False,
                     **kwargs,
                 )

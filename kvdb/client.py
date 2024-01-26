@@ -1,25 +1,28 @@
 from __future__ import annotations
 
 """
-The Main KVDB Client that Manages the Various KVDB Components
+The Main KVDB Client that Manages KVDB Sessions
+
+Usage:
+
+    from kvdb import KVDBClient
+    session = KVDBClient.get_session(
+        name = "default", 
+        url = "redis://localhost:6379/0", 
+        serializer='json'
+    )
+
+    # Set a key
+    session.set('key', 'value')
+
+    # Get a key
+    v = session.get('key')
+
 """
 
 import abc
-import sys
-import functools
 import contextlib
-
-from lazyops.libs.pooler import ThreadPooler
-from lazyops.libs.proxyobj import ProxyObject, LockedSingleton
-from kvdb.types.base import BaseModel, KVDBUrl
-from kvdb.types.contexts import SessionPools, SessionState, GlobalKVDBContext
-from kvdb.components.client import KVDB, AsyncKVDB, ClientT
-from kvdb.components.connection_pool import ConnectionPoolT, AsyncConnectionPoolT
-from kvdb.components.session import KVDBSession
-from kvdb.configs import settings
-from kvdb.configs.base import SerializerConfig
-
-
+from lazyops.libs.proxyobj import ProxyObject, Singleton
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -41,10 +44,20 @@ from typing import (
     overload,
 )
 
+# We design it this way to minimize imports until runtime
+
+if TYPE_CHECKING:
+    from kvdb.types.base import KVDBUrl
+    from kvdb.types.contexts import SessionPools
+    from kvdb.configs.base import SerializerConfig
+    from kvdb.components.client import KVDB, AsyncKVDB
+    from kvdb.components.session import KVDBSession
+    from kvdb.components.connection_pool import ConnectionPoolT, AsyncConnectionPoolT
+
 
 ResponseT = TypeVar('ResponseT')
 
-class KVDBSessionManager(abc.ABC):
+class KVDBSessionManager(abc.ABC, Singleton):
     """
     The KVDB Session Manager
     """
@@ -56,6 +69,15 @@ class KVDBSessionManager(abc.ABC):
         """
         Initializes the KVDB Session Manager
         """
+        self.session_class: Optional[Type['KVDBSession']] = None
+        self.session_pool_class: Optional[Type['SessionPools']] = None
+        self.serializer_config_class: Optional[Type['SerializerConfig']] = None
+        self.url_class: Optional[Type['KVDBUrl']] = None
+        self.configure_classes()
+        
+        from kvdb.configs import settings
+        from kvdb.types.contexts import GlobalKVDBContext
+        
         self.c = GlobalKVDBContext()
         self.pools = self.c.pools
         self.sessions = self.c.sessions
@@ -63,6 +85,51 @@ class KVDBSessionManager(abc.ABC):
         self.logger = self.settings.logger
         self.autologger = self.settings.autologger
         self.settings.configure(**kwargs)
+    
+    def configure_classes(
+        self,
+        session_class: Optional[Type['KVDBSession']] = None,
+        session_pool_class: Optional[Type['SessionPools']] = None,
+        serializer_config_class: Optional[Type['SerializerConfig']] = None,
+        url_class: Optional[Type['KVDBUrl']] = None,
+        **kwargs,
+    ):
+        """
+        Configures the global classes that are used to initialize the KVDB Session
+
+        This allows you to use your own custom classes for the 
+        `KVDBSession`, `SessionPools`, `SerializerConfig`, and `KVDBUrl`
+        enabling for full flexibility and customization of the KVDB
+        """
+        from lazyops.utils import lazy_import
+        if session_class and isinstance(session_class, str):
+            session_class = lazy_import(session_class)
+        elif self.session_class is None:
+            from kvdb.components.session import KVDBSession
+            session_class = KVDBSession
+        if session_class: self.session_class = session_class
+
+        if serializer_config_class and isinstance(serializer_config_class, str):
+            serializer_config_class = lazy_import(serializer_config_class)
+        elif self.serializer_config_class is None:
+            from kvdb.configs.base import SerializerConfig
+            serializer_config_class = SerializerConfig
+        if serializer_config_class: self.serializer_config_class = serializer_config_class
+
+        if session_pool_class and isinstance(session_pool_class, str):
+            session_pool_class = lazy_import(session_pool_class)
+        elif self.session_pool_class is None:
+            from kvdb.types.contexts import SessionPools
+            session_pool_class = SessionPools
+        if session_pool_class: self.session_pool_class = session_pool_class
+
+        if url_class and isinstance(url_class, str):
+            url_class = lazy_import(url_class)
+        elif self.url_class is None:
+            from kvdb.types.base import KVDBUrl
+            url_class = KVDBUrl
+        if url_class: self.url_class = url_class
+
     
     def configure(
         self,
@@ -78,7 +145,7 @@ class KVDBSessionManager(abc.ABC):
     def get_pool(
         self,
         name: str,
-        url: Optional[Union[str, KVDBUrl]] = None,
+        url: Optional[Union[str, 'KVDBUrl']] = None,
         serializer_config: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> SessionPools:
@@ -86,7 +153,7 @@ class KVDBSessionManager(abc.ABC):
         Configures the session pools
         """
         if url is None: url = self.settings.url
-        if isinstance(url, str): url = KVDBUrl(url)
+        if isinstance(url, str): url = self.url_class(url)
         # url.set_key(name = name, serializer_config = serializer_config, **kwargs)
         if url.key in self.pools: 
             if self.settings.debug:
@@ -96,7 +163,8 @@ class KVDBSessionManager(abc.ABC):
             self.autologger.info(f'Creating newpool with name {name} and url {url}: {url.key}')
 
         # Get the serializer config
-        serializer_config = SerializerConfig.extract_kwargs(_exclude_none = True, **kwargs) \
+        # from kvdb.configs.base import SerializerConfig
+        serializer_config = self.serializer_config_class.extract_kwargs(_exclude_none = True, **kwargs) \
             if serializer_config is None else serializer_config
         
         kwargs = {k : v for k, v in kwargs.items() if k not in serializer_config}
@@ -118,7 +186,7 @@ class KVDBSessionManager(abc.ABC):
         # apool_autoclose = pool_config.get('auto_close_aconnection_pool', None)
         if serializer_config: pool_config.update(serializer_config)
 
-        pool = SessionPools(
+        pool = self.session_pool_class(
             name = name,
             pool = pool_class.from_url(
                 url, max_connections = pool_max_connections, **pool_config,
@@ -137,10 +205,10 @@ class KVDBSessionManager(abc.ABC):
     def create_session(
         self,
         name: Optional[str] = 'default',
-        url: Optional[Union[str, KVDBUrl]] = None,
+        url: Optional[Union[str, 'KVDBUrl']] = None,
         db_id: Optional[int] = None,
         **kwargs,
-    ) -> KVDBSession:
+    ) -> 'KVDBSession':
         """
         Returns a new KVDB Session
 
@@ -148,11 +216,14 @@ class KVDBSessionManager(abc.ABC):
         """
 
         if url is None: url = self.settings.url
-        if isinstance(url, str): url = KVDBUrl(url)
+        if db_id is None: db_id = self.settings.session_db_id
+
+        # if isinstance(url, str): url = KVDBUrl(url)
+        if isinstance(url, str): url = self.url_class(url)
         if db_id is not None and url.db_id != db_id: url = url.with_db_id(db_id)
 
         # Get the serializer config
-        serializer_config = SerializerConfig.extract_kwargs(_exclude_none = True, **kwargs)
+        serializer_config = self.serializer_config_class.extract_kwargs(_exclude_none = True, **kwargs)
         kwargs = {k : v for k, v in kwargs.items() if k not in serializer_config}
         url.set_key(serializer_config = serializer_config, **kwargs)
 
@@ -166,7 +237,7 @@ class KVDBSessionManager(abc.ABC):
         pool = self.get_pool(name, url, serializer_config = serializer_config, **kwargs)
         if serializer_config: client_config.update(serializer_config)
         # self.autologger.info(f'Creating new KVDB Session with name {name} and url {url}, with client config {client_config} and kwargs {kwargs}')
-        return KVDBSession(
+        return self.session_class(
             name = name,
             url = url,
             pool = pool,
@@ -178,13 +249,13 @@ class KVDBSessionManager(abc.ABC):
     def session(
         self,
         name: Optional[str] = 'default',
-        url: Optional[Union[str, KVDBUrl]] = None,
+        url: Optional[Union[str, 'KVDBUrl']] = None,
         db_id: Optional[int] = None,
 
         # Pool Config
-        pool_class: Optional[Union[str, Type[ConnectionPoolT]]] = None,
+        pool_class: Optional[Union[str, Type['ConnectionPoolT']]] = None,
         pool_max_connections: Optional[int] = None,
-        apool_class: Optional[Union[str, Type[AsyncConnectionPoolT]]] = None,
+        apool_class: Optional[Union[str, Type['AsyncConnectionPoolT']]] = None,
         apool_max_connections: Optional[int] = None,
 
         # Serializer Config
@@ -243,7 +314,7 @@ class KVDBSessionManager(abc.ABC):
         set_as_ctx: Optional[bool] = None,
         overwrite: Optional[bool] = None,
         **kwargs,
-    ) -> KVDBSession:
+    ) -> 'KVDBSession':
         """
         Initializes a KVDB Session that is managed by the KVDB Session Manager
 
@@ -318,12 +389,12 @@ class KVDBSessionManager(abc.ABC):
     def session(
         self,
         name: Optional[str] = 'default',
-        url: Optional[Union[str, KVDBUrl]] = None,
+        url: Optional[Union[str, 'KVDBUrl']] = None,
         db_id: Optional[int] = None,
         set_as_ctx: Optional[bool] = None,
         overwrite: Optional[bool] = None,
         **kwargs,
-    ) -> KVDBSession:
+    ) -> 'KVDBSession':
         """
         Initializes a KVDB Session that is managed by the KVDB Session Manager
         """
@@ -342,7 +413,7 @@ class KVDBSessionManager(abc.ABC):
     def init_session(
         self,
         name: Optional[str] = 'default',
-        url: Optional[Union[str, KVDBUrl]] = None,
+        url: Optional[Union[str, 'KVDBUrl']] = None,
         db_id: Optional[int] = None,
 
         # Pool Config
@@ -407,7 +478,7 @@ class KVDBSessionManager(abc.ABC):
         set_as_ctx: Optional[bool] = None,
         overwrite: Optional[bool] = None,
         **kwargs,
-    ) -> KVDBSession:
+    ) -> 'KVDBSession':
         """
         Initializes a KVDB Session that is managed by the KVDB Session Manager
 
@@ -487,7 +558,7 @@ class KVDBSessionManager(abc.ABC):
         set_as_ctx: Optional[bool] = None,
         overwrite: Optional[bool] = None,
         **kwargs,
-    ) -> KVDBSession:
+    ) -> 'KVDBSession':
         """
         Initializes a KVDB Session that is managed by the KVDB Session Manager
 
@@ -502,13 +573,13 @@ class KVDBSessionManager(abc.ABC):
     def get_session(
         self,
         name: Optional[str] = 'default',
-        url: Optional[Union[str, KVDBUrl]] = None,
+        url: Optional[Union[str, 'KVDBUrl']] = None,
         db_id: Optional[int] = None,
 
         # Pool Config
-        pool_class: Optional[Union[str, Type[ConnectionPoolT]]] = None,
+        pool_class: Optional[Union[str, Type['ConnectionPoolT']]] = None,
         pool_max_connections: Optional[int] = None,
-        apool_class: Optional[Union[str, Type[AsyncConnectionPoolT]]] = None,
+        apool_class: Optional[Union[str, Type['AsyncConnectionPoolT']]] = None,
         apool_max_connections: Optional[int] = None,
 
         # Serializer Config
@@ -566,7 +637,7 @@ class KVDBSessionManager(abc.ABC):
 
         set_as_ctx: Optional[bool] = None,
         **kwargs,
-    ) -> KVDBSession:
+    ) -> 'KVDBSession':
         """
         Initializes a KVDB Session that is managed by the KVDB Session Manager
 
@@ -640,7 +711,7 @@ class KVDBSessionManager(abc.ABC):
         self,
         name: Optional[str] = None,
         **kwargs,
-    ) -> KVDBSession:
+    ) -> 'KVDBSession':
         """
         Returns the KVDB Session with the given name
         """
@@ -664,7 +735,7 @@ class KVDBSessionManager(abc.ABC):
 
     def add_session(
         self,
-        session: KVDBSession,
+        session: 'KVDBSession',
         overwrite: Optional[bool] = None,
         set_as_ctx: Optional[bool] = None,
         **kwargs,
@@ -672,7 +743,7 @@ class KVDBSessionManager(abc.ABC):
         """
         Adds a KVDB Session to the KVDB Session Manager
         """
-        if not isinstance(session, KVDBSession): raise ValueError(f'Invalid session type: {type(session)}')
+        if not isinstance(session, 'KVDBSession'): raise ValueError(f'Invalid session type: {type(session)}')
         if session.name in self.sessions and overwrite is not True:
             raise ValueError(f'The session with name {session.name} already exists. Use overwrite = True to overwrite the session')
         if set_as_ctx is None: set_as_ctx = not len(self.sessions)
@@ -684,7 +755,7 @@ class KVDBSessionManager(abc.ABC):
     """
 
     @property
-    def ctx(self) -> KVDBSession:
+    def ctx(self) -> 'KVDBSession':
         """
         Returns the current session
         """
@@ -700,21 +771,21 @@ class KVDBSessionManager(abc.ABC):
         return self.c.current or 'default'
     
     @property
-    def client(self) -> KVDB:
+    def client(self) -> 'KVDB':
         """
         Returns the current session
         """
         return self.ctx.client
     
     @property
-    def aclient(self) -> AsyncKVDB:
+    def aclient(self) -> 'AsyncKVDB':
         """
         Returns the current session
         """
         return self.ctx.aclient
     
     @contextlib.contextmanager
-    def with_session(self, name: str) -> Iterator[KVDBSession]:
+    def with_session(self, name: str) -> Iterator['KVDBSession']:
         """
         Returns the session with the given name as the current session
         """

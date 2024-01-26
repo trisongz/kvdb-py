@@ -27,6 +27,8 @@ The goals of this library are:
 
 - Provide a task queue implementation that can be used to distribute work across multiple workers.
 
+- Capability to customize and override the underlying classes easily without requiring to manually patch objects.
+
 ### Why not use `redispy` directly?
 
 `Redispy` is a great library, and this library itself is built on top of it. However, `redispy` lacks certain quality of life features that make it ready to use out of the box without having to extend the library to support these features. 
@@ -306,7 +308,143 @@ class TestObject(abc.ABC):
         return self.fibonacci_nc(number - 1) + self.fibonacci_nc(number - 2)
 ```
 
+### Persistence
 
+An additional feature of `kvdb-py` is the ability to access a `Dict`-like object that is persisted to the Key-Value DB. This is useful for storing data that needs to be accessed by multiple processes or machines. This is powered by the underlying `PersistentDict` from `lazyops`, with `kvdb-py` providing the backend to the Key-Value DB.
+
+```python
+
+
+import random
+from pydantic import BaseModel, Field
+from kvdb import KVDBClient
+
+class NewObject(BaseModel):
+    x: int = Field(default_factory = lambda: random.randint(0, 100))
+
+
+test_1 = NewObject()
+test_2 = NewObject(x = 1)
+
+# Create a new Session that does not use a Serializer
+# and uses the default connection pool
+s = KVDBClient.get_session(
+    name = 'default',
+    persistence_base_key = 'test',
+    persistence_serializer = 'json',
+)
+
+# You can set the attributes directly
+# or call the underlying `persistence` object
+s['test_1'] = test_1
+s['test_2'] = test_2
+
+# s.persistence['test_1'] = test_1
+# s.persistence['test_2'] = test_2
+
+result_1 = s['test_1']
+result_2 = s['test_2']
+# result_1 = s.persistence['test_1']
+# result_2 = s.persistence['test_2']
+
+print(result_1, 'type', type(result_1))
+print(result_2, 'type', type(result_2))
+
+
+# Create a new Session that uses the JSON Serializer
+# natively within the connection pool
+s_json = KVDBClient.get_session(
+    name = 's_json',
+    serializer = 'json',
+    persistence_base_key = 'test_json',
+)
+
+s_json['test_1'] = test_1
+s_json['test_2'] = test_2
+# s_json.persistence['test_1'] = test_1
+# s_json.persistence['test_2'] = test_2
+
+json_result_1 = s_json['test_1']
+json_result_2 = s_json['test_2']
+# json_result_1 = s_json.persistence['test_1']
+# json_result_2 = s_json.persistence['test_2']
+
+print(json_result_1, 'type', type(json_result_1))
+print(json_result_2, 'type', type(json_result_2))
+
+# Test assertions
+assert result_1 == json_result_1
+assert result_2 == json_result_2
+
+# Delete the keys
+del s['test_1']
+del s['test_2']
+# s.delitem('test_1')
+# s.delitem('test_2')
+# s.persistence.pop('test_1')
+# s.persistence.pop('test_2')
+
+del s_json['test_1']
+del s_json['test_2']
+# s_json.persistence.pop('test_1')
+# s_json.persistence.pop('test_2')
+
+## Additionally, you can initialize a new persistence object directly
+p = s_json.get_persistence(
+    name = 'p',
+    base_key = 'test_pickle',
+    serializer = 'pickle',
+)
+
+p['test_1'] = test_1
+p['test_2'] = test_2
+
+
+```
+
+
+### Customization
+
+Since no objects/settings are initialized until they are first directly called, you can easily customize and define configurations for the underlying objects. For example, if you want to use a different serializer, you can do the following:
+
+```python
+
+from kvdb.io.serializers import set_default_serializer, set_default_serializer_lib, register_serializer
+
+# Set the default serializer to use
+# If `propogate=True` This will set the default serializer to pickle for all modules, such as cache, tasks, etc. Otherwise, it will only affect instances where `serializer=None`.
+
+set_default_serializer('pickle', propagate = True) 
+
+# Set the default serializer library to use
+set_default_serializer_lib('cloudpickle')
+
+# You can also register a custom serializer
+register_serializer('custom-serializer', MySerializerClass, set_as_default = True, propogate = True)
+
+
+# Alternatively, you can selectively modify the default serializer for certain modules
+from kvdb.configs import set_default_serializer_for, set_default_kvdb_url
+
+set_default_kvdb_url('redis://remote.redis.com:6379/0')
+set_default_serializer_for('custom-serializer', 'session', 'task')
+
+from kvdb import KVDBClient
+
+session = KVDBClient.get_session()
+
+class MyModel(BaseModel):
+    name: str
+    age: int
+
+# This demonstrates how the pydantic model is automatically serialized and deserialized
+new_model = MyModel(name='John', age=30)
+session.set(new_model.name, new_model)
+src_model = session.get('John')
+
+# The session will use the custom serializer for the session
+assert src_model == new_model
+```
 
 
 

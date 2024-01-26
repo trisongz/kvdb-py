@@ -7,8 +7,12 @@ Configuration for Caching / Persistence
 from pydantic import Field, model_validator, validator
 from kvdb.types.base import BaseModel, computed_field
 from kvdb.types.common import CachePolicy
-from typing import Dict, Any, Optional, Type, Literal, Union, Callable, List, Mapping, TYPE_CHECKING
+from .defaults import (
+    get_default_cache_db_id,
+    get_default_cache_serializer,
+)
 from .base import SerializerConfig
+from typing import Dict, Any, Optional, Type, Literal, Union, Callable, List, Mapping, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kvdb.components.session import KVDBSession
@@ -27,6 +31,8 @@ class KVDBCacheConfig(SerializerConfig, BaseModel):
     prefix: Optional[str] = Field('_kvc_', description = 'The prefix for the cache key')
     
     max_attempts: Optional[int] = 20
+
+    db_id: Optional[int] = Field(default_factory = get_default_cache_db_id)
 
 
 class KVDBCachifyConfig(SerializerConfig, BaseModel):
@@ -87,9 +93,9 @@ class KVDBCachifyConfig(SerializerConfig, BaseModel):
     # Allow for post-call hooks
     post_call_hook: Optional[Union[str, Callable]] = None
 
+    serializer: Optional[str] = Field(default_factory = get_default_cache_serializer)
+    # 'json'
 
-    serializer: Optional[str] = 'json'
-    
     # Private
     cache_field: Optional[str] = None
     is_class_method: Optional[bool] = None

@@ -8,6 +8,10 @@ from pydantic import Field, model_validator, validator
 from kvdb.types.base import BaseModel, computed_field
 from typing import Dict, Any, Optional, Type, Literal, Union, Callable, List, Mapping, TYPE_CHECKING
 from .base import SerializerConfig
+from .defaults import (
+    get_default_session_serializer,
+    get_default_persistence_serializer,
+)
 
 if TYPE_CHECKING:
     from kvdb.components.connection_pool import ConnectionPoolT, AsyncConnectionPoolT
@@ -111,7 +115,9 @@ class KVDBSerializationConfig(BaseModel):
     """
     The KVDB Serialization Config
     """
+    serializer: Optional[str] = Field(default_factory = get_default_session_serializer)
     encoding_errors: Optional[str] = 'strict'
+
 
 class KVDBPersistenceConfig(SerializerConfig, BaseModel):
     """
@@ -122,6 +128,7 @@ class KVDBPersistenceConfig(SerializerConfig, BaseModel):
     hset_disabled: Optional[bool] = False
     keyjoin: Optional[str] = ':'
     async_enabled: Optional[bool] = False
+    serializer: Optional[str] = Field(default_factory = get_default_persistence_serializer)
 
     
 

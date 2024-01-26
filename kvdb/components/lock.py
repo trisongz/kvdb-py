@@ -256,4 +256,6 @@ class AsyncLock(_AsyncLock):
             return False
         self.local.token = None
         return self.do_release(expected_token, force = force, raise_errors = raise_errors)
-        
+
+
+LockT = Union[Lock, AsyncLock]

@@ -10,6 +10,11 @@ from pydantic import Field, model_validator, validator
 from kvdb.types.base import BaseModel, computed_field
 from kvdb.utils.logs import logger
 from kvdb.utils.lazy import temp_data, app_env
+from .defaults import (
+    get_default_serializer_for_config, 
+    get_default_task_serializer,
+    get_default_task_db_id
+)
 
 from typing import Dict, Any, Optional, Type, Literal, Union, Callable, List, Mapping, TYPE_CHECKING
 
@@ -23,7 +28,8 @@ class SerializerConfig(BaseModel):
     The Serializer Config
     """
 
-    serializer: Optional[str] = None # 'json'
+    serializer: Optional[str] = Field(default_factory = get_default_serializer_for_config)
+    # None # 'json'
     serializer_kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict, description = 'The kwargs to pass to the serializer')
 
     # Compression Support for the Serializer
@@ -140,9 +146,11 @@ class TaskQueueConfig(SerializerConfig, BaseModel):
     Configuration for the Task Queue
     """
     queue_prefix: Optional[str] = Field('_kvq_', description = 'The prefix for job keys')
-    queue_db_id: Optional[int] = Field(3, description = 'The database number to use')
+    queue_db_id: Optional[int] = Field(default_factory = get_default_task_db_id, description = 'The database number to use')
+    # queue_db_id: Optional[int] = Field(3, description = 'The database number to use')
     cronjob_prefix: Optional[str] = 'cronjob'
-    serializer: Optional[str] = 'json'
+    serializer: Optional[str] = Field(default_factory = get_default_task_serializer)
+    # 'json'
 
     job_prefix: Optional[str] = 'job'
     job_key_method: Optional[str] = 'uuid4'

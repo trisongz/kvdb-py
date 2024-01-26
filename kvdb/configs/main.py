@@ -14,6 +14,10 @@ from pydantic import ImportString, AliasChoices # Not available in v1
 from lazyops.libs.proxyobj import ProxyObject
 from kvdb.types.base import KVDBUrl, BaseModel, supported_schemas, kv_db_schemas, computed_field
 from .base import temp_data, app_env
+from .defaults import (
+    get_default_kvdb_url,
+    get_default_session_db_id
+)
 from .types import BaseSettings, SettingsConfigDict, PYDANTIC_VERSION
 from .core import (
     KVDBRetryConfig,
@@ -52,7 +56,7 @@ class KVDBSettings(BaseSettings):
     """
 
     # Primary Settings
-    url: KVDBUrl = Field('redis://localhost:6379/0', validation_alias = create_alias_choices('url'))
+    url: KVDBUrl = Field(default_factory = get_default_kvdb_url, validation_alias = create_alias_choices('url'))
 
     scheme: Optional[str] = Field(None, validation_alias = create_alias_choices('scheme'))
     host: Optional[str] = Field(None, validation_alias = create_alias_choices('host'))
@@ -60,6 +64,8 @@ class KVDBSettings(BaseSettings):
     username: Optional[str] = Field(None, validation_alias = create_alias_choices('username'))
     password: Optional[str] = Field(None, validation_alias = create_alias_choices('password'))
     database: Optional[int] = Field(None, validation_alias = create_alias_choices('database'))
+
+    session_db_id: Optional[int] = Field(default_factory= get_default_session_db_id)
 
     debug: Optional[bool] = None
 

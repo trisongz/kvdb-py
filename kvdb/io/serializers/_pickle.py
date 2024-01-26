@@ -1,7 +1,7 @@
 import pickle
-from typing import Any, Dict, Optional, Union, Type
+from typing import Any, Dict, Optional, Union, Type, TypeVar
 from kvdb.utils.lazy import lazy_import
-from .base import BinaryBaseSerializer, ObjectValue, SchemaType, BaseModel, logger
+from .base import BinaryBaseSerializer, ObjectValue, SchemaType, ModuleType, BaseModel, logger
 
 try:
     import cloudpickle
@@ -22,10 +22,12 @@ elif _dill_available:
 else:
     default_pickle = pickle
 
+PickleLibT = TypeVar("PickleLibT")
+
 class PickleSerializer(BinaryBaseSerializer):
     name: Optional[str] = "pickle"
     encoding: Optional[str] = "utf-8"
-    picklelib: Any = default_pickle
+    picklelib: PickleLibT = default_pickle
 
     def __init__(
         self, 
@@ -38,11 +40,23 @@ class PickleSerializer(BinaryBaseSerializer):
         super().__init__(compression, compression_level, encoding, **kwargs)
         if picklelib is not None:
             if isinstance(picklelib, str):
-                picklelib = lazy_import(picklelib)
+                picklelib = lazy_import(picklelib, is_module=True)
             assert hasattr(picklelib, "dumps") and hasattr(picklelib, "loads"), f"Invalid Pickle Library: {picklelib}"
             self.picklelib = picklelib
         self.picklelib_name = self.picklelib.__name__
     
+    @classmethod
+    def set_default_lib(cls, lib: Union[str, PickleLibT, ModuleType]) -> None:
+        """
+        Sets the default Pickle library
+        """
+        global default_pickle
+        if isinstance(lib, str):
+            lib = lazy_import(lib, is_module=True)
+        assert hasattr(lib, "loads") and hasattr(lib, "dumps"), f"Invalid Pickle Library: `{lib}`"
+        cls.picklelib = lib
+        default_pickle = lib
+
     def encode_value(self, value: Union[Any, SchemaType], **kwargs) -> bytes:
         """
         Encode the value with the Pickle Library

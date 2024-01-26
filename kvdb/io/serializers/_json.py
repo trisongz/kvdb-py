@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional, Union, Type
+from typing import Any, Dict, Optional, Union, Type, TypeVar
 from kvdb.utils.lazy import lazy_import
 from kvdb.types.generic import (
     ENCODER_SERIALIZER_PREFIX,
@@ -9,7 +9,7 @@ from kvdb.types.generic import (
     ENCODER_SERIALIZER_PREFIX_BYTES,
     ENCODER_SERIALIZER_PREFIX_BYTES_LEN,
 )
-from .base import BaseSerializer, ObjectValue, SchemaType, BaseModel, logger
+from .base import BaseSerializer, ObjectValue, SchemaType, BaseModel, ModuleType, logger
 from .utils import is_primitive, serialize_object, deserialize_object
 
 try:
@@ -43,12 +43,13 @@ elif _ujson_available:
 else:
     default_json = json
 
+JsonLibT = TypeVar("JsonLibT")
 
 class JsonSerializer(BaseSerializer):
 
     name: Optional[str] = "json"
     encoding: Optional[str] = "utf-8"
-    jsonlib: Any = default_json
+    jsonlib: JsonLibT = default_json
     disable_object_serialization: Optional[bool] = False
 
     def __init__(
@@ -70,10 +71,23 @@ class JsonSerializer(BaseSerializer):
             self.disable_object_serialization = disable_object_serialization
         if jsonlib is not None:
             if isinstance(jsonlib, str):
-                jsonlib = lazy_import(jsonlib)
+                jsonlib = lazy_import(jsonlib, is_module=True)
             assert hasattr(jsonlib, "dumps") and hasattr(jsonlib, "loads"), f"Invalid JSON Library: {jsonlib}"
             self.jsonlib = jsonlib
         self.jsonlib_name = self.jsonlib.__name__
+
+    @classmethod
+    def set_default_lib(cls, lib: Union[str, JsonLibT, ModuleType]) -> None:
+        """
+        Sets the default JSON library
+        """
+        global default_json
+        if isinstance(lib, str):
+            lib = lazy_import(lib, is_module=True)
+        assert hasattr(lib, "dumps") and hasattr(lib, "loads"), f"Invalid JSON Library: {lib}"
+        cls.jsonlib = lib
+        default_json = lib
+
         
     def encode_value(self, value: Union[Any, SchemaType], **kwargs) -> str:
         """

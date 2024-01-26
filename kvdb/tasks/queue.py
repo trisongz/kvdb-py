@@ -1146,8 +1146,8 @@ class TaskQueue(abc.ABC):
             self._ctx = KVDBClient.get_session(
                 name = f'tasks:{self.queue_name}',
                 url = self._kwargs.get('url', None),
-                db_id = self.config.queue_db_id,
-
+                db_id = self._kwargs.get('db_id', self.config.queue_db_id),
+                # db_id = self.config.queue_db_id,
                 pool_max_connections = self.max_concurrency * 10,
                 apool_max_connections = self.max_concurrency ** 2,
                 socket_keepalive = self.config.socket_keepalive,
@@ -1174,7 +1174,6 @@ class TaskQueue(abc.ABC):
                 async_enabled = True,
                 base_key = f'{self.queue_prefix}.{self.queue_name}.persistence',
                 hset_disabled = True,
-
             )
         return self._data
     

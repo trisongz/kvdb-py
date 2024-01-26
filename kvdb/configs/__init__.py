@@ -1,1 +1,21 @@
 from .main import KVDBSettings, settings
+from .defaults import (
+    get_default_db_id_for,
+    get_default_serializer_for,
+    set_default_db_id_for,
+    set_default_serializer_for,
+    set_default_cache_db_id,
+    get_default_cache_db_id,
+    set_default_kvdb_url,
+    get_default_kvdb_url,
+    set_default_session_db_id,
+    get_default_session_db_id,
+    set_default_session_serializer,
+    get_default_session_serializer,
+    get_default_cache_serializer,
+    set_default_cache_serializer,
+    get_default_persistence_serializer,
+    set_default_persistence_serializer,
+    get_default_serializer,
+    set_default_serializer,
+)

@@ -8,10 +8,12 @@ import abc
 import zlib
 import hashlib
 from copy import deepcopy
+
 from kvdb.types.base import BaseModel
 from kvdb.utils.logs import logger
 from kvdb.utils.pool import Pooler
 from kvdb.errors import DataError
+from types import ModuleType
 from typing import Any, Optional, Union, Dict, TypeVar, TYPE_CHECKING
 
 try:
@@ -113,6 +115,13 @@ class BaseSerializer(abc.ABC):
         # base_kwargs.update(self._kwargs)
         # base_kwargs.update(kwargs)
         # return self.__class__(**base_kwargs)
+    
+    @classmethod
+    def set_default_lib(cls, lib: Union[str, ModuleType]) -> None:
+        """
+        Sets the default library
+        """
+        pass
 
     @property
     def compression_enabled(self) -> bool:
