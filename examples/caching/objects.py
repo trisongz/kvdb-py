@@ -1,17 +1,22 @@
 """
-A Very basic demonstration of how to use cachify
+A Very basic demonstration of how to use cachify with objects
 
 Without any arguments, cachify will use the default settings and initialize
 a default session.
 
+Similiar to registering functions, you can register an object for caching.
+
+- The objects functions that are explicitly registered will be cached, and any that are not
+    will not be affected.
 
 Run this example:
 
     # cwd: examples/caching
-    $ python basic.py
+    $ python objects.py
 """
 
 import time
+import abc
 import asyncio
 from lazyops.utils.times import Timer
 from kvdb.io import cachify
@@ -19,28 +24,34 @@ from kvdb.utils.logs import logger
 
 DEBUG_ENABLED = False
 
-@cachify.register(ttl = 10, verbosity = 2 if DEBUG_ENABLED else None, cache_max_size = 15)
-async def async_fibonacci(number: int):
-    if number == 0: return 0
-    elif number == 1: return 1
-    return await async_fibonacci(number - 1) + await async_fibonacci(number - 2)
+@cachify.register_object()
+class TestObject(abc.ABC):
 
-@cachify.register(ttl = 10, verbosity = 2 if DEBUG_ENABLED else None)
-def fibonacci(number: int):
-    if number == 0: return 0
-    elif number == 1: return 1
-    return fibonacci(number - 1) + fibonacci(number - 2)
+    def __init__(self, *args, **kwargs):
+        logger.info('running init')
 
-# No Cache Versions
-async def async_fibonacci_nc(number: int):
-    if number == 0: return 0
-    elif number == 1: return 1
-    return await async_fibonacci_nc(number - 1) + await async_fibonacci_nc(number - 2)
+    @cachify.register(ttl = 10, verbosity = 2 if DEBUG_ENABLED else None, cache_max_size = 15)
+    async def async_fibonacci(self, number: int):
+        if number == 0: return 0
+        elif number == 1: return 1
+        return await self.async_fibonacci(number - 1) + await self.async_fibonacci(number - 2)
 
-def fibonacci_nc(number: int):
-    if number == 0: return 0
-    elif number == 1: return 1
-    return fibonacci_nc(number - 1) + fibonacci_nc(number - 2)
+    @cachify.register(ttl = 10, verbosity = 2 if DEBUG_ENABLED else None)
+    def fibonacci(self, number: int):
+        if number == 0: return 0
+        elif number == 1: return 1
+        return self.fibonacci(number - 1) + self.fibonacci(number - 2)
+
+    # No Cache Versions
+    async def async_fibonacci_nc(self, number: int):
+        if number == 0: return 0
+        elif number == 1: return 1
+        return await self.async_fibonacci_nc(number - 1) + await self.async_fibonacci_nc(number - 2)
+
+    def fibonacci_nc(self, number: int):
+        if number == 0: return 0
+        elif number == 1: return 1
+        return self.fibonacci_nc(number - 1) + self.fibonacci_nc(number - 2)
 
 
 async def run_tests(
@@ -54,36 +65,35 @@ async def run_tests(
     """
 
     t = Timer(format_ms=True)
+    o = TestObject()
 
     # Test Sync
     st = Timer(format_ms=True)
     for i in range(runs):
-        r = fibonacci(start_n+i)
+        r = o.fibonacci(start_n+i)
         d = st.duration_s
         if i % print_every == 0:
             logger.info(f'[Sync - {i}/{runs}] Result: {r} | Time: {d}')
     logger.info(f'[Sync] Cache Average Time: {st.total_average_s(runs)} | Total Time: {st.total_s}')
-    logger.info(fibonacci.cache_info(), prefix = '[Sync] Cache Info')
+    logger.info(o.fibonacci.cache_info(), prefix = '[Sync] Cache Info')
 
     # Test Async
     at = Timer(format_ms=True)
     for i in range(runs):
-        r = await async_fibonacci(start_n+i)
+        r = await o.async_fibonacci(start_n+i)
         d = at.duration_s
         if i % print_every == 0:
             logger.info(f'[Async - {i}/{runs}] Result: {r} | Time: {d}')
     logger.info(f'[Async] Cache Average Time: {at.total_average_s(runs)} | Total Time: {at.total_s}')
-    logger.info(await async_fibonacci.cache_info(), prefix = '[Async] Cache Info')
+    logger.info(await o.async_fibonacci.cache_info(), prefix = '[Async] Cache Info')
     logger.info(t.total_s, prefix = 'Total Time')
 
     # Clear the Cache
-    # You can explictly call the function's internally wrapped
-    # methods to clear the cache.
-    fibonacci.clear()
-    logger.info(fibonacci.cache_info(), prefix = '[Sync] Cache Info')
+    o.fibonacci.clear()
+    logger.info(o.fibonacci.cache_info(), prefix = '[Sync] Cache Info')
 
-    await async_fibonacci.clear()
-    logger.info(await async_fibonacci.cache_info(), prefix = '[Async] Cache Info')
+    await o.async_fibonacci.clear()
+    logger.info(await o.async_fibonacci.cache_info(), prefix = '[Async] Cache Info')
 
     logger.info('Testing Non-Cached Functions')
     t = Timer(format_ms=True)
@@ -91,7 +101,7 @@ async def run_tests(
     # Test Sync
     st = Timer(format_ms=True)
     for i in range(runs):
-        r = fibonacci_nc(start_n+i)
+        r = o.fibonacci_nc(start_n+i)
         d = st.duration_s
         if i % print_every == 0:
             logger.info(f'[Sync - {i}/{runs}] Result: {r} | Time: {d}')
@@ -100,7 +110,7 @@ async def run_tests(
     # Test Async
     at = Timer(format_ms=True)
     for i in range(runs):
-        r = await async_fibonacci_nc(start_n+i)
+        r = await o.async_fibonacci_nc(start_n+i)
         d = at.duration_s
         if i % print_every == 0:
             logger.info(f'[Async - {i}/{runs}] Result: {r} | Time: {d}')
@@ -112,6 +122,6 @@ async def run_tests(
 if __name__ == '__main__':
     asyncio.run(run_tests(
         start_n = 5,
-        runs = 10,
+        runs = 40,
         print_every = 5,
     ))

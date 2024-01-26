@@ -706,7 +706,7 @@ class Cachify(KVDBCachifyConfig):
         Safely wraps the function
         """
         if self.is_async and self.has_async_loop:
-            with anyio.move_on_after(timeout = self.timeout):
+            with anyio.move_on_after(self.timeout):
                 yield
         else:
             with timeout(int(self.timeout), raise_errors = False):

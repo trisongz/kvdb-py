@@ -15,7 +15,15 @@ def get_compression(
     """
     Returns a Compression
     """
-    compression_type = compression_type or "lz4"
+    if compression_type and compression_type == "auto":
+        compression_type = None
+    if not compression_type:
+        if _zstd_available:
+            compression_type = "zstd"
+        elif _lz4_available:
+            compression_type = "lz4"
+        else:
+            compression_type = "gzip"
     if compression_type == "gzip":
         return GzipCompression(compression_level = compression_level, **kwargs)
     if compression_type == "lz4":

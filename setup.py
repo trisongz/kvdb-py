@@ -43,7 +43,13 @@ args = {
             'kvdb-task = kvdb.tasks.cli:main',
         ],
     },
-    'extras_require': {},
+    'extras_require': {
+        "serialization": [
+            "pysimdjson",
+            "cloudpickle",
+            "zstd",
+        ]
+    },
 }
 
 

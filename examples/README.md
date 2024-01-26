@@ -1,13 +1,7 @@
 # KVDB Examples
 
-- [x] [Persistence](./persistence.py)
+- [x] [Sessions](./sessions/README.md)
+- [x] [Task Queues](./queue/README.md)
+- [ ] [Caching](./cache/README.md)
+- [ ] [Persistence](./persistence.py)
 
-
-## Persistence
-
-```python
-import kvdb
-
-db = kvdb.connect('db.kvdb')
-
-```

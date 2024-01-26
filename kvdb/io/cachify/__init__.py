@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, 
 if TYPE_CHECKING:
     from .base import Cachify, FunctionT
     from kvdb.components.session import KVDBSession
+    from .cache import CachifyContext
 
 @overload
 def register(
@@ -131,3 +132,77 @@ def register(
     """
     from .main import CachifyManager
     return CachifyManager.register(cache_name = cache_name, function = function, **kwargs)
+
+
+@overload
+def register_object(
+    cache_name: Optional[str] = None, 
+    **kwargs,
+) -> object:
+    """
+    Registers an object for caching
+
+    Args:
+        cache_name (Optional[str], optional): The name of the cache. Defaults to None.
+
+    """
+    ...
+
+def register_object(
+    cache_name: Optional[str] = None, 
+    **kwargs,
+) -> object:
+    """
+    Registers an object for caching
+
+    Args:
+        cache_name (Optional[str], optional): The name of the cache. Defaults to None.
+
+    """
+    from .main import CachifyManager
+    return CachifyManager.register_object(cache_name = cache_name, **kwargs)
+
+
+def register_object_method(
+    cache_name: Optional[str] = None, 
+    **kwargs
+) -> Callable[[FunctionT], FunctionT]:
+    """
+    Registers an object method for caching
+
+    Args:
+        cache_name (Optional[str], optional): The name of the cache. Defaults to None.
+
+    """
+    from .main import CachifyManager
+    return CachifyManager.register_object_method(cache_name = cache_name, **kwargs)
+
+
+@overload
+def create_context(
+    cache_name: Optional[str] = None,
+    cachify_class: Optional[Type['Cachify']] = None,
+    cachify_context_class: Optional[Type['CachifyContext']] = None,
+    session: Optional['KVDBSession'] = None,
+    session_name: Optional[str] = None,
+    partial_kwargs: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> 'CachifyContext':
+    """
+    Creates a CachifyContext for registering functions and objects
+    """
+    ...
+
+
+def create_context(
+    cache_name: Optional[str] = None,
+    **kwargs,
+) -> 'CachifyContext':
+    """
+    Creates a CachifyContext for registering functions and objects
+    """
+    from .main import CachifyManager
+    return CachifyManager.create_cachify_context(
+        cache_name = cache_name,
+        **kwargs,
+    )
