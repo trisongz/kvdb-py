@@ -30,6 +30,7 @@ from kvdb.types.jobs import (
     TERMINAL_JOB_STATUSES,
     UNSUCCESSFUL_TERMINAL_JOB_STATUSES,
     INCOMPLETE_JOB_STATUSES,
+    JobResultT,
 )
 
 from kvdb.utils.helpers import (
@@ -107,11 +108,11 @@ class TaskQueue(abc.ABC):
         """
         Initializes the Task Queue
         """
-        self.settings = settings.model_copy()
+        self.queue_settings = settings.model_copy()
         if isinstance(kwargs.get('config'), KVDBTaskQueueConfig):
             self.config = kwargs.pop('config')
         else:
-            self.config = self.settings.tasks
+            self.config = self.queue_settings.tasks
         
         config_kwargs, kwargs = self.config.extract_config_and_kwargs(**kwargs)
         self.config.update_config(**config_kwargs)
@@ -162,7 +163,15 @@ class TaskQueue(abc.ABC):
         if self._ctx:
             self._ctx.close()
             self._ctx = None
-        
+    
+    # async def aclose(self):
+    #     """
+    #     Close the task queue
+    #     """
+    #     # self._op_sem.close()
+    #     if self._ctx:
+    #         await self._ctx.aclose()
+    #         self._ctx = None
     
     """
     Primary Methods
@@ -207,23 +216,23 @@ class TaskQueue(abc.ABC):
                     job = await self.deserialize(job_data)
                 except Exception as e:
                     job = None
-                    self.logger(kind = "sweep").warning(f"Unable to deserialize job {job_id}: {e}")
+                    self.log(kind = "sweep").warning(f"Unable to deserialize job {job_id}: {e}")
                 if not job: 
                     swept.append(job_id)
                     async with self.pipeline(transaction = True) as pipe:
                         pipe.lrem(active_key, 0, job_id).zrem(incomplete_key, job_id)
                         pipe = await self.push_queue.remove(job_id = job_id, pipeline = pipe)
                         await pipe.execute()
-                    self.logger(kind = "sweep").info(f"Sweeping missing job {job_id}")
+                    self.log(kind = "sweep").info(f"Sweeping missing job {job_id}")
                 elif job.status not in INCOMPLETE_JOB_STATUSES or job.stuck:
                     swept.append(job_id)
                     await job.finish(JobStatus.ABORTED, error="swept")
                     if self.queue_tasks.is_function_silenced(job.function, stage = 'sweep'): pass
                     elif self.logging_max_length:
                         job_result = job.get_truncated_result(self.logging_max_length)
-                        self.logger(job=job, kind = "sweep").info(f"☇ duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
+                        self.log(job=job, kind = "sweep").info(f"☇ duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
                     else:
-                        self.logger(job=job, kind = "sweep").info(f"☇ duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}")
+                        self.log(job=job, kind = "sweep").info(f"☇ duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}")
         gc.collect()
         return swept
 
@@ -277,7 +286,7 @@ class TaskQueue(abc.ABC):
             # self.retried += 1
             await self.notify(job)
             if not self.queue_tasks.is_function_silenced(job.function, stage = 'retry'):
-                self.logger(job=job, kind = "retry").info(f"↻ duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}, error={job.error}")
+                self.log(job=job, kind = "retry").info(f"↻ duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}, error={job.error}")
 
 
     async def finish(
@@ -311,14 +320,14 @@ class TaskQueue(abc.ABC):
 
             await self.notify(job)
             # if self.debug_enabled:
-            #     self.logger(job=job, kind = "finish").info(f"Finished {job}")
+            #     self.log(job=job, kind = "finish").info(f"Finished {job}")
             if self.queue_tasks.is_function_silenced(job.function, stage = 'finish'):
                 pass
             elif self.logging_max_length:
                 job_result = job.get_truncated_result(self.logging_max_length)
-                self.logger(job=job, kind = "finish").info(f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
+                self.log(job=job, kind = "finish").info(f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
             else:
-                self.logger(job=job, kind = "finish").info(f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}")
+                self.log(job=job, kind = "finish").info(f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}")
             # await self.track_job(job)
             
 
@@ -429,14 +438,15 @@ class TaskQueue(abc.ABC):
         
         elif self.logging_max_length:
             job_kwargs = job.get_truncated_kwargs(self.logging_max_length)
-            self.logger(job=job, kind="enqueue").info(
+            self.log(job=job, kind="enqueue").info(
                 f"→ duration={now() - job.queued}ms, node={self.node_name}, func={job.function}, timeout={job.timeout}, kwargs={job_kwargs}"
             )
         
         else:
-            self.logger(job=job, kind="enqueue").info(
+            self.log(job=job, kind="enqueue").info(
                 f"→ duration={now() - job.queued}ms, node={self.node_name}, func={job.function}, timeout={job.timeout}"
             )
+        return job
 
 
     @overload
@@ -463,7 +473,7 @@ class TaskQueue(abc.ABC):
         return_all_results: Optional[bool] = False,
         
         **kwargs
-    ) -> Optional[Any]:
+    ) -> Optional[JobResultT]:
         """
         Enqueue a job and wait for its result.
 
@@ -484,7 +494,7 @@ class TaskQueue(abc.ABC):
         workers_selected: Optional[List[Dict[str, str]]] = None,
         return_all_results: Optional[bool] = False,
         **kwargs
-    ):
+    ) -> Optional[JobResultT]:
         """
         Enqueue a job and wait for its result.
 
@@ -600,7 +610,7 @@ class TaskQueue(abc.ABC):
         worker_selector_kwargs: Optional[Dict] = None,
         workers_selected: Optional[List[Dict[str, str]]] = None,
         **kwargs
-    ):
+    ) -> List[Job]:
         """
         Broadcast a job to all nodes and collect all of their results.
         
@@ -650,7 +660,7 @@ class TaskQueue(abc.ABC):
         worker_selector_kwargs: Optional[Dict] = None,
         workers_selected: Optional[List[Dict[str, str]]] = None,
         **kwargs
-    ):
+    ) -> List[JobResultT]:
         """
         Enqueue multiple jobs and collect all of their results.
 
@@ -843,7 +853,7 @@ class TaskQueue(abc.ABC):
             # self.autologger.info(f'Fetched job id {job_id}')
             return await self.get_job_by_id(job_id)
 
-        if not worker_id and not worker_name: self.logger(kind="dequeue").info("Dequeue timed out")
+        if not worker_id and not worker_name: self.log(kind="dequeue").debug("Dequeue timed out")
         return None
 
     async def _deferred(
@@ -880,7 +890,7 @@ class TaskQueue(abc.ABC):
         raise_exceptions: Optional[bool] = False,
         refresh_interval: Optional[float] = 0.5,
         **kwargs,
-    ) -> Any:  # sourcery skip: low-code-quality
+    ) -> JobResultT:  # sourcery skip: low-code-quality
         """
         Waits for job to finish
         """
@@ -916,7 +926,7 @@ class TaskQueue(abc.ABC):
         raise_exceptions: Optional[bool] = False,
         refresh_interval: Optional[float] = 0.5,
         **kwargs,
-    ) -> List[Any]:  # sourcery skip: low-code-quality
+    ) -> List[JobResultT]:  # sourcery skip: low-code-quality
         """
         Waits for jobs to finish
         """
@@ -959,7 +969,7 @@ class TaskQueue(abc.ABC):
         return_results: Optional[bool] = True,
         cancel_func: Optional[Callable] = None,
         **kwargs,
-    ) -> typing.AsyncGenerator[Any, None]:
+    ) -> typing.AsyncGenerator[JobResultT, None]:
         # sourcery skip: low-code-quality
         """
         Generator that yields results as they complete
@@ -1079,17 +1089,24 @@ class TaskQueue(abc.ABC):
         else: yield
 
 
-    async def serialize(self, job: Job):
+    async def serialize(self, job: Job) -> Union[str, bytes]:
         """
         Serialize a job.
         """
         if self.ctx.session_serialization_enabled:
             return job
         try:
-            return await self.serializer.adumps(job)
+            return await job.serialize(self.serializer)
+            # if job.result is not None:
+            #     job.result = await self.serializer.adumps(job.result)
+            # if self.serializer.name == 'pickle':
+            # job_data = job.model_dump(mode = 'json' if self.serializer.name == 'json' else 'python')
+            # job.queue = None
+            # return await self.serializer.adumps(job)
+
         except Exception as e:
             from lazyops.utils.debugging import inspect_serializability
-            self.settings.logger.trace(f"Unable to serialize job: {job}", e, depth = 2)
+            self.queue_settings.logger.trace(f"Unable to serialize job: {job}", e, depth = 2)
             data = job.model_dump()
             for k,v in data.get('kwargs', {}).items():
                 inspect_serializability(v, name = k)
@@ -1099,8 +1116,15 @@ class TaskQueue(abc.ABC):
         """
         Deserialize a job.
         """
+
         if isinstance(job, (bytes, str)):
-            job = await self.serializer.aloads(job)
+            # job = await self.serializer.aloads(job)
+            job = await Job.deserialize(job, self.serializer)
+            # job_data = await self.serializer.aloads(job)
+            # job = Job.model_validate(job_data)
+            # self.autologger.info(f"Deserialized job: {job.short_kwargs}")
+        # if job.result is not None:
+        #     job.result = await self.serializer.aloads(job.result)
         assert job.queue_name == self.queue_name, f"Job is not for this queue: {job.queue_name} != {self.queue_name}"
         job.queue = self
         return job
@@ -1218,10 +1242,10 @@ class TaskQueue(abc.ABC):
         """
         Returns the autologger
         """
-        return self.settings.logger if self.config.debug_enabled else self.settings.autologger
+        return self.queue_settings.logger if self.config.debug_enabled else self.queue_settings.autologger
     
 
-    def logger(
+    def log(
         self, 
         job: 'Job' = None, 
         kind: str = "enqueue", 
@@ -1237,7 +1261,7 @@ class TaskQueue(abc.ABC):
         }
         if job or job_id: _kwargs['job_id'] = job.id if job else job_id
         if job: _kwargs['status'] = job.status
-        return self.settings.logger.bind(**_kwargs)
+        return self.queue_settings.logger.bind(**_kwargs)
 
     """
     Worker Management
@@ -1321,9 +1345,9 @@ class TaskQueue(abc.ABC):
         # Configure Misc Variables
         from lazyops.utils.system import get_host_name
         self.node_name = get_host_name()
-        self.is_primary_process = self.settings.temp_data.has_logged(f'primary_process.queue:{self.queue_name}')
+        self.is_primary_process = self.queue_settings.temp_data.has_logged(f'primary_process.queue:{self.queue_name}')
         
-        if self.settings.in_k8s:
+        if self.queue_settings.in_k8s:
             self.is_leader_process = self.node_name[-1].isdigit() and int(self.node_name[-1]) == 0 and self.is_primary_process
         else:
             self.is_leader_process = self.is_primary_process
@@ -1395,15 +1419,10 @@ class TaskQueue(abc.ABC):
         """
         if self.worker_registered.get(worker.worker_id): return
         # await self.data.asetdefault('workers', {})
+        self.worker_log_name = worker.name
         
         self.worker_registered[worker.worker_id] = True
         atexit.register(self.deregister_worker_on_exit, worker_id = worker.worker_id)
-        # worker_id = worker.worker_id
-        # worker_name = worker.worker_name
-        # self.worker_id = worker_id
-        # self.worker_name = worker_name
-        # self.worker = worker
-        # self.autologger.info(f'Worker: {worker}, {self.data["workers"]}')
         workers = await self.data.aget('workers', {})
         try:
             workers[worker.worker_id] = worker.worker_attributes
@@ -1424,6 +1443,7 @@ class TaskQueue(abc.ABC):
         if self.worker_registered.get(worker.worker_id): return
         # self.data.setdefault('workers', {})
         self.worker_registered[worker.worker_id] = True
+        self.worker_log_name = worker.name
         atexit.register(self.deregister_worker_on_exit, worker_id = worker.worker_id)
         # worker_id = worker.worker_id
         # worker_name = worker.worker_name

@@ -41,7 +41,9 @@ from typing import (
 
 
 if TYPE_CHECKING:
-    from aiokeydb.types.task_queue import TaskQueue
+    from kvdb.tasks import TaskQueue
+    from kvdb.io.serializers import SerializerT
+
 
 
 JobResultT = TypeVar('JobResultT')
@@ -137,7 +139,7 @@ class JobQueueMixin(BaseModel):
         """
         Returns the job id.
         """
-        return self.queue.job_id(self.key)
+        return self.queue.job_id(self.key) if self.queue else self.key
 
     @property
     def abort_id(self):
@@ -579,6 +581,45 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         else:
             raise ValueError(f"Invalid job_or_func: {job_or_func} {type(job_or_func)}")
         return job
+    
+    async def serialize(
+        self,
+        serializer: 'SerializerT'
+    ) -> bytes:
+        """
+        Serializes the Job
+        """
+        data = self.model_dump(
+            mode = 'json', 
+            round_trip = True, 
+            exclude_none = True, 
+            exclude_defaults = True,
+            exclude = {"args", "kwargs", "result", "error", "queue", "metadata"} if self.queue.serializer is not None else None,
+        )
+        data['queue'] = self.queue_name or self.queue.queue_name
+        if self.queue.serializer is not None:
+            data['args'] = await serializer.adumps(self.args)
+            data['kwargs'] = await serializer.adumps(self.kwargs)
+            data['result'] = await serializer.adumps(self.result)
+            data['error'] = await serializer.adumps(self.error)
+            data['metadata'] = await serializer.adumps(self.metadata)
+        return await serializer.adumps(data)
+
+    
+    @classmethod
+    async def deserialize(
+        cls,
+        data: Union[str, bytes],
+        serializer: 'SerializerT'
+    ) -> 'Job':
+        """
+        Deserializes the Job
+        """
+        data = await serializer.aloads(data)
+        for key in {'args', 'kwargs', 'result', 'error', 'metadata'}:
+            if key in data:
+                data[key] = await serializer.aloads(data[key])
+        return cls.model_validate(data)
 
 
     def next_retry_delay(self) -> Optional[float]:
@@ -770,6 +811,26 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         """
         return a - b if a and b else None
 
+    async def until_complete(
+        self, 
+        source_job: Optional['Job'] = None,
+        verbose: Optional[bool] = False,
+        raise_exceptions: Optional[bool] = False,
+        refresh_interval: Optional[float] = 0.5,
+        **kwargs,
+    ) -> JobResultT:
+        """
+        Waits until the job is complete.
+        """
+        return await self.queue.wait_for_job(
+            self, 
+            source_job = source_job,
+            verbose = verbose,
+            raise_exceptions = raise_exceptions,
+            refresh_interval = refresh_interval,
+            **kwargs,
+        )
+        
 
     def __hash__(self): return hash(self.key)
 

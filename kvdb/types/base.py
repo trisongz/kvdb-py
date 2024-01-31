@@ -213,6 +213,8 @@ except ImportError:
 
 
 from pydantic.networks import Url
+# Add support for LoadBalancing
+# from pydantic.networks import MultiHostUrl
 from typing import Any, Callable, Set, Annotated, Optional, Dict, Union
 
 kv_db_schemas: Dict[str, str] = {

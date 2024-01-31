@@ -109,11 +109,11 @@ class TaskWorker(abc.ABC):
         """
         Initializes the Worker
         """
-        self.settings = settings.model_copy()
+        self.worker_settings = settings.model_copy()
         if isinstance(kwargs.get('config'), KVDBTaskQueueConfig):
             self.config = kwargs.pop('config')
         else:
-            self.config = self.settings.tasks
+            self.config = self.worker_settings.tasks
         config_kwargs, kwargs = self.config.extract_config_and_kwargs(**kwargs)
         self.config.update_config(**config_kwargs)
         self.timers = WorkerTimerConfig()
@@ -121,11 +121,12 @@ class TaskWorker(abc.ABC):
             self.timers.update_config(timers)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self.main_task: Optional[asyncio.Task] = None
+        self.cls_preinit(**kwargs)
         self.init_queues(queues = queues, task_queue_class = task_queue_class, **kwargs)
         self.cls_init(**kwargs)
+        self.pre_init(**kwargs)
         self.init_functions(functions = functions, cronjobs = cronjobs, **kwargs)
         self.init_processes(startup = startup, shutdown = shutdown, before_process = before_process, after_process = after_process, **kwargs)
-        self.pre_init(**kwargs)
         self.post_init(**kwargs)
         self.finalize_init(**kwargs)
 
@@ -157,6 +158,12 @@ class TaskWorker(abc.ABC):
                     asyncio.set_event_loop(self._loop)
         return self._loop
 
+    def should_run_worker(self, **kwargs) -> bool:
+        """
+        Checks if the worker should run
+        """
+        return True
+
     def configure(self, **kwargs):
         """
         Configures the worker
@@ -177,6 +184,7 @@ class TaskWorker(abc.ABC):
         """
         Start processing jobs and upkeep tasks.
         """
+        if not self.should_run_worker(**kwargs): return
         if not self.queue_eager_init:
             for queue in self.queues:
                 await queue.aregister_worker(self)
@@ -217,7 +225,8 @@ class TaskWorker(abc.ABC):
             raise error from error
 
         finally:
-            self.logger(kind = "shutdown").warning(f'{self.worker_identity} is shutting down. Error: {error}')
+            self.log(kind = "shutdown").warning(f'{self.worker_identity} is shutting down. Error: {error}')
+            self.event.set()
             await self.aworker_onstop_pre(**kwargs)
             if self.shutdown:
                 for func in self.shutdown:
@@ -249,7 +258,7 @@ class TaskWorker(abc.ABC):
         """
         Stop the worker and cleanup.
         """
-        self.event.set()
+        # self.event.set()
         all_tasks = list(self.tasks)
         self.tasks.clear()
         for task in all_tasks:
@@ -259,7 +268,7 @@ class TaskWorker(abc.ABC):
         await asyncio.gather(*all_tasks, return_exceptions=True)
 
 
-    def logger(self, job: 'Job' = None, kind: str = "enqueue", queue: Optional['TaskQueue'] = None) -> 'Logger':
+    def log(self, job: 'Job' = None, kind: str = "enqueue", queue: Optional['TaskQueue'] = None) -> 'Logger':
         """
         The logger for the worker.
         """
@@ -270,7 +279,7 @@ class TaskWorker(abc.ABC):
             _kwargs['queue_name'] = job.queue_name
         if queue: _kwargs['queue_name'] = queue.queue_name
         if 'queue_name' not in _kwargs: _kwargs['queue_name'] = self.queue_name
-        return self.settings.logger.bind(**_kwargs)
+        return self.worker_settings.logger.bind(**_kwargs)
 
 
     async def before_process(self, ctx):
@@ -306,7 +315,7 @@ class TaskWorker(abc.ABC):
             await queue.enqueue(**enqueue_kwargs)
             scheduled = await queue.schedule(lock)
             if scheduled:
-                self.logger(kind = "scheduled").info(f'↻ node={queue.node_name}, function={cronjob.function_name}, {scheduled}')
+                self.log(kind = "scheduled").info(f'↻ node={queue.node_name}, function={cronjob.function_name}, {scheduled}')
 
     async def heartbeat(self, ttl: Optional[int] = None):
         """
@@ -353,18 +362,6 @@ class TaskWorker(abc.ABC):
             ),
         ]
     
-        # return [
-        #     asyncio.create_task(poll(self.abort, self.timers.abort)),
-        #     asyncio.create_task(poll(self.schedule, self.timers.schedule)),
-        #     asyncio.create_task(poll(self.sweep, self.timers.sweep)),
-        #     # asyncio.create_task(
-        #     #     poll(self.queue.stats, self.timers.stats, self.timers.stats + 1)
-        #     # ),
-        #     asyncio.create_task(
-        #         poll(self.heartbeat, self.timers.heartbeat, self.heartbeat_ttl)
-        #     ),
-        # ]
-    
     async def sort_jobs(self, jobs: List['Job']) -> Dict[str, List['Job']]:
         """
         Sort the jobs into their respective queues.
@@ -402,7 +399,7 @@ class TaskWorker(abc.ABC):
                     await job.finish(JobStatus.ABORTED, error = abort.decode("utf-8"))
                     await queue.ctx.adelete(job.abort_id)
                     if not queue.queue_tasks.is_function_silenced(job.function, stage = "abort"):
-                        self.logger(job = job, kind = "abort").info(f"⊘ {job.get_duration('running')}ms, node={self.node_name}, func={job.function}, id={job.id}")
+                        self.log(job = job, kind = "abort").info(f"⊘ {job.get_duration('running')}ms, node={self.node_name}, func={job.function}, id={job.id}")
             
 
     async def process_queue(
@@ -433,16 +430,16 @@ class TaskWorker(abc.ABC):
                 return
             if job.worker_id and job.worker_id != self.worker_id:
                 if self.config.debug_enabled:
-                    self.logger(job = job, kind = "process").info(f"⊘ Rejected job, queued_key={job.queued_key}, func={job.function}, id={job.id} | worker_id={job.worker_id} != {self.worker_id}")
+                    self.log(job = job, kind = "process").info(f"⊘ Rejected job, queued_key={job.queued_key}, func={job.function}, id={job.id} | worker_id={job.worker_id} != {self.worker_id}")
                 return
             
             if job.worker_name and job.worker_name != self.name:
                 if self.config.debug_enabled:
-                    self.logger(job = job, kind = "process").info(f"⊘ Rejected job, queued_key={job.queued_key}, func={job.function}, id={job.id} | worker_name={job.worker_name} != {self.name}")
+                    self.log(job = job, kind = "process").info(f"⊘ Rejected job, queued_key={job.queued_key}, func={job.function}, id={job.id} | worker_name={job.worker_name} != {self.name}")
                 return
                 
             if (job.worker_name or job.worker_id) and self.config.debug_enabled:
-                self.logger(job = job, kind = "process").info(f"☑ Accepted job, func={job.function}, id={job.id}, worker_name={job.worker_name}, worker_id={job.worker_id}")
+                self.log(job = job, kind = "process").info(f"☑ Accepted job, func={job.function}, id={job.id}, worker_name={job.worker_name}, worker_id={job.worker_id}")
             
             self.tasks_idx += 1
             job.started = now()
@@ -453,20 +450,22 @@ class TaskWorker(abc.ABC):
             #     await self.queue.track_job_id(job)
             context = {**self.ctx, "job": job}
             await self.before_process(context)
+            job = queue.queue_tasks.ensure_job_in_functions(job)
             # if job.function not in self.silenced_functions:
             if not queue.queue_tasks.is_function_silenced(job.function, stage = "process"):
                 _msg = f"← duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}"
                 # if self.verbose_concurrency:
                 #     _msg = _msg.replace("node=", f"idx={self._tasks_idx}, conn=({concurrency_id}/{self.concurrency}), node=")
-                self.logger(job = job, kind = "process").info(_msg)
+                self.log(job = job, kind = "process").info(_msg)
 
             function = self.functions[job.function]
             # res = await function(context, *(job.args or ()), **(job.kwargs or {}))
             try:
-                contextvar = contextvars.copy_context()
-                task = self.loop.create_task(function(context, *(job.args or ()), **(job.kwargs or {})), context = contextvar)
+                #contextvar = contextvars.copy_context()
+                #task = self.loop.create_task(function(context, *(job.args or ()), **(job.kwargs or {})), context = contextvar)
+                task = self.loop.create_task(function(context, *(job.args or ()), **(job.kwargs or {})))
             except Exception as e:
-                # self.logger(job = job, kind = "process").error(
+                # self.log(job = job, kind = "process").error(
                 #     f"Failed to create task for [{job.function}] {function} with error: {e}.\nKwargs: {job.kwargs}"
                 # )
                 self.autologger.trace(f"Failed to create task for [{job.function}] {function} with error: {e}.\nKwargs: {job.kwargs}", e)
@@ -544,10 +543,18 @@ class TaskWorker(abc.ABC):
                 
     
 
-
     """
     Initialize the Worker
     """
+
+    def cls_preinit(
+        self,
+        **kwargs
+    ):
+        """
+        Pre-Initializes the Worker
+        """
+        pass
 
     def cls_init(
         self, 
@@ -574,8 +581,8 @@ class TaskWorker(abc.ABC):
         self.node_name = get_host_name()
         self.name = kwargs.get('name', kwargs.get('worker_name')) or self.node_name
         self.worker_name = self.name
-        self.is_primary_process = self.settings.temp_data.has_logged(f'primary_process.worker:{self.name}')
-        if self.settings.in_k8s:
+        self.is_primary_process = self.worker_settings.temp_data.has_logged(f'primary_process.worker:{self.name}')
+        if self.worker_settings.in_k8s:
             self.is_leader_process = self.node_name[-1].isdigit() and int(self.node_name[-1]) == 0 and self.is_primary_process
         else:
             self.is_leader_process = self.is_primary_process
@@ -696,31 +703,31 @@ class TaskWorker(abc.ABC):
         """
         Returns the autologger
         """
-        return self.settings.logger if self.config.debug_enabled else self.settings.autologger
+        return self.worker_settings.logger if self.config.debug_enabled else self.worker_settings.autologger
     
 
     def build_startup_display_message(self):  # sourcery skip: low-code-quality
         """
         Builds the startup log message.
         """
-        # _msg = f'{self._worker_identity}: {self.worker_host}.{self.name} v{self.settings.version}'
-        _msg = f'{self.worker_identity}: v{self.settings.version}'
+        # _msg = f'{self._worker_identity}: {self.worker_host}.{self.name} v{self.worker_settings.version}'
+        _msg = f'{self.worker_identity}: v{self.worker_settings.version}'
         _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset} {ColorMap.cyan}[Worker Name]{ColorMap.reset}: {ColorMap.bold}{self.name}{ColorMap.reset} {ColorMap.cyan}[Node Name]{ColorMap.reset}: {ColorMap.bold}{self.node_name} {ColorMap.cyan}'
         # _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset}'
         if self.config.debug_enabled:
             _msg += f'\n- {ColorMap.cyan}[Concurrency]{ColorMap.reset}: {ColorMap.bold}{self.max_concurrency}/jobs, {self.max_broadcast_concurrency}/broadcasts{ColorMap.reset}'
             if len(self.queues) == 1:
-                _msg += f'\n- {ColorMap.cyan}[Queue]{ColorMap.reset}: {ColorMap.bold}{self.queues[0].queue_name} @ {self.queues[0].ctx.url.safe_url} DB: {self.queues[0].ctx.url.db_id}{ColorMap.reset}'
+                _msg += f'\n- {ColorMap.cyan}[Queue]{ColorMap.reset}: {ColorMap.bold}{self.queues[0].queue_name} @ {self.queues[0].ctx.url.safe_url} [S: {self.queues[0].serializer.name if self.queues[0].serializer else None}]{ColorMap.reset}'
                 _msg += f'\n- {ColorMap.cyan}[Registered]{ColorMap.reset}: {ColorMap.bold}{len(self.functions)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'
-                _msg += f'\n      \t[Functions]: `{[list(self.functions.keys())]}`'
+                _msg += f'\n      \t[Functions]: `{list(self.functions.keys())}`'
                 if self.cronjobs:
-                    _msg += f'\n      \t[Cron Jobs]: `{[list(self.cronjobs.keys())]}`'
+                    _msg += f'\n      \t[Cron Jobs]: `{list(self.cronjobs.keys())}`'
                 
             else:
                 _msg += f'\n- {ColorMap.cyan}[Queues]{ColorMap.reset}:'
                 for queue in self.queues:
                     queue_funcs = [f for f in self.functions.values() if f.queue_name == queue.queue_name]
-                    _msg += f'\n   - {ColorMap.bold}[{queue.queue_name}]\t @ {queue.ctx.url} DB: {queue.ctx.url.db_id}, {len(queue_funcs)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'
+                    _msg += f'\n   - {ColorMap.bold}[{queue.queue_name}]\t @ {queue.ctx.url} [S: {queue.serializer.name if queue.serializer else None}], {len(queue_funcs)} functions, {len(self.cronjobs)} cron jobs{ColorMap.reset}'
                     _msg += f'\n      \t[Functions]: `{[f.function_name for f in queue_funcs]}`'
                     if self.cronjobs:
                         _msg += f'\n      \t[Cron Jobs]: `{[f.function_name for f in self.cronjobs.values() if f.queue_name == queue.queue_name]}`'
@@ -731,9 +738,9 @@ class TaskWorker(abc.ABC):
             #     _msg += f'\n- {ColorMap.cyan}[Functions]{ColorMap.reset}:'
             #     for function_name in self.functions:
             #         _msg += f'\n   - {ColorMap.bold}{function_name}{ColorMap.reset}'
-            #     if self.settings.worker.has_silenced_functions:
+            #     if self.worker_settings.worker.has_silenced_functions:
             #         _msg += f"\n - {ColorMap.cyan}[Silenced Functions]{ColorMap.reset}:"
-            #         for stage, silenced_functions in self.settings.worker.silenced_function_dict.items():
+            #         for stage, silenced_functions in self.worker_settings.worker.silenced_function_dict.items():
             #             if silenced_functions:
             #                 _msg += f"\n   - {stage}: {silenced_functions}"
             #     if self.queue.function_tracker_enabled:

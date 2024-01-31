@@ -13,7 +13,8 @@ from kvdb.utils.lazy import temp_data, app_env
 from .defaults import (
     get_default_serializer_for_config, 
     get_default_task_serializer,
-    get_default_task_db_id
+    get_default_task_db_id,
+    get_default_task_prefix,
 )
 
 from typing import Dict, Any, Optional, Type, Literal, Union, Callable, List, Mapping, TYPE_CHECKING
@@ -145,7 +146,7 @@ class TaskQueueConfig(SerializerConfig, BaseModel):
     """
     Configuration for the Task Queue
     """
-    queue_prefix: Optional[str] = Field('_kvq_', description = 'The prefix for job keys')
+    queue_prefix: Optional[str] = Field(default_factory = get_default_task_prefix, description = 'The prefix for job keys')
     queue_db_id: Optional[int] = Field(default_factory = get_default_task_db_id, description = 'The database number to use')
     # queue_db_id: Optional[int] = Field(3, description = 'The database number to use')
     cronjob_prefix: Optional[str] = 'cronjob'

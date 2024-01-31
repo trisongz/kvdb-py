@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from .abstract import TaskABC
+from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, TypeVar, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
 
-from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
+RT = TypeVar('RT')
 
 if TYPE_CHECKING:
     import asyncio
@@ -26,6 +28,7 @@ def register(
     disable_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional['AttributeMatchType'] = None,
+    task_abc: Optional[bool] = None,
     **kwargs
 ) -> Callable[['FunctionT'], 'FunctionT']:
     """
@@ -91,6 +94,7 @@ def register_object(
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional['AttributeMatchType'] = None,
     context: Optional[Dict[str, Any]] = None,
+    is_unset: Optional[bool] = False,
     **kwargs,
 ) -> 'ModuleType':
     """
@@ -104,6 +108,7 @@ def register_object(
 
 def register_object(
     queue_name: Optional[str] = None,
+    is_unset: Optional[bool] = False,
     **kwargs,
 ) -> 'ModuleType':
     """
@@ -114,7 +119,111 @@ def register_object(
     is called
     """
     from .main import TaskManager
-    return TaskManager.register_object(queue_name = queue_name, **kwargs)
+    return TaskManager.register_object(queue_name = queue_name, is_unset = is_unset, **kwargs)
+
+def register_abstract(
+    func: FunctionT,
+) -> Callable[[FunctionT], FunctionT]:
+    """
+    Registers a function that is part of an abstract class
+    that is not yet initialized
+    """
+    from .main import TaskManager
+    return TaskManager.register_abstract(func)
+
+
+@overload
+def register_abc(
+    cls_or_func: Optional[Union[Type['TaskABC'], FunctionT, Callable[..., ReturnValue]]] = None,
+    phase: Optional[TaskPhase] = None,
+    silenced: Optional[bool] = None,
+    silenced_stages: Optional[List[str]] = None,
+    default_kwargs: Optional[Dict[str, Any]] = None,
+    cronjob: Optional[bool] = None,
+    queue_name: Optional[str] = None,
+    disable_patch: Optional[bool] = None,
+    worker_attributes: Optional[Dict[str, Any]] = None,
+    attribute_match_type: Optional[AttributeMatchType] = None,
+    **kwargs
+) -> Callable[..., 'ReturnValue']:
+    """
+    Registers an abstract class or function to the task queue
+    """
+    ...
+
+
+@overload
+def register_abc(
+    cls_or_func: Optional[Union[Type['TaskABC'], FunctionT, Callable[..., ReturnValue]]] = None,
+    phase: Optional[TaskPhase] = None,
+    silenced: Optional[bool] = None,
+    silenced_stages: Optional[List[str]] = None,
+    default_kwargs: Optional[Dict[str, Any]] = None,
+    cronjob: Optional[bool] = None,
+    queue_name: Optional[str] = None,
+    disable_patch: Optional[bool] = False,
+    worker_attributes: Optional[Dict[str, Any]] = None,
+    attribute_match_type: Optional[AttributeMatchType] = None,
+    **kwargs
+) -> Callable[['Job'], 'Job']:
+    """
+    Registers an abstract class or function to the task queue
+    """
+    ...
+
+
+@overload
+def register_abc(
+    name: Optional[str] = None,
+    cls_or_func: Optional[Union[Type['TaskABC'], FunctionT, Callable[..., ReturnValue]]] = None,
+    phase: Optional[TaskPhase] = None,
+    silenced: Optional[bool] = None,
+    silenced_stages: Optional[List[str]] = None,
+    default_kwargs: Optional[Dict[str, Any]] = None,
+    cronjob: Optional[bool] = None,
+    queue_name: Optional[str] = None,
+    disable_patch: Optional[bool] = None,
+    worker_attributes: Optional[Dict[str, Any]] = None,
+    attribute_match_type: Optional[AttributeMatchType] = None,
+    **kwargs
+) -> Callable[..., 'ReturnValue']:
+    """
+    Registers an abstract class or function to the task queue
+    """
+    ...
+
+@overload
+def register_abc(
+    phase: Optional[TaskPhase] = None,
+    silenced: Optional[bool] = None,
+    silenced_stages: Optional[List[str]] = None,
+    default_kwargs: Optional[Dict[str, Any]] = None,
+    cronjob: Optional[bool] = None,
+    queue_name: Optional[str] = None,
+    disable_patch: Optional[bool] = None,
+    worker_attributes: Optional[Dict[str, Any]] = None,
+    attribute_match_type: Optional[AttributeMatchType] = None,
+    **kwargs
+) -> Callable[['RT'], 'RT']:
+    """
+    Registers an abstract class or function to the task queue
+    """
+    ...
+
+def register_abc(
+    cls_or_func: Optional[Union[Type['TaskABC'], FunctionT]] = None,
+    **kwargs
+) -> Callable[['FunctionT'], 'FunctionT']:
+    """
+    Registers an abstract class or function to the task queue
+    """
+    from .main import TaskManager
+    return TaskManager.register_abc(cls_or_func = cls_or_func, **kwargs)
+
+
+"""
+END Task Registration Methods
+"""
 
 
 @overload

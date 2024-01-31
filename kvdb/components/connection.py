@@ -40,8 +40,15 @@ from redis.asyncio.connection import (
     DefaultParser as AsyncDefaultParser,
     CredentialProvider,
     NoBackoff,
-    DEFAULT_RESP_VERSION,
+    # DEFAULT_RESP_VERSION,
 )
+
+try:
+    from redis.asyncio.connection import DEFAULT_RESP_VERSION
+    DEPRECATED_SUPPORT = False
+except ImportError:
+    DEFAULT_RESP_VERSION = 2
+    DEPRECATED_SUPPORT = True
 
 
 import kvdb.errors as errors
@@ -259,6 +266,8 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         self.set_parser(parser_class)
         self._connect_callbacks: List[weakref.WeakMethod[ConnectCallbackT]] = []
         self._buffer_cutoff = 6000
+        if DEPRECATED_SUPPORT:
+            self.pid = os.getpid()
         try:
             p = int(protocol)
         except TypeError:

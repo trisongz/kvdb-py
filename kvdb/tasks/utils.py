@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 AttributeMatch = Literal['all', 'any', 'none', None]
 AttributeMatchType = Union[AttributeMatch, int]
 
-TRACE_CHAIN_LIMIT: typing.Optional[int] = 2
+TRACE_CHAIN_LIMIT: typing.Optional[int] = 4
 
 # If the attribute match type is an integer, then it is the number of attributes that must match
 
@@ -124,7 +124,9 @@ def get_func_name(func: typing.Union[str, typing.Callable, 'TaskFunction', 'Cron
     """
     base = f'{prefix}:' if prefix else ''
     if isinstance(func, str): return f'{base}{func}'
-    if callable(func): return f'{base}{func.__qualname__}'
+    if callable(func): 
+        # return f'{base}{func.__module__}.{func.__name__}'
+        return f'{base}{func.__qualname__}'
 
     # CronJob
     if hasattr(func, 'function_name') and isinstance(func.function_name, str): return f'{base}{func.function_name}'

@@ -75,7 +75,8 @@ class Cachify(KVDBCachifyConfig):
             'invalidate_if',
             'invalidate_after',
             'overwrite_if',
-            'bypass_if',
+            'exclude_if',
+            # 'bypass_if',
             'post_init_hook',
             'post_call_hook',
         }:
@@ -120,6 +121,7 @@ class Cachify(KVDBCachifyConfig):
             if self.invalidate_kws: self.invalidate_kws = [f'{self.kwarg_override_prefix}{kw}' for kw in self.invalidate_kws]
             if self.overwrite_kws: self.overwrite_kws = [f'{self.kwarg_override_prefix}{kw}' for kw in self.overwrite_kws]
             if self.ttl_kws: self.ttl_kws = [f'{self.kwarg_override_prefix}{kw}' for kw in self.ttl_kws]
+            if self.exclude_kws: self.exclude_kws = [f'{self.kwarg_override_prefix}{kw}' for kw in self.exclude_kws]
         from kvdb.configs import settings
         self.settings = settings
         self.has_async_loop = self.settings.is_in_async_loop()
@@ -151,6 +153,11 @@ class Cachify(KVDBCachifyConfig):
             for kw in self.ttl_kws:
                 if kw in kwargs:
                     cache_kwargs['ttl'] = kwargs.pop(kw)
+                    break
+        if self.exclude_kws:
+            for kw in self.exclude_kws:
+                if kw in kwargs:
+                    cache_kwargs['exclude'] = kwargs.pop(kw)
                     break
         return cache_kwargs, kwargs
     
@@ -186,7 +193,7 @@ class Cachify(KVDBCachifyConfig):
         Builds the name for the function
         """
         if self.cache_field is not None: return self.cache_field
-        if self.name:  self.cache_field = self.name(func, *args, **kwargs) if callable(self.name) else self.name
+        if self.name: self.cache_field = self.name(func, *args, **kwargs) if callable(self.name) else self.name
         else: 
             self.cache_field = full_name(func)
             if self.prefix: self.cache_field = f'{self.prefix}:{self.cache_field}'
@@ -249,7 +256,7 @@ class Cachify(KVDBCachifyConfig):
         """
         if self.disabled is not None: self.disabled
         if self.disabled_kws and cache_kwargs.get('disabled') is True: return True
-        return not self.disabled(*args, **kwargs) if callable(self.disabled) else False
+        return self.disabled(*args, **kwargs) if callable(self.disabled) else False
     
     async def ashould_disable(self, *args, cache_kwargs: Dict[str, Any] = None, **kwargs) -> bool:
         """
@@ -257,7 +264,7 @@ class Cachify(KVDBCachifyConfig):
         """
         if self.disabled is not None: self.disabled
         if self.disabled_kws and cache_kwargs.get('disabled') is True: return True
-        return not await ThreadPooler.asyncish(self.disabled, *args, **kwargs) if callable(self.disabled) else False
+        return await ThreadPooler.asyncish(self.disabled, *args, **kwargs) if callable(self.disabled) else False
 
     def should_invalidate(self, *args, _hits: Optional[int] = None, cache_kwargs: Dict[str, Any] = None, **kwargs) -> bool:
         """
@@ -304,7 +311,7 @@ class Cachify(KVDBCachifyConfig):
         return False
 
 
-    def should_cache_value(self, val: Any) -> bool:
+    def should_cache_value(self, val: Any, *args, cache_kwargs: Dict[str, Any] = None, **kwargs) -> bool:
         """
         Returns whether or not the value should be cached
         """
@@ -313,10 +320,12 @@ class Cachify(KVDBCachifyConfig):
             if isinstance(self.exclude_exceptions, list): 
                 return not isinstance(val, tuple(self.exclude_exceptions))
             if isinstance(val, Exception): return False
+        if self.exclude_kws and cache_kwargs.get('exclude') is True: return False
+        if self.exclude_if is not None: return not self.exclude_if(val, *args, **kwargs)
         return True
     
 
-    async def ashould_cache_value(self, val: Any) -> bool:
+    async def ashould_cache_value(self, val: Any,  *args, cache_kwargs: Dict[str, Any] = None, **kwargs) -> bool:
         """
         Returns whether or not the value should be cached
         """
@@ -325,6 +334,8 @@ class Cachify(KVDBCachifyConfig):
             if isinstance(self.exclude_exceptions, list): 
                 return not isinstance(val, tuple(self.exclude_exceptions))
             if isinstance(val, Exception): return False
+        if self.exclude_kws and cache_kwargs.get('exclude') is True: return False
+        if self.exclude_if is not None: return not (await ThreadPooler.asyncish(self.exclude_if, val, *args, **kwargs))
         return True
     
 
@@ -824,6 +835,7 @@ class Cachify(KVDBCachifyConfig):
         """
         Adds an expiration to the cache key
         """
+        if ttl is None: return
         with self.safely():
             if self.hset_enabled:
                 expirations = self.data.get('expirations', {})
@@ -836,6 +848,7 @@ class Cachify(KVDBCachifyConfig):
         """
         Adds an expiration to the cache key
         """
+        if ttl is None: return
         with self.safely():
             if self.hset_enabled:
                 expirations = await self.data.aget('expirations', {})
@@ -1177,7 +1190,7 @@ class Cachify(KVDBCachifyConfig):
             return self.session_available
         
 
-        @makefun.wraps(func)
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             """
             Inner wrapper
@@ -1216,7 +1229,7 @@ class Cachify(KVDBCachifyConfig):
             if value == ENOVAL:
                 try:
                     value = func(*args, **kwargs)
-                    if self.should_cache_value(value):
+                    if self.should_cache_value(value, *args, cache_kwargs = cachify_kwargs, **kwargs):
                         if self.super_verbose: logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                         self.set(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
                     if self.super_verbose: logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)
@@ -1422,7 +1435,7 @@ class Cachify(KVDBCachifyConfig):
             if value == ENOVAL:
                 try:
                     value = await func(*args, **kwargs)
-                    if await self.ashould_cache_value(value):
+                    if await self.ashould_cache_value(value, *args, cache_kwargs = cachify_kwargs, **kwargs):
                         if self.super_verbose: logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                         await self.aset(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
                     if self.super_verbose: logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)

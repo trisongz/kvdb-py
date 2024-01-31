@@ -32,3 +32,6 @@ tests/qt_test_v5.py
 tests/qt_test_v2.py
 !kvdb/io/cachify/cache.py
 tests/cachify_test_v1.py
+tests/test_inheritence.py
+tests/wrappers.py
+kvdb/.data/kvdb.tmp.lock

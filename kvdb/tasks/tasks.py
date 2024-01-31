@@ -9,23 +9,27 @@ import makefun
 from inspect import signature, Parameter, Signature
 from kvdb.utils.logs import logger
 from kvdb.utils.helpers import is_coro_func, lazy_import
-from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method
-from typing import Optional, Dict, Any, Union, Callable, Type, List, Tuple, AsyncGenerator, Iterable, TYPE_CHECKING, overload
-from types import ModuleType
+from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method, get_parent_object_class_names, get_object_child_class_names
+from typing import Optional, Dict, Any, Union, Callable, Type, List, Tuple, TypeVar, AsyncGenerator, Iterable, TYPE_CHECKING, overload
+from types import ModuleType, FunctionType
 from .types import (
     Ctx,
     FunctionT,
     TaskPhase,
     TaskResult,
     TaskFunction,
+    ObjectType,
 )
 
 from .utils import AttributeMatchType, get_func_name
+from . import wraps
 
 if TYPE_CHECKING:
     from kvdb.types.jobs import Job, CronJob
     from .queue import TaskQueue
 
+
+JobResultT = TypeVar('JobResultT')
 
 class QueueTasks(abc.ABC):
     """
@@ -49,14 +53,18 @@ class QueueTasks(abc.ABC):
         self.queue: Optional['TaskQueue'] = None
         self.queue_function: Union[Callable[..., 'TaskQueue'], 'TaskQueue'] = None
         self.registered_task_object: Dict[str, Dict[str, Dict]] = {}
+        self.has_child_objects: bool = False
+        self.child_object_mapping: Dict[str, str] = {}
+
+        self.last_registered_function: Optional[str] = None
 
         # if queue is not None: self.queue_name = queue
         # if context is not None: self.context = context
         from kvdb.configs import settings
-        self.settings = settings
-        self.logger = self.settings.logger
-        self.autologger = self.settings.autologger
-        self.verbose: Optional[bool] = kwargs.get('verbose', self.settings.debug_enabled)
+        self.task_settings = settings
+        self.logger = self.task_settings.logger
+        self.autologger = self.task_settings.autologger
+        self.verbose: Optional[bool] = kwargs.get('verbose', self.task_settings.debug_enabled)
         self.configure_classes(task_function_class = task_function_class, cronjob_class = cronjob_class, is_init = True)
 
 
@@ -97,22 +105,27 @@ class QueueTasks(abc.ABC):
         return [
             func
             for func in self.functions.values()
-            if not func.cronjob and func.is_enabled(worker_attributes, attribute_match_type, queue_name = self.queue_name)
+            if not func.is_cronjob and func.is_enabled(worker_attributes, attribute_match_type, queue_name = self.queue_name)
         ]
     
     def get_cronjobs(
         self,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
+        cron_schedules: Optional[Dict[str, str]] = None,
+        log_next_run: Optional[bool] = True,
+        **kwargs,
     ) -> List['TaskFunction']:
         """
         Compiles all the cronjobs that were registered
         """
         cronjobs: List[TaskFunction] = []
         for func in self.functions.values():
-            if not func.cronjob: continue
+            if not func.is_cronjob: continue
             if not func.is_enabled(worker_attributes, attribute_match_type): continue
-            func.configure_cronjob(self.cronjob_class, queue_name = self.queue_name)
+            func.configure_cronjob(self.cronjob_class, cron_schedules = cron_schedules, queue_name = self.queue_name, **kwargs)
+            if log_next_run and not self.task_settings.temp_data.has_logged(f'cron:{func.function_name}'):
+                func.cronjob.get_next_cron_run_data(verbose = True)
             cronjobs.append(func)
         return cronjobs
     
@@ -136,7 +149,9 @@ class QueueTasks(abc.ABC):
         Runs the phase
         """
         for func in self.functions.values():
-            if not func.should_run_for_phase(phase): continue
+            if not func.should_run_for_phase(phase): 
+                # self.logger.info(f'[{self.queue_name}] [phase] Skipping {func.name} for phase {phase}', colored = True)
+                continue
             ctx = await func.run_phase(ctx, self.verbose)
         return ctx
 
@@ -144,6 +159,7 @@ class QueueTasks(abc.ABC):
         """
         Gets the worker context
         """
+        self.logger.info(f'[{self.queue_name}] [context] Getting Worker Context', colored = True)
         ctx = await self.prepare_ctx(ctx)
         ctx = await self.run_phase(ctx, 'dependency')
         ctx = await self.run_phase(ctx, 'context')
@@ -176,6 +192,21 @@ class QueueTasks(abc.ABC):
             raise ValueError(f'Function {function_name} not found in queue `{self.queue_name}`: Valid Functions: `{self.functions.keys()}`')
         return self.functions[function_name].is_silenced(stage)
     
+    def ensure_job_in_functions(
+        self,
+        job: Job,
+    ) -> Job:
+        """
+        Helper to ensure the job is in the functions
+        """
+        if job.function not in self.functions:
+            if not self.has_child_objects:
+                raise ValueError(f'Function {job.function} not found in queue `{self.queue_name}`: Valid Functions: `{self.functions.keys()}`')
+            if job.function not in self.child_object_mapping:
+                raise ValueError(f'Function {job.function} not found in queue `{self.queue_name}`: Valid Functions: `{self.functions.keys()}`')
+            job.function = self.child_object_mapping[job.function]
+        return job
+
 
     def modify_function_signature(
         self,
@@ -198,8 +229,11 @@ class QueueTasks(abc.ABC):
         if kwargs:
             for key, value in kwargs.items():
                 if key in signature_params.parameters: continue
-                insert_pos = len(params) - 1 if 'kwargs' in params[-1].name else len(params)
-                params.insert(insert_pos, Parameter(key, kind = Parameter.KEYWORD_ONLY, default = value, annotation = Optional[type(value)]))
+                if not params:
+                    params.append(Parameter(key, kind = Parameter.KEYWORD_ONLY, default = value, annotation = Optional[type(value)]))
+                else:
+                    insert_pos = len(params) - 1 if 'kwargs' in params[-1].name else len(params)
+                    params.insert(insert_pos, Parameter(key, kind = Parameter.KEYWORD_ONLY, default = value, annotation = Optional[type(value)]))
         if remove_self_or_cls:
             if 'self' in params[0].name or 'cls' in params[0].name: params.pop(0)
         # self.autologger.info(f'Modifying function signature for {function.__name__}: {signature_params} {params}')
@@ -239,93 +273,53 @@ class QueueTasks(abc.ABC):
         if task_function.name not in self.functions:
             # raise ValueError(f'Function {task_function.name} already registered in queue `{self.queue_name}`')
             self.functions[task_function.name] = task_function
+        self.last_registered_function = task_function.name
         return self.functions[task_function.name]
 
     def patch_registered_function(
         self,
         function: FunctionT,
         task_function: TaskFunction,
+        subclass_name: Optional[str] = None,
     ) -> Callable[..., TaskResult]:
         """
         Patch the function
         """
-        async def patched_function(*args, blocking: Optional[bool] = True, **kwargs):
-            # logger.info(f'[{task_function.name}] [NON METHOD] running task {function.__name__} with args: {args} and kwargs: {kwargs}')
-            method_func = self.queue.apply if blocking else self.queue.enqueue
-            return await method_func(task_function.name, *args, **kwargs)
-        
-        if task_function.function_is_method:
-            if task_function.function_parent_type == 'instance':
-                async def patched_function(_self, *args, blocking: Optional[bool] = True, **kwargs):
-                    # logger.info(f'[{task_function.name}] [INSTANCE] running task {function.__name__} with args: {args} and kwargs: {kwargs} {_self}')
-                    method_func = self.queue.apply if blocking else self.queue.enqueue
-                    return await method_func(task_function.name, *args, **kwargs)
-            
-            elif task_function.function_parent_type == 'class':
-                async def patched_function(_cls, *args, blocking: Optional[bool] = True, **kwargs):
-                    method_func = self.queue.apply if blocking else self.queue.enqueue
-                    return await method_func(task_function.name, *args, **kwargs)
-        
-        return makefun.wraps(
-            function,
-            self.modify_function_signature(
-                function, 
-                args = ['ctx'] if task_function.function_inject_ctx else None,
-                kwargs = {'blocking': True}, 
-            )
-        )(patched_function)
+        return wraps.create_patch_registered_function_wrapper(self, function, task_function, subclass_name = subclass_name)
+
+    def create_task_init_function(
+        self,
+        partial_kws: Optional[Dict[str, Any]] = None,
+    ) -> FunctionType:
+        """
+        Creates the task init function
+        """
+        return wraps.create_task_init_function(self, partial_kws = partial_kws)
 
 
-    def register_object(self, **_kwargs) -> ModuleType:
+    def register_object(
+        self, 
+        **_kwargs
+    ) -> Callable[[ObjectType], ObjectType]:
         """
         Register the underlying object
         """
-        partial_kws = {k:v for k,v in _kwargs.items() if v is not None}
-
-        def object_decorator(obj: ModuleType) -> ModuleType:
-            """
-            The decorator that patches the object
-            """
-            _obj_id = f'{obj.__module__}.{obj.__name__}'
-            patch_object_for_kvdb(obj)
-            if _obj_id not in self.registered_task_object: self.registered_task_object[_obj_id] = {}
-            if not hasattr(obj, '__kvdb_task_init__'):
-                
-                def __kvdb_task_init__(_self, obj_id: str, *args, **kwargs):
-                    """
-                    Intiailizes the object for tasks
-                    """    
-                    task_functions = self.registered_task_object[obj_id]
-                    for func, task_partial_kws in task_functions.items():
-                        func_kws = partial_kws.copy()
-                        func_kws.update(task_partial_kws)
-                        out_func = self.register(function = getattr(_self, func), **func_kws)
-                        if not func_kws.get('disable_patch'):
-                            setattr(_self, func, out_func)
-                
-                setattr(obj, '__kvdb_task_init__', __kvdb_task_init__)
-                obj.__kvdb_initializers__.append('__kvdb_task_init__')
-            return obj
+        return wraps.create_register_object_wrapper(self, **_kwargs)
     
-        return object_decorator
+    def register_object_function_method(
+        self,
+        func: FunctionT,
+    ) -> Callable[..., TaskResult]:
+        """
+        Registers an object method function to queue
+        """
+        return wraps.create_register_object_method_function(self, func)
     
     def register_object_method(self, **kwargs) -> Callable[[FunctionT], FunctionT]:
         """
         Registers an object method function to queue
         """
-        kwargs = {k:v for k,v in kwargs.items() if v is not None}
-        def decorator(func: FunctionT) -> Callable[..., TaskResult]:
-            """
-            The decorator
-            """
-            task_obj_id = f'{func.__module__}.{func.__qualname__.split(".")[0]}'
-            if task_obj_id not in self.registered_task_object:
-                self.registered_task_object[task_obj_id] = {}
-            func_name = func.__name__
-            if func_name not in self.registered_task_object[task_obj_id]:
-                self.registered_task_object[task_obj_id][func_name] = kwargs
-            return func
-        return decorator
+        return wraps.create_register_object_method_wrapper(self, **kwargs)
 
 
     def register(
@@ -340,6 +334,7 @@ class QueueTasks(abc.ABC):
         disable_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
+        subclass_name: Optional[str] = None,
         **function_kwargs,
     ) -> Callable[[FunctionT], FunctionT]:
         """
@@ -374,7 +369,7 @@ class QueueTasks(abc.ABC):
                 **function_kwargs,
             )
             if task_function.disable_patch: return function
-            return self.patch_registered_function(function, task_function)
+            return self.patch_registered_function(function, task_function, subclass_name = subclass_name)
             
         def decorator(func: FunctionT) -> Callable[..., TaskResult]:
             """
@@ -483,7 +478,7 @@ class QueueTasks(abc.ABC):
         return_all_results: Optional[bool] = False,
         
         **kwargs
-    ) -> Optional[Any]:
+    ) -> Optional[JobResultT]:
         """
         Enqueue a job and wait for its result.
 
@@ -496,7 +491,7 @@ class QueueTasks(abc.ABC):
         self, 
         job_or_func: Union[Job, str, Callable],
         **kwargs
-    ) -> Optional[Any]:
+    ) -> Optional[JobResultT]:
         """
         Enqueue a job and wait for its result.
 
@@ -606,7 +601,7 @@ class QueueTasks(abc.ABC):
         raise_exceptions: Optional[bool] = False,
         refresh_interval: Optional[float] = 0.5,
         **kwargs,
-    ) -> Any:  # sourcery skip: low-code-quality
+    ) -> JobResultT:  # sourcery skip: low-code-quality
         """
         Waits for job to finish
         """
@@ -620,7 +615,7 @@ class QueueTasks(abc.ABC):
         raise_exceptions: Optional[bool] = False,
         refresh_interval: Optional[float] = 0.5,
         **kwargs,
-    ) -> Any:  # sourcery skip: low-code-quality
+    ) -> JobResultT:  # sourcery skip: low-code-quality
         """
         Waits for job to finish
         """
@@ -635,7 +630,7 @@ class QueueTasks(abc.ABC):
         raise_exceptions: Optional[bool] = False,
         refresh_interval: Optional[float] = 0.5,
         **kwargs,
-    ) -> List[Any]:  # sourcery skip: low-code-quality
+    ) -> List[JobResultT]:  # sourcery skip: low-code-quality
         """
         Waits for jobs to finish
         """
@@ -649,7 +644,7 @@ class QueueTasks(abc.ABC):
         raise_exceptions: Optional[bool] = False,
         refresh_interval: Optional[float] = 0.5,
         **kwargs,
-    ) -> List[Any]:  # sourcery skip: low-code-quality
+    ) -> List[JobResultT]:  # sourcery skip: low-code-quality
         """
         Waits for jobs to finish
         """
@@ -666,7 +661,7 @@ class QueueTasks(abc.ABC):
         return_results: Optional[bool] = True,
         cancel_func: Optional[Callable] = None,
         **kwargs,
-    ) -> AsyncGenerator[Any, None]:
+    ) -> AsyncGenerator[JobResultT, None]:
         # sourcery skip: low-code-quality
         """
         Generator that yields results as they complete
@@ -683,7 +678,7 @@ class QueueTasks(abc.ABC):
         return_results: Optional[bool] = True,
         cancel_func: Optional[Callable] = None,
         **kwargs,
-    ) -> AsyncGenerator[Any, None]:
+    ) -> AsyncGenerator[JobResultT, None]:
         # sourcery skip: low-code-quality
         """
         Generator that yields results as they complete

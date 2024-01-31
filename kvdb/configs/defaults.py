@@ -36,6 +36,10 @@ DEFAULT_DB_IDS: Dict[str, Optional[int]] = {
 
 DEFAULT_KVDB_URL = "redis://localhost:6379/0"
 
+DEFAULT_PREFIXES: Dict[str, str] = {
+    "cache": "_kvc_",
+    "task": "_kvq_",
+}
 
 """
 These Affect `kvdb.io.serializers`
@@ -153,6 +157,25 @@ def set_default_db_id_for(
     global DEFAULT_DB_IDS
     DEFAULT_DB_IDS[kind] = db_id
 
+def get_default_prefix_for(
+    kind: KindOptions = 'cache'
+) -> str:
+    """
+    Returns the default prefix for the given kind
+    """
+    return DEFAULT_PREFIXES[kind]
+
+def set_default_prefix_for(
+    prefix: str,
+    kind: KindOptions = 'cache'
+) -> None:
+    """
+    Sets the default prefix for the given kind
+    """
+    global DEFAULT_PREFIXES
+    DEFAULT_PREFIXES[kind] = prefix
+
+
 """
 These Affect `kvdb.configs.base.TaskQueueConfig`
 """
@@ -197,6 +220,19 @@ def get_default_task_db_id() -> int:
     """
     return get_default_db_id_for('task')
 
+def set_default_task_prefix(prefix: str) -> None:
+    """
+    Sets the default task prefix
+    """
+    set_default_prefix_for(prefix, 'task')
+
+def get_default_task_prefix() -> str:
+    """
+    Returns the default task prefix
+    """
+    return get_default_prefix_for('task')
+
+
 
 """
 These Affect `kvdb.configs.caching.KVDBCachifyConfig`
@@ -240,6 +276,18 @@ def get_default_cache_db_id() -> int:
     Returns the default cache db id
     """
     return get_default_db_id_for('cache')
+
+def set_default_cache_prefix(prefix: str) -> None:
+    """
+    Sets the default cache prefix
+    """
+    set_default_prefix_for(prefix, 'cache')
+
+def get_default_cache_prefix() -> str:
+    """
+    Returns the default cache prefix
+    """
+    return get_default_prefix_for('cache')
 
 """
 These Affect `kvdb.configs.main.KVDBSettings`

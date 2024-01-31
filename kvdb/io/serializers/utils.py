@@ -76,10 +76,18 @@ def serialize_object(
 
     if isinstance(obj, BaseModel) or hasattr(obj, 'model_dump'):
         obj_class_name = register_object_class(obj)
+
+        obj_value = obj.model_dump(mode = 'json', round_trip = True, **kwargs)
+        # for k,v in obj_value.items():
+        #     # if isinstance(v, BaseModel) or hasattr(v, 'model_dump'):
+        #     #     obj_value[k] = serialize_object(v)
+        #     if not is_primitive(v):
+        #         obj_value[k] = serialize_object(v)
+        # logger.info(f'Pydantic Serializing Object: |r|({type(obj)})|e| {str(obj_value)[:1000]}', colored = True)
         return {
             "__type__": "pydantic",
             "__class__": obj_class_name,
-            "value": obj.model_dump(mode = 'json', round_trip = True, **kwargs),
+            "value": obj_value,
         }
 
     if is_primitive(obj, exclude_bytes = True):
@@ -89,6 +97,7 @@ def serialize_object(
         return [serialize_object(item) for item in obj]
 
     if isinstance(obj, dict):
+        if "__type__" in obj: return obj
         return {key: serialize_object(value) for key, value in obj.items()}
     
     if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
@@ -220,7 +229,10 @@ def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any]) ->
 
         if obj_type == "pydantic":
             obj_class = get_object_class(obj["__class__"])
-            return obj_class.model_validate(obj_value)
+            # for k,v in obj_value.items():
+            #     if not is_primitive(v):
+            #         obj_value[k] = deserialize_object(v)
+            return obj_class(**obj_value)
         
         if obj_type == "pickle":
             try:

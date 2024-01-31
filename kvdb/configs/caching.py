@@ -10,6 +10,7 @@ from kvdb.types.common import CachePolicy
 from .defaults import (
     get_default_cache_db_id,
     get_default_cache_serializer,
+    get_default_cache_prefix,
 )
 from .base import SerializerConfig
 from typing import Dict, Any, Optional, Type, Literal, Union, Callable, List, Mapping, TYPE_CHECKING
@@ -49,7 +50,7 @@ class KVDBCachifyConfig(SerializerConfig, BaseModel):
     exclude_keys: Optional[List[str]] = None
     exclude_null: Optional[bool] = True
     exclude_exceptions: Optional[Union[bool, List[Exception]]] = True
-    prefix: Optional[str] = Field('_kvc_', description = 'The prefix for the cache key')
+    prefix: Optional[str] = Field(default_factory = get_default_cache_prefix, description = 'The prefix for the cache key')
 
     exclude_null_values_in_hash: Optional[bool] = None
     exclude_default_values_in_hash: Optional[bool] = None
@@ -69,7 +70,8 @@ class KVDBCachifyConfig(SerializerConfig, BaseModel):
     retry_max_attempts: Optional[int] = 3 # Will retry 3 times
     retry_giveup_callable: Optional[Callable[..., bool]] = None
 
-    # bypass_if: Optional[Callable] = None
+    exclude_if: Optional[Callable] = None
+    exclude_kws: Optional[List[str]] = ['cache_exclude'] # If present and True, does not cache the result
 
     timeout: Optional[float] = 5.0
     verbosity: Optional[int] = None

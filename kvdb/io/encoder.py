@@ -11,7 +11,7 @@ from kvdb.types.generic import (
     ENCODER_SERIALIZER_PREFIX_BYTES_LEN,
 )
 from typing import Any, Dict, Optional, Type, Union, Callable, TYPE_CHECKING
-import redis._parsers.encoders
+# import redis._parsers.encoders
 
 if TYPE_CHECKING:
     from .serializers import SerializerT, ObjectValue
@@ -138,4 +138,16 @@ class Encoder:
         """
         return await Pooler.arun(self.decode, value, force=force)
 
-redis._parsers.encoders.Encoder = Encoder
+
+try:
+    import redis._parsers.encoders
+    redis._parsers.encoders.Encoder = Encoder
+except:
+    try:
+        import redis.connection
+        redis.connection.Encoder = Encoder
+    except:
+        pass
+
+
+# redis._parsers.encoders.Encoder = Encoder

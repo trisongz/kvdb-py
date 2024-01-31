@@ -68,6 +68,7 @@ class KVDBSettings(BaseSettings):
     session_db_id: Optional[int] = Field(default_factory= get_default_session_db_id)
 
     debug: Optional[bool] = None
+    task_debug: Optional[bool] = None
 
     # Client Settings
     client_config: Optional[KVDBClientConfig] = Field(default_factory = KVDBClientConfig)
@@ -136,6 +137,9 @@ class KVDBSettings(BaseSettings):
         
         # Update the rest of the settings
         self.update_connection_params()
+
+        if self.task_debug:
+            self.tasks.debug_enabled = True
         return self
 
     @property

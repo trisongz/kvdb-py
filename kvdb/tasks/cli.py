@@ -42,6 +42,7 @@ def start(
 
     disable_env_name: Optional[bool] = typer.Option(False, help = "Disable env name"),
     debug_enabled: Optional[bool] = typer.Option(False, '--debug', help = "Debug enabled"),
+    task_debug_enabled: Optional[bool] = typer.Option(False, '--tdebug', help = "Task debug enabled"),
     method: Optional[str] = typer.Option('mp', help = "Method to use to start the worker. Can be mp, tasks, or asyncio"),
     use_new_event_loop: Optional[bool] = typer.Option(None, help = "Use new event loop"),
     terminate_timeout: Optional[float] = typer.Option(5.0, help = "Terminate timeout"),
@@ -51,6 +52,8 @@ def start(
     """
     if debug_enabled:
         os.environ['KVDB_DEBUG'] = 'True'
+    if task_debug_enabled:
+        os.environ['KVDB_TASK_DEBUG'] = 'True'
     kwargs = locals()
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
     from kvdb.utils.logs import logger

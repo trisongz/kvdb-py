@@ -97,6 +97,7 @@ def exit_task_workers(timeout: Optional[int] = 5.0):
 
 def lazy_worker_import(
     dotted_path: str,
+    absolute: Optional[bool] = True,
 ) -> Union[Any, Callable[..., Any]]:
     """
     A modified version of lazyops.utils.lazy.lazy_import that allows for
@@ -113,6 +114,19 @@ def lazy_worker_import(
         logger.error(f'"{dotted_path}" doesn\'t look like a module path')
         raise ImportError(f'"{dotted_path}" doesn\'t look like a module path') from e
     module = import_module(module_path)
+    # Add the module to the globals
+    # if absolute:
+    #     globals()[module_path] = module
+    #     curr_globals = globals()
+    #     for obj in dir(module):
+    #         if obj.startswith('__'): continue
+    #         if obj in curr_globals: continue
+    #         # # globals()[obj] = __import__(f'{module_path}.{obj}', fromlist = [obj])
+    #         # globals()[obj] = eval(f'{module_path}.{obj}')
+    #         globals()[obj] = getattr(module, obj)
+    #         # curr_globals[obj] = getattr(module, obj)
+    #     # sys.modules[dotted_path] = module
+    #     logger.info(f'Added module to globals: `{module} - {class_name}`: {globals().keys()}`')
     try:
         return getattr(module, class_name)
     except AttributeError as e:
@@ -143,6 +157,7 @@ def spawn_new_task_worker(
     max_broadcast_concurrency: Optional[int] = None,
 
     debug_enabled: Optional[bool] = False,
+    task_debug_enabled: Optional[bool] = False,
     
     _is_primary: Optional[bool] = True,
 
@@ -173,32 +188,38 @@ def spawn_new_task_worker(
     all tasks are registered before the worker starts
 
     """
+    queue_config = queue_config or {}
+    worker_config = worker_config or {}
     if worker_imports:
         if isinstance(worker_imports, str):
             worker_imports = [worker_imports]
-        if debug_enabled and _is_primary:
+        if (debug_enabled or task_debug_enabled) and _is_primary:
             logger.info(f'Importing worker imports: `|g|{worker_imports}|e|`', prefix = worker_name, colored = True)
         for worker_import in worker_imports:
             module_or_func = lazy_worker_import(worker_import)
-            if callable(module_or_func):
+            if callable(module_or_func) or isinstance(module_or_func, type):
                 module_or_func()
+            if hasattr(module_or_func, 'get_worker_config'):
+                if config := module_or_func.get_worker_config():
+                    worker_config.update(config)
+            if hasattr(module_or_func, 'get_queue_config'):
+                if config := module_or_func.get_queue_config():
+                    queue_config.update(config)
     
-    queue_config = queue_config or {}
-    worker_config = worker_config or {}
     if max_broadcast_concurrency:
-        queue_config['max_broadcast_concurrency'] = max_broadcast_concurrency
-        worker_config['max_broadcast_concurrency'] = max_broadcast_concurrency
+        if 'max_broadcast_concurrency' not in queue_config: queue_config['max_broadcast_concurrency'] = max_broadcast_concurrency
+        if 'max_broadcast_concurrency' not in worker_config: worker_config['max_broadcast_concurrency'] = max_broadcast_concurrency
     
     if max_concurrency:
-        queue_config['max_concurrency'] = max_concurrency
-        worker_config['max_concurrency'] = max_concurrency
+        if 'max_concurrency' not in queue_config: queue_config['max_concurrency'] = max_concurrency
+        if 'max_concurrency' not in worker_config: worker_config['max_concurrency'] = max_concurrency
     
     if queue_class: 
         if isinstance(queue_class, str):
             queue_class = lazy_worker_import(queue_class)
         queue_config['task_queue_class'] = queue_class
-    worker_config['debug_enabled'] = debug_enabled
-    queue_config['debug_enabled'] = debug_enabled
+    if 'debug_enabled' not in worker_config: worker_config['debug_enabled'] = debug_enabled or task_debug_enabled
+    if 'debug_enabled' not in queue_config: queue_config['debug_enabled'] = debug_enabled or task_debug_enabled
     worker_config.update(
         {
             'functions': worker_functions,
@@ -310,6 +331,7 @@ def start_task_workers_with_mp(
     max_broadcast_concurrency: Optional[int] = None,
 
     debug_enabled: Optional[bool] = False,
+    task_debug_enabled: Optional[bool] = False,
     use_new_event_loop: Optional[bool] = True,
     disable_env_name: Optional[bool] = False,
 
@@ -415,6 +437,7 @@ def astart_task_workers_with_tasks(
 
     disable_env_name: Optional[bool] = False,
     debug_enabled: Optional[bool] = False,
+    task_debug_enabled: Optional[bool] = False,
     use_new_event_loop: Optional[bool] = False,
 
     terminate_timeout: Optional[float] = 5.0,
@@ -563,6 +586,7 @@ def start_task_workers(
 
     disable_env_name: Optional[bool] = False,
     debug_enabled: Optional[bool] = False,
+    task_debug_enabled: Optional[bool] = False,
     method: Optional[str] = 'mp',
     use_new_event_loop: Optional[bool] = None,
     disable_worker_start: Optional[bool] = False,

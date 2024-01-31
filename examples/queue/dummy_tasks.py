@@ -29,7 +29,7 @@ async def my_task(*args, **kwargs):
 class TestWorker(abc.ABC):
 
     def __init__(self, *args, **kwargs):
-        logger.info(f'initializing {args} {kwargs}')
+        logger.info(f'initializing {self.__class__.__name__} {args} {kwargs}')
 
     # Both of these should work
     # @tasks.register(queue_name='global')

@@ -20,7 +20,7 @@ from kvdb.types.generic import ENOVAL
 from kvdb.configs.caching import KVDBCachifyConfig
 from kvdb.utils.logs import logger
 from kvdb.utils.lazy import lazy_import
-from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method
+from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method, get_parent_object_class_names
 from kvdb.utils.helpers import create_cache_key_from_kwargs, is_coro_func, ensure_coro, full_name, timeout as timeout_ctx, is_classmethod
 from lazyops.utils import timed_cache
 from lazyops.utils.lazy import get_function_name
@@ -174,13 +174,14 @@ class CachifyContext(abc.ABC):
     def add_function(
         self,
         function: Union[Callable, str],
+        function_name: Optional[str] = None,
         **kwargs
     ) -> Cachify:
         """
         Adds a function to the cachify context
         """
         cachify = self.create_cachify(
-            function_name = get_function_name(function),
+            function_name = function_name or get_function_name(function),
             **kwargs
         )
         if cachify.function_name not in self.cachify_contexts:
@@ -219,15 +220,35 @@ class CachifyContext(abc.ABC):
             _obj_id = f'{obj.__module__}.{obj.__name__}'
             patch_object_for_kvdb(obj)
             if _obj_id not in self.registered_cachify_object: self.registered_cachify_object[_obj_id] = {}
+            # parent_obj_names = get_parent_object_class_names(obj)
+
             if not hasattr(obj, '__cachify_init__'):    
                 def __cachify_init__(_self, obj_id: str, *args, **kwargs):
                     """
                     Initializes the object
                     """
-                    cachify_functions = self.registered_cachify_object[obj_id]
+                    cachify_functions = {}
+                    # cachify_functions = self.registered_cachify_object[obj_id]
+                    validate_cachify_func = getattr(_self, 'validate_cachify', None)
+
+                    # if parent_obj_names:
+                    #     for parent_obj_name in parent_obj_names:
+                    #         if parent_obj_name in self.registered_cachify_object:
+                    #             logger.info(f'Found parent object {parent_obj_name} for {obj_id}')
+                    #             cachify_functions.update(self.registered_cachify_object[parent_obj_name])
+
+                    cachify_functions.update(self.registered_cachify_object[obj_id])
                     for func, task_partial_kws in cachify_functions.items():
                         func_kws = partial_kws.copy()
                         func_kws.update(task_partial_kws)
+
+                        if validate_cachify_func is not None:
+                            func_kws = validate_cachify_func(func, **func_kws)
+                            if func_kws is None: continue
+                        
+                        if 'function_name' not in func_kws:
+                            func_kws['function_name'] = f'{_self.__class__.__name__}.{func}'
+
                         patched_func = self.register(function = getattr(_self, func), **func_kws)
                         setattr(_self, func, patched_func)
 

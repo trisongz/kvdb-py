@@ -13,9 +13,16 @@ import contextlib
 import multiprocessing as mp
 from kvdb.utils.logs import logger
 from kvdb.utils.helpers import lazy_import, create_cache_key_from_kwargs
+from kvdb.utils.patching import (
+    patch_object_for_kvdb, 
+    is_uninit_method, 
+    get_function_parent_class_names,
+    get_object_child_class_names,
+    get_parent_object_class_names,
+)
 from lazyops.libs.proxyobj import ProxyObject, LockedSingleton
 from types import ModuleType
-from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from .types import (
     Ctx,
     FunctionT,
@@ -24,14 +31,17 @@ from .types import (
     ReturnValue, 
     ReturnValueT,
     AttributeMatchType,
+    ObjectType,
     TaskFunction,
 )
 from .tasks import QueueTasks
+from . import wraps
 
 if TYPE_CHECKING:
     from kvdb.types.jobs import Job, CronJob
     from .queue import TaskQueue
     from .worker import TaskWorker
+    from .abstract import TaskABC
 
 
 class QueueTaskManager(abc.ABC, LockedSingleton):
@@ -47,7 +57,6 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         from kvdb.configs import settings
         self.queues: Dict[str, QueueTasks] = {}
 
-
         self.queue_task_class: Type[QueueTasks] = QueueTasks
 
         self.task_queues: Dict[str, 'TaskQueue'] = {}
@@ -58,15 +67,36 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         self.task_worker_class: Type['TaskWorker'] = None
         self.task_worker_hashes: Dict[str, str] = {} # Stores the hash of the task worker to determine whether to reconfigure the task worker
 
-        self.settings = settings
-        self.logger = self.settings.logger
-        self.autologger = self.settings.autologger
-        self.verbose = self.settings.debug_enabled
+        self.manager_settings = settings
+        self.logger = self.manager_settings.logger
+        self.autologger = self.manager_settings.autologger
+        self.verbose = self.manager_settings.debug_enabled
         self.lock = threading.Lock()
         self.aqueue_lock = asyncio.Lock()
         self.aworker_lock = asyncio.Lock()
         self.exit_set = False
         self._task_worker_base_index = None
+        self._task_compile_completed = False
+
+        # TaskABC Registration
+        self._task_registered_abcs: Dict[str, Type['TaskABC']] = {}
+        self._task_unregistered_abc_functions: Dict[str, Dict[str, Callable[..., ReturnValueT]]] = {}
+        self._task_registered_abc_functions: Dict[str, Set[str]] = {}
+        self._task_unregistered_abc_partials: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+        # Object Registration
+        self._task_unregistered_objects: Dict[str, ObjectType] = {}
+        self._task_unregistered_object_functions: Dict[str, Dict[str, Callable[..., ReturnValueT]]] = {}
+        self._task_registered_object_functions: Dict[str, Set[str]] = {}
+        self._task_unregistered_object_partials: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+        # Defines which abstract classes have been initialized
+        # Defines which objects have been initialized
+        self._task_initialized_abcs: Dict[str, Set[str]] = {}
+        self._task_initialized_objects: Dict[str, Set[str]] = {}
+
+        self._unset_registered_objects: Dict[str, object] = {}
+        self._unset_registered_functions: Dict[str, List[Callable[..., ReturnValueT]]] = {}
 
     def _remove_locks(self):
         """
@@ -194,6 +224,10 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         return self.queues[task_queue.queue_name]
 
 
+    """
+    Task Registration Methods
+    """
+
     @overload
     def register(
         self,
@@ -208,6 +242,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         disable_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
+        task_abc: Optional[bool] = None,
         **kwargs
     ) -> Callable[[FunctionT], FunctionT]:
         """
@@ -216,36 +251,298 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         ...
 
 
-    def register_object(self, queue_name: Optional[str] = None, **_kwargs) -> ModuleType:
-        """
-        Register the underlying object
-        """
-        queue_name = queue_name or self.default_queue_name
-        task_queue = self.get_queue(queue_name)
-        return task_queue.register_object(**_kwargs)
-
-
     def register(
         self,
         queue_name: Optional[str] = None,
+        function: Optional[FunctionT] = None,
+        task_abc: Optional[bool] = None,
         **kwargs,
     ) -> Callable[[FunctionT], FunctionT]:
         """
         Registers a function to the queue_name
         """
+        if task_abc is True: return self.register_abc(cls_or_func = function, **kwargs)
         queue_name = queue_name or self.default_queue_name
         task_queue = self.get_queue(queue_name)
-        # logger.error(f'Registering function to queue {task_queue.queue_name}')
-        return task_queue.register(**kwargs)
+        return task_queue.register(function = function, **kwargs)
+
+    
+    def register_abstract(
+        self,
+        func: FunctionT,
+    ) -> Callable[[FunctionT], FunctionT]:
+        """
+        Registers a function that is part of an abstract class
+        that is not yet initialized
+        """
+        return wraps.create_register_abstract_function(self, func)
+
+    def register_unset_object(
+        self,
+        queue_name: Union[str, Callable[..., str]],
+        partial_kws: Union[str, Dict[str, Any], Callable[..., Dict[str, Any]]] = None,
+        **_kwargs
+    ) -> Callable[[ObjectType], ObjectType]:
+        """
+        Registers an unset object to a TDB queue name.
+        """
+        return wraps.create_unset_task_init_wrapper(
+            self,
+            queue_name = queue_name,
+            partial_kws = partial_kws,
+            **_kwargs
+        )
+
+
+    def register_object(
+        self, 
+        queue_name: Optional[Union[str, Callable[..., str]]] = None, 
+        is_unset: Optional[bool] = False,
+        **kwargs
+    ) -> ObjectType:
+        """
+        Register the underlying object
+        """
+        if is_unset: return self.register_unset_object(queue_name = queue_name, partial_kws = kwargs)
+        queue_name = queue_name or self.default_queue_name
+        task_queue = self.get_queue(queue_name)
+        return task_queue.register_object(**kwargs)
+
+    def register_object_unset_method(
+        self,
+        **kwargs
+    ) -> Callable[[FunctionT], FunctionT]:
+        """
+        Registers an unset object method function to queue
+        """
+        kwargs = {k:v for k,v in kwargs.items() if v is not None}
+
+        def decorator(func: FunctionT) -> Callable[..., TaskResult]:
+            """
+            The decorator
+            """
+            func_src_obj = func.__qualname__.split('.')[0]
+            if func_src_obj not in self._unset_registered_functions:
+                self._unset_registered_functions[func_src_obj] = []
+            self._unset_registered_functions[func_src_obj].append(func)
+            return func
+        return decorator
 
 
     def register_object_method(self, queue_name: Optional[str] = None, **kwargs) -> Callable[[FunctionT], FunctionT]:
         """
         Registers an object method function to queue
         """
+        if queue_name is None and self._unset_registered_objects:
+            return self.register_object_unset_method(**kwargs)
         queue_name = queue_name or self.default_queue_name
         task_queue = self.get_queue(queue_name)
         return task_queue.register_object_method(**kwargs)
+    
+
+    def _is_obj_method(
+        self,
+        func: Callable[..., ReturnValueT],
+    ) -> bool:
+        """
+        Determines if the method is a method of a class
+        """
+        return func.__name__ != func.__qualname__
+    
+    @staticmethod
+    def _get_task_obj_id__(cls_or_func: Union[Type['TaskABC'], Callable]) -> Union[str, Tuple[str, str]]:
+        """
+        Get the task object id
+        """
+        if isinstance(cls_or_func, type):
+            return f'{cls_or_func.__module__}.{cls_or_func.__name__}'
+        elif callable(cls_or_func):
+            func_id = f'{cls_or_func.__module__}.{cls_or_func.__qualname__}'
+            return func_id.rsplit('.', 1)
+        raise ValueError(f'Invalid type {type(cls_or_func)} for cls_or_func')
+
+    """
+    v0.0.3 - Object Method Registration 
+    :TODO - Add support for registering object methods
+    """
+
+
+    """
+    v0.0.2 - Abstract Registration with TaskABC
+    """
+
+
+    def _register_abc_method(
+        self,
+        func: Callable[..., ReturnValueT],
+        **kwargs,
+    ):
+        """
+        Registers an abstract method
+        """
+        obj_id, func_id = self._get_task_obj_id__(func)
+        # logger.info(f'Registering abstract method {obj_id} -> {func_id}')
+        if obj_id not in self._task_unregistered_abc_functions:
+            self._task_unregistered_abc_functions[obj_id] = {}
+            self._task_registered_abc_functions[obj_id] = set()
+            self._task_unregistered_abc_partials[obj_id] = {}
+        if func_id not in self._task_unregistered_abc_functions[obj_id]:
+            self._task_unregistered_abc_functions[obj_id][func_id] = func
+        if kwargs:
+            if func_id not in self._task_unregistered_abc_partials[obj_id]:
+                self._task_unregistered_abc_partials[obj_id][func_id] = {}
+            self._task_unregistered_abc_partials[obj_id][func_id].update(kwargs)
+        return func
+    
+
+    def _register_abc(
+        self,
+        cls: Type['TaskABC'],
+        **kwargs,
+    ) -> Type['TaskABC']:
+        """
+        Register an abstract `TaskABC` class
+        """
+        # logger.info(f'Registering abstract class {cls}')
+        if cls.__kvdb_obj_id__ in self._task_registered_abcs:
+            # logger.error(f'Abstract class {cls} already registered')
+            if kwargs:
+                if cls.__kvdb_obj_id__ not in self._task_unregistered_abc_partials: self._task_unregistered_abc_partials[cls.__kvdb_obj_id__] = {}
+                if 'cls' not in self._task_unregistered_abc_partials[cls.__kvdb_obj_id__]: self._task_unregistered_abc_partials[cls.__kvdb_obj_id__]['cls'] = {}
+                self._task_unregistered_abc_partials[cls.__kvdb_obj_id__]['cls'].update(kwargs)
+                # logger.info(f'Updating partials for abstract class {cls.__kvdb_obj_id__}: {self._task_unregistered_abc_partials[cls.__kvdb_obj_id__]}')
+            return cls
+        self._task_registered_abcs[cls.__kvdb_obj_id__] = cls
+        if cls.__kvdb_obj_id__ in self._task_unregistered_abc_functions:
+            for func_id in self._task_unregistered_abc_functions[cls.__kvdb_obj_id__]:
+                # logger.info(f'[L1] Registering abstract method {func_id}')
+                self._task_registered_abc_functions[cls.__kvdb_obj_id__].add(func_id)
+            
+            for subcls in cls.__subclasses__():
+                # logger.info(f'[L2] Registering abstract subclass {subcls}')
+                if subcls.__kvdb_obj_id__ not in self._task_unregistered_abc_functions: 
+                    # logger.info(f'[L2] No unregistered functions for subclass {subcls}')
+                    continue
+
+                for func_id in self._task_unregistered_abc_functions.get(subcls.__kvdb_obj_id__, {}):
+                    # logger.info(f'[L2.1] Compiling abstract subclass method {func_id}')
+                    self._task_registered_abc_functions[subcls.__kvdb_obj_id__].add(func_id)
+
+                for func_id in self._task_unregistered_abc_functions.get(cls.__kvdb_obj_id__, {}):
+                    # logger.info(f'[L2.2] Compiling abstract method {func_id} for subclass {subcls}')
+                    self._task_registered_abc_functions[subcls.__kvdb_obj_id__].add(func_id)
+
+                for _obj_id, _obj_cls in self._task_registered_abcs.items():
+                    if _obj_id == cls.__kvdb_obj_id__: continue
+                    if _obj_id in _obj_cls.__task_subclasses__:
+                        # logger.info(f'[L2.3] Compiling abstract method {func_id} for subclass {subcls}')
+                        self._task_registered_abc_functions[subcls.__kvdb_obj_id__].update(self._task_registered_abc_functions[_obj_id])
+        cls.__kvdb_initializers__.append('__register_abc_task_init__')
+        return cls
+
+
+    def _compile_abcs(self):  # sourcery skip: low-code-quality
+        """
+        Compiles the abstract classes
+        """
+        for obj_id, obj_cls in self._task_registered_abcs.items():
+            # logger.info(f'Compiling abstract class {obj_id}')
+
+            base_partial_kws = self._task_unregistered_abc_partials.get(obj_id, {})
+            cls_partial_kws = base_partial_kws.pop('cls', {})
+            if cls_partial_kws: obj_cls.__add_task_function_partials__('cls', **cls_partial_kws)
+
+            for subcls in obj_cls.__subclasses__():
+                if subcls.__kvdb_obj_id__ not in self._task_unregistered_abc_functions: 
+                    # logger.info(f'[L2] No unregistered functions for subclass {subcls}')
+                    continue
+                
+                subcls_partial_kws = self._task_unregistered_abc_partials.get(subcls.__kvdb_obj_id__, {})
+                if cls_partial_kws: subcls.__add_task_function_partials__('cls', **cls_partial_kws)
+                subcls_cls_partial_kws = subcls_partial_kws.pop('cls', {})
+                if subcls_cls_partial_kws: subcls.__add_task_function_partials__('cls', **subcls_cls_partial_kws)
+
+
+                for func_id in self._task_unregistered_abc_functions.get(subcls.__kvdb_obj_id__, {}):
+                    if not hasattr(subcls, func_id): continue
+                    # logger.info(f'[L2.1] Compiling abstract subclass method {func_id}')
+                    self._task_registered_abc_functions[subcls.__kvdb_obj_id__].add(func_id)
+
+                    func_kws = base_partial_kws.get(func_id, {})
+                    if func_id in subcls_partial_kws: func_kws.update(subcls_partial_kws[func_id])
+                    if func_kws: subcls.__add_task_function_partials__(func_id, **func_kws)
+                    
+                for func_id in self._task_unregistered_abc_functions.get(obj_id, {}):
+                    if not hasattr(subcls, func_id): continue
+                    # logger.info(f'[L2.2] Compiling abstract method {func_id} for subclass {subcls}')
+                    self._task_registered_abc_functions[subcls.__kvdb_obj_id__].add(func_id)
+                    func_kws = base_partial_kws.get(func_id, {})
+                    if func_id in subcls_partial_kws: func_kws.update(subcls_partial_kws[func_id])
+                    if func_kws: subcls.__add_task_function_partials__(func_id, **func_kws)
+
+
+                for _obj_id, _obj_cls in self._task_registered_abcs.items():
+                    if _obj_id == obj_id: continue
+                    if _obj_id in _obj_cls.__task_subclasses__ and _obj_id in self._task_registered_abc_functions:
+                        obj_funcs = self._task_registered_abc_functions[_obj_id]
+                        subcls_obj_funcs = list(filter(lambda x: hasattr(subcls, x), obj_funcs))
+                        if not subcls_obj_funcs: continue
+                        # logger.info(f'[L2.3] Compiling abstract method {func_id} for subclass {subcls}: {subcls_obj_funcs}')
+                        self._task_registered_abc_functions[subcls.__kvdb_obj_id__].update(subcls_obj_funcs)
+                        for subcls_func_id in subcls_obj_funcs:
+                            func_kws = base_partial_kws.get(subcls_func_id, {})
+                            if subcls_func_id in subcls_partial_kws: func_kws.update(subcls_partial_kws[subcls_func_id])
+                            if func_kws: subcls.__add_task_function_partials__(subcls_func_id, **func_kws)
+
+
+
+    @overload
+    def register_abc(
+        self,
+        name: Optional[str] = None,
+        cls_or_func: Optional[Union[Type['TaskABC'], FunctionT]] = None,
+        phase: Optional[TaskPhase] = None,
+        silenced: Optional[bool] = None,
+        silenced_stages: Optional[List[str]] = None,
+        default_kwargs: Optional[Dict[str, Any]] = None,
+        cronjob: Optional[bool] = None,
+        queue_name: Optional[str] = None,
+        disable_patch: Optional[bool] = None,
+        worker_attributes: Optional[Dict[str, Any]] = None,
+        attribute_match_type: Optional[AttributeMatchType] = None,
+        **kwargs
+    ) -> Callable[[Union[Type['TaskABC'], FunctionT, 'ReturnValue', 'ReturnValueT']], Union[Type['TaskABC'], FunctionT, 'ReturnValue', 'ReturnValueT']]:
+        """
+        Registers an abstract class or function to the task queue
+        """
+        ...
+
+    def register_abc(
+        self,
+        cls_or_func: Optional[Union[Type['TaskABC'], FunctionT]] = None,
+        **kwargs,
+    ) -> Callable[[Union[Type['TaskABC'], FunctionT, 'ReturnValueT']], Union[Type['TaskABC'], FunctionT, 'ReturnValueT']]:
+        """
+        Registers an abstract class or function to the task queue
+        """
+        if cls_or_func is not None:
+            if isinstance(cls_or_func, type):
+                return self._register_abc(cls_or_func, **kwargs)
+            elif callable(cls_or_func):
+                return self._register_abc_method(cls_or_func, **kwargs)
+            raise ValueError(f'Invalid type {type(cls_or_func)} for cls_or_func')
+        
+        def decorator(cls_or_func: Optional[Union[Type['TaskABC'], FunctionT]] = None,) -> Callable[[Union[Type['TaskABC'], FunctionT]], Union[Type['TaskABC'], FunctionT]]:
+            """
+            The decorator
+            """
+            if isinstance(cls_or_func, type):
+                return self._register_abc(cls_or_func, **kwargs)
+            elif callable(cls_or_func):
+                return self._register_abc_method(cls_or_func, **kwargs)
+            raise ValueError(f'Invalid type {type(cls_or_func)} for cls_or_func')
+        return decorator
+
 
     
     @overload
@@ -389,6 +686,17 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
             with self.lock:
                 yield
 
+    def compile_tasks(
+        self,
+        **kwargs
+    ) -> None:
+        """
+        Compiles the unset functions
+        """
+        if self._task_compile_completed: return
+        # Do stuff
+        self._compile_abcs()
+        self._task_compile_completed = True
     
     def get_task_queue(
         self,
@@ -400,6 +708,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         Gets the task queue
         """
+        self.compile_tasks()
         queue_name = queue_name or self.default_queue_name
         task_queue_hash = create_cache_key_from_kwargs(base = 'task_queue', kwargs = kwargs)
         if queue_name not in self.task_queues:
@@ -428,6 +737,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         Gets the task queue
         """
+        self.compile_tasks()
         queue_name = queue_name or self.default_queue_name
         task_queue_hash = create_cache_key_from_kwargs(base = 'task_queue', kwargs = kwargs)
         if queue_name not in self.task_queues:
@@ -458,6 +768,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         Gets the worker context
         """
+        self.compile_tasks()
         if queues is None: queues = [self.default_queue_name]
         elif isinstance(queues, str) and queues == 'all': queues = list(self.task_queues.keys())
         if not isinstance(queues, list): queues = [queues]
@@ -481,6 +792,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         Gets the worker context
         """
+        self.compile_tasks()
         if queues is None: queues = [self.default_queue_name]
         elif isinstance(queues, str) and queues == 'all': queues = list(self.task_queues.keys())
         if not isinstance(queues, list): queues = [queues]
@@ -506,6 +818,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         Gets the task worker
         """
+        self.compile_tasks()
         worker_name = worker_name or self.default_queue_name
         task_worker_hash = create_cache_key_from_kwargs(base = 'task_worker', kwargs = kwargs)
         queue_config = queue_config or {}
@@ -554,6 +867,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         Gets the task worker
         """
+        self.compile_tasks()
         worker_name = worker_name or self.default_queue_name
         task_worker_hash = create_cache_key_from_kwargs(base = 'task_worker',kwargs = kwargs)
         if worker_name not in self.task_workers:

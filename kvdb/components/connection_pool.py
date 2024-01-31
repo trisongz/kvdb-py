@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from kvdb.configs import KVDBSettings
     from kvdb.io.serializers import SerializerT
 
+# TODO: Add support for loadbalancing
 
 class ConnectionPool(_ConnectionPool):
 

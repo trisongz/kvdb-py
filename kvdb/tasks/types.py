@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 Base Task Types
 """
-
+import abc
 from inspect import signature, Signature
 from pydantic import Field, model_validator
 from kvdb.types.base import BaseModel
@@ -11,7 +11,7 @@ from kvdb.utils.logs import logger
 from kvdb.utils.helpers import is_coro_func, lazy_import, ensure_coro
 from lazyops.libs.proxyobj import ProxyObject
 from lazyops.libs.pooler import ThreadPooler
-from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, List, Type, Tuple, Literal, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, TypeAlias, List, Type, Tuple, Literal, TYPE_CHECKING, overload
 from .utils import AttributeMatchType, determine_match_from_attributes, get_func_name
 
 if TYPE_CHECKING:
@@ -20,12 +20,19 @@ if TYPE_CHECKING:
     from kvdb.types.jobs import Job, CronJob
     from .queue import TaskQueue
     from .worker import TaskWorker
+    CtxObject = Union[Job, Dict[str, TaskQueue], TaskWorker, Any]
+else:
+    CtxObject = Union[Dict[str, Any], Any]
 
-
-CtxObject = TypeVar('CtxObject', 'Job', Dict[str, 'TaskQueue'], 'TaskWorker', Any)
+# CtxObject = TypeVar('CtxObject', 'Job', Dict[str, 'TaskQueue'], 'TaskWorker', Any)
+# CtxObject = Union['Job', Dict[str, 'TaskQueue'], 'TaskWorker', Any]
 Ctx = Dict[str, CtxObject]
-
-
+ObjT = TypeVar('ObjT')
+ObjectType = Type[ObjT]
+# ObjT = TypeVar('ObjT', abc.ABC, object)
+# ObjectType = TypeAlias('ObjectType', bound = object)
+# ObjectType = Type[object]
+# TypeVar('ObjectType', bound = type)
 ReturnValue = TypeVar('ReturnValue')
 ReturnValueT = Union[ReturnValue, Awaitable[ReturnValue]]
 FunctionT = TypeVar('FunctionT', bound = Callable[..., ReturnValueT])
@@ -46,7 +53,8 @@ class TaskFunction(BaseModel):
     kwargs: Optional[Dict[str, Any]] = Field(default_factory = dict)
     default_kwargs: Optional[Dict[str, Any]] = None
 
-    is_cronjob: Optional[bool] = None
+    # is_cronjob: Optional[bool] = None
+    cron: Optional[str] = None
 
     # Allow deterministic queue
     queue_name: Optional[str] = None
@@ -68,7 +76,7 @@ class TaskFunction(BaseModel):
     function_parent_type: Optional[Literal['class', 'instance']] = Field(None, exclude=True)
 
     if TYPE_CHECKING:
-        cronjob: Optional[CronJob] = None
+        cronjob: Optional[Union[CronJob, bool, str]] = None
     else:
         cronjob: Optional[Any] = None
 
@@ -98,6 +106,16 @@ class TaskFunction(BaseModel):
                 self.function_parent_type = 'instance'
             elif 'cls' in self.function_signature.parameters:
                 self.function_parent_type = 'class'
+        
+        if self.cronjob:
+            if isinstance(self.cronjob, str):
+                # Move to cron
+                self.cron = self.cronjob
+                self.cronjob = None
+            elif isinstance(self.cronjob, bool):
+                # Set a default value
+                self.cron = ''
+                self.cronjob = None
 
         if not self.name: self.name = self.build_function_name(self.func)
         self.func = ensure_coro(self.func)
@@ -112,22 +130,50 @@ class TaskFunction(BaseModel):
         return self
     
     @property
+    def is_cronjob(self) -> bool:
+        """
+        Checks if the function is a cronjob
+        """
+        return self.cron is not None
+
+    @property
+    def include_phase_as_function(self) -> bool:
+        """
+        Checks if the phase should be included as a function
+        """
+        return self.kwargs.get('include_phase_as_function', False)
+
+    @property
     def function_name(self) -> str:
         """
         Returns the function name
         """
         return self.name
     
-    def configure_cronjob(self, cronjob_class: Type['CronJob'], **kwargs):
+    def configure_cronjob(
+        self, 
+        cronjob_class: Type['CronJob'], 
+        cron_schedules: Optional[Dict[str, str]] = None,
+        **kwargs
+    ):
         """
         Configures the cronjob
         """
         if self.cronjob is not None: return
+        _kwargs = self.kwargs.copy()
+        _kwargs.update(kwargs)
+        _kwargs = {k: v for k, v in _kwargs.items() if k in cronjob_class.model_fields}
+        cron_schedules = cron_schedules or {}
+        if 'cron' in _kwargs:
+            cron = _kwargs.pop('cron')
+        else:
+            cron = cron_schedules.get(self.name, self.cron)
         self.cronjob = cronjob_class(
             function = self.func,
             cron_name = self.name,
+            cron = cron,
             default_kwargs = self.default_kwargs,
-            **self.kwargs, **kwargs,
+            **_kwargs,
         )
     
     def is_silenced(self, stage: str) -> bool:
@@ -154,10 +200,10 @@ class TaskFunction(BaseModel):
         Runs the phase
         """
         if self.should_set_ctx:
-            if verbose: logger.info(f'[{self.phase}] setting ctx[{self.name}]: result of {self.func.__name__}')
+            if verbose: logger.info(f'Setting ctx[{self.name}]: result of |g|`{self.func.__name__}`|e|', colored = True, prefix = self.phase)
             ctx = await self.func(ctx, **self.kwargs) if is_coro_func(self.func) else self.func(ctx, **self.kwargs)
         else:
-            if verbose: logger.info(f'[{self.phase}] running task {self.name} = {self.func.__name__}')
+            if verbose: logger.info(f'Running task {self.name} = |g|`{self.func.__name__}`|e|', colored = True, prefix = self.phase)
             result = await self.func(**self.kwargs) if is_coro_func(self.func) else self.func(**self.kwargs)
             if result is not None: ctx[self.name] = result
         return ctx
@@ -167,6 +213,7 @@ class TaskFunction(BaseModel):
         Checks if the function is enabled
         """
         if queue_name is not None and self.queue_name is not None and queue_name != self.queue_name: return False
+        if self.phase and not self.include_phase_as_function: return False
         if not self.worker_attributes: return True
         attribute_match_type = attribute_match_type or self.attribute_match_type
         if not attribute_match_type: return True
