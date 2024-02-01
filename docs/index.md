@@ -1,1 +1,1 @@
-/Volumes/Hub/github/kvdb-py/README.md
+README.md
