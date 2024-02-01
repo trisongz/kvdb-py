@@ -87,14 +87,14 @@ nav:
       - api/cachify/context-manager.md
       - api/cachify/context.md
       - api/cachify/object.md
-  - Examples:
-      - examples/README.md
-      - examples/queue/README.md
-      # - examples/queue/client_side.py
-      - examples/sessions/README.md
-      - examples/caching/README.md
-      # - examples/cache/basic.py
-      # - examples/cache/objects.py
-      # - examples/cache/context.py
+  # - Examples:
+  #     - examples/README.md
+  #     - examples/queue/README.md
+  #     # - examples/queue/client_side.py
+  #     - examples/sessions/README.md
+  #     - examples/caching/README.md
+  #     # - examples/cache/basic.py
+  #     # - examples/cache/objects.py
+  #     # - examples/cache/context.py
 
       
