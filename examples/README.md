@@ -1,7 +1,7 @@
 # KVDB Examples
 
-- [x] [Sessions](./sessions/README.md)
+- [x] [KVDB Sessions](./sessions/README.md)
 - [x] [Task Queues](./queue/README.md)
-- [ ] [Caching](./cache/README.md)
-- [ ] [Persistence](./persistence.py)
+- [ ] [Caching with Cachify](./caching/README.md)
+- [ ] [Persistence with KVDB](./persistence.py)
 

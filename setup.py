@@ -48,7 +48,18 @@ args = {
             "pysimdjson",
             "cloudpickle",
             "zstd",
+        ],
+        "docs": [
+            "mkdocs-material",
+            "mkdocstrings[python]",
+            "black",
         ]
+    },
+    project_urls={
+        "Documentation": "https://trisongz.github.io/kvdb-py/",
+        "Changes": "https://github.com/trisongz/kvdb-py/releases",
+        "Code": "https://github.com/trisongz/kvdb-py",
+        # "Issue tracker": "https://github.com/redis/redis-py/issues",
     },
 }
 

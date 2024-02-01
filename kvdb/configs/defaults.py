@@ -14,7 +14,7 @@ KindOptions = Literal['session', 'task', 'cache', 'persistence']
 DEFAULT_SERIALIZER = "json"
 DEFAULT_SERIALIZERS: Dict[str, Optional[str]] = {
     "session": DEFAULT_SERIALIZER,
-    "task": DEFAULT_SERIALIZER,
+    "task": "pickle",
     "cache": DEFAULT_SERIALIZER,
     "persistence": DEFAULT_SERIALIZER,
 }

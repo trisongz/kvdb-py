@@ -1,3 +1,10 @@
+![Documentation](https://github.com/trisongz/kvdb-py/actions/workflows/build-docs.yaml/badge.svg)
+![PyPI package](https://img.shields.io/pypi/v/kvdb-py?color=%2334D058&label=PyPI%20Package)
+
+**Source code**: [https://github.com/trisongz/kvdb-py](https://github.com/trisongz/kvdb-py)
+
+**Documentation and examples**: [https://trisongz.github.io/kvdb-py](https://trisongz.github.io/kvdb-py/)
+
 # kvdb-py
  Key-Value DB Python Client Abstraction built on top of Redis
 
@@ -49,7 +56,7 @@ pip install kvdb-py
 
 ## Usage
 
-Check out the [examples](./examples) directory for examples on how to use this library.
+Check out the [examples](./examples/README.md) directory for examples on how to use this library.
 
 ---
 ### Quick Example
@@ -117,6 +124,8 @@ Terminal 2:
 $ python client_side.py
 ```
 
+#### The Server Side Example:
+
 ```python
 # dummy_task.py
 
@@ -172,8 +181,10 @@ class TestWorker(abc.ABC):
 # object is not initialized, then the functions will not be registered
 def initializer():
     x = TestWorker()
-
 ```
+
+#### The Client Side Example:
+
 
 ```python
 # client_side.py
@@ -229,6 +240,7 @@ if __name__ == '__main__':
     asyncio.run(entrypoint())
 
 ```
+
 ---
 ### Caching
 
@@ -236,11 +248,11 @@ Below are two examples of how to use the caching functionality of `kvdb-py`. The
 
 See the following files for more examples:
 
-- [examples/cache/basic.py](./examples/cache/basic.py) for an example of how to use caching with functions
+- [examples/caching/basic.py](./examples/caching/basic.py) for an example of how to use caching with functions
 
-- [examples/cache/objects.py](./examples/cache/objects.py) for an example of how to use caching with an object
+- [examples/caching/objects.py](./examples/caching/objects.py) for an example of how to use caching with an object
 
-- [examples/cache/context.py](./examples/cache/context.py) for an example of how to use caching with a pre-defined context
+- [examples/caching/context.py](./examples/caching/context.py) for an example of how to use caching with a pre-defined context
 
 
 ```python

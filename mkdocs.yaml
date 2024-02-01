@@ -1,0 +1,100 @@
+site_name: KVDB
+repo_name: trisongz/kvdb-py
+repo_url: https://github.com/trisongz/kvdb-py
+
+theme:
+  name: material
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search:
+      lang: en
+  - mkdocstrings:
+      handlers:
+        python:
+          load_external_modules: true
+          paths:
+            - .
+          options:
+            annotations_path: full
+            docstring_section_style: spacy
+            show_source: true
+            allow_inspection: true
+            inherited_members: true
+            separate_signature: true
+            signature_crossrefs: true
+            unwrap_annotated: true
+            merge_init_into_class: true
+            show_signature: true
+            show_signature_annotations: true
+            summary: true
+            heading_level: 3
+            # filters:
+            # - "!^_"
+            # - "^__init__$"
+            # preload_modules:
+            # - redis
+
+
+# https://mkdocstrings.github.io/python/reference/mkdocstrings_handlers/python/handler/?h=signat#mkdocstrings_handlers.python.handler.PythonHandler.default_config
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+nav:
+  - index.md
+  - Session Manager:
+    - topics/session-manager.md
+    - API Reference:
+      - api/session-manager/api.md
+  - Sessions:
+    - topics/sessions.md
+    - API Reference:
+      - api/sessions/api.md
+  - Serialization:
+    - topics/serialization.md
+    - Supported:
+      - api/serializers/json.md
+      - api/serializers/msgpack.md
+      - api/serializers/pickle.md
+  - Cachify:
+    - topics/cachify.md
+    - API Reference:
+      - api/cachify/api.md
+      - api/cachify/context-manager.md
+      - api/cachify/context.md
+      - api/cachify/object.md
+  - Examples:
+      - examples/README.md
+      - examples/queue/README.md
+      # - examples/queue/client_side.py
+      - examples/sessions/README.md
+      - examples/caching/README.md
+      # - examples/cache/basic.py
+      # - examples/cache/objects.py
+      # - examples/cache/context.py
+
+      
