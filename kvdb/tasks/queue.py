@@ -321,17 +321,17 @@ class TaskQueue(abc.ABC):
             await self.notify(job)
             # if self.debug_enabled:
             #     self.log(job=job, kind = "finish").info(f"Finished {job}")
-            if self.queue_tasks.is_function_silenced(job.function, stage = 'finish'):
-                pass
-            elif self.logging_max_length:
-                job_result = job.get_truncated_result(self.logging_max_length)
-                self.log(job=job, kind = "finish").info(f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
-            else:
-                self.log(job=job, kind = "finish").info(f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}")
-            # await self.track_job(job)
-            
-
-
+            if not self.queue_tasks.is_function_silenced(
+                job.function, stage='finish'
+            ):
+                job_msg = f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}"
+                if self.logging_max_length:
+                    job_result = job.get_truncated_result(self.logging_max_length)
+                    job_msg += f", result={job_result}"
+                if job.status in UNSUCCESSFUL_TERMINAL_JOB_STATUSES:
+                    job_msg += f", kwargs={job.get_truncated_kwargs(self.logging_max_length)}, error={job.error}"
+                self.log(job=job, kind = "finish").info(job_msg)
+    
     async def defer(
         self, 
         job_or_func: Union[Job, str],
