@@ -61,6 +61,7 @@ class TaskFunction(BaseModel):
 
     # Enable/Disable Patching
     disable_patch: Optional[bool] = None
+    disable_ctx_in_patch: Optional[bool] = None
 
     # Filter Functions for the Task Function
     worker_attributes: Optional[Dict[str, Any]] = Field(default_factory = dict)

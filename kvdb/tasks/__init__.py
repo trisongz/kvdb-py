@@ -26,6 +26,7 @@ def register(
     cronjob: Optional[bool] = None,
     queue_name: Optional[str] = None,
     disable_patch: Optional[bool] = None,
+    disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional['AttributeMatchType'] = None,
     task_abc: Optional[bool] = None,
@@ -58,6 +59,7 @@ def create_context(
     default_kwargs: Optional[Dict[str, Any]] = None,
     cronjob: Optional[bool] = None,
     disable_patch: Optional[bool] = None,
+    disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional['AttributeMatchType'] = None,
     context: Optional[Dict[str, Any]] = None,
@@ -91,6 +93,7 @@ def register_object(
     default_kwargs: Optional[Dict[str, Any]] = None,
     cronjob: Optional[bool] = None,
     disable_patch: Optional[bool] = None,
+    disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional['AttributeMatchType'] = None,
     context: Optional[Dict[str, Any]] = None,
@@ -142,6 +145,7 @@ def register_abc(
     cronjob: Optional[bool] = None,
     queue_name: Optional[str] = None,
     disable_patch: Optional[bool] = None,
+    disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional[AttributeMatchType] = None,
     **kwargs
@@ -162,6 +166,7 @@ def register_abc(
     cronjob: Optional[bool] = None,
     queue_name: Optional[str] = None,
     disable_patch: Optional[bool] = False,
+    disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional[AttributeMatchType] = None,
     **kwargs
@@ -183,6 +188,7 @@ def register_abc(
     cronjob: Optional[bool] = None,
     queue_name: Optional[str] = None,
     disable_patch: Optional[bool] = None,
+    disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional[AttributeMatchType] = None,
     **kwargs
@@ -201,6 +207,7 @@ def register_abc(
     cronjob: Optional[bool] = None,
     queue_name: Optional[str] = None,
     disable_patch: Optional[bool] = None,
+    disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional[AttributeMatchType] = None,
     **kwargs

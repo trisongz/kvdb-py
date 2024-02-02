@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from setuptools import setup, find_packages
+from typing import Optional
 
 if sys.version_info.major != 3:
     raise RuntimeError("This package requires Python 3+")
@@ -10,23 +11,39 @@ gitrepo = 'trisongz/kvdb-py'
 root = Path(__file__).parent
 version = root.joinpath('kvdb/version.py').read_text().split('VERSION = ', 1)[-1].strip().replace('-', '').replace("'", '')
 
-requirements = [
-    "anyio",
-    "pydantic",
-    "pydantic-settings",
-    "croniter",
-    "tenacity",
-    "backoff",
-    "redis",
-    "hiredis",
-    # "trio",
-    # "structlog",
-    "xxhash",
-    "makefun",
-    "lazyops>=0.2.69",
-    "typer",
-    'typing-extensions; python_version<"3.8"',
-]
+
+def get_requirements(
+    name: Optional[str] = None,
+):
+    """
+    Get the requirements from the `requirements` folder
+    """
+    if name: name = f'requirements.{name}' if 'requirements' not in name else name
+    else: name = 'requirements'
+    base_path = root
+    if not name.endswith('.txt'): name = f'{name}.txt'
+    text_lines = base_path.joinpath(name).read_text().splitlines()
+    return [line.strip() for line in text_lines if ('#' not in line[:5] and line.strip())]
+
+requirements = get_requirements()
+
+# requirements = [
+#     "anyio",
+#     "pydantic",
+#     "pydantic-settings",
+#     "croniter",
+#     "tenacity",
+#     "backoff",
+#     "redis",
+#     "hiredis",
+#     # "trio",
+#     # "structlog",
+#     "xxhash",
+#     "makefun",
+#     "lazyops>=0.2.69",
+#     "typer",
+#     'typing-extensions; python_version<"3.8"',
+# ]
 
 args = {
     'packages': find_packages(
@@ -55,11 +72,10 @@ args = {
             "black",
         ]
     },
-    project_urls={
+    'project_urls': {
         "Documentation": "https://trisongz.github.io/kvdb-py/",
         "Changes": "https://github.com/trisongz/kvdb-py/releases",
         "Code": "https://github.com/trisongz/kvdb-py",
-        # "Issue tracker": "https://github.com/redis/redis-py/issues",
     },
 }
 

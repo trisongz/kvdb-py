@@ -10,6 +10,7 @@ Base Types
 # Support for v1 and v2 of pydantic
 try:
     from pydantic import BaseModel as _BaseModel, ConfigDict, computed_field
+    # from pydantic.networks import MultiHostUrl
 
     PYDANTIC_VERSION = 2
 
@@ -96,6 +97,7 @@ try:
 
 except ImportError:
     from pydantic import BaseModel as _BaseModel
+    # from pydantic.networks import MultiHostDsn as MultiHostUrl
 
     PYDANTIC_VERSION = 1
 

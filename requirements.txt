@@ -12,3 +12,5 @@ makefun
 lazyops>=0.2.69
 typer
 typing-extensions; python_version<"3.8"
+# glide-for-redis
+# tikv-client

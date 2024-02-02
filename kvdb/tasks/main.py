@@ -240,6 +240,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         cronjob: Optional[bool] = None,
         queue_name: Optional[str] = None,
         disable_patch: Optional[bool] = None,
+        disable_ctx_in_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
         task_abc: Optional[bool] = None,
@@ -508,6 +509,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         cronjob: Optional[bool] = None,
         queue_name: Optional[str] = None,
         disable_patch: Optional[bool] = None,
+        disable_ctx_in_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
         **kwargs
@@ -556,8 +558,9 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         default_kwargs: Optional[Dict[str, Any]] = None,
         cronjob: Optional[bool] = None,
         disable_patch: Optional[bool] = None,
+        disable_ctx_in_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
-        attribute_match_type: Optional[Literal['any', 'all']] = None,
+        attribute_match_type: Optional[AttributeMatchType] = None,
         context: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> QueueTasks:

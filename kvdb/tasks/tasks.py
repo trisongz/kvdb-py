@@ -214,8 +214,10 @@ class QueueTasks(abc.ABC):
         signature_params: Optional[Signature] = None,
         args: Optional[List[str]] = None,
         kwargs: Optional[Dict[str, Any]] = None,
+        remove_args: Optional[List[str]] = None,
+        remove_kwargs: Optional[List[str]] = None,
         remove_self_or_cls: Optional[bool] = None,
-    ):
+    ):  # sourcery skip: low-code-quality
         """
         Modifies the function signature
         """
@@ -226,6 +228,10 @@ class QueueTasks(abc.ABC):
             for arg in args:
                 if arg in signature_params.parameters: continue
                 params.insert(start_pos, Parameter(arg, kind = Parameter.POSITIONAL_OR_KEYWORD, annotation = Ctx if arg == 'ctx' else None))
+        if remove_args:
+            for arg in remove_args:
+                if arg not in signature_params.parameters: continue
+                params = [param for param in params if param.name != arg]
         if kwargs:
             for key, value in kwargs.items():
                 if key in signature_params.parameters: continue
@@ -234,6 +240,10 @@ class QueueTasks(abc.ABC):
                 else:
                     insert_pos = len(params) - 1 if 'kwargs' in params[-1].name else len(params)
                     params.insert(insert_pos, Parameter(key, kind = Parameter.KEYWORD_ONLY, default = value, annotation = Optional[type(value)]))
+        if remove_kwargs:
+            for key in remove_kwargs:
+                if key not in signature_params.parameters: continue
+                params = [param for param in params if param.name != key]
         if remove_self_or_cls:
             if 'self' in params[0].name or 'cls' in params[0].name: params.pop(0)
         # self.autologger.info(f'Modifying function signature for {function.__name__}: {signature_params} {params}')
@@ -332,6 +342,7 @@ class QueueTasks(abc.ABC):
         default_kwargs: Optional[Dict[str, Any]] = None,
         cronjob: Optional[bool] = None,
         disable_patch: Optional[bool] = None,
+        disable_ctx_in_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
         subclass_name: Optional[str] = None,
@@ -351,6 +362,7 @@ class QueueTasks(abc.ABC):
                     default_kwargs = default_kwargs,
                     cronjob = cronjob,
                     disable_patch = disable_patch,
+                    disable_ctx_in_patch = disable_ctx_in_patch,
                     worker_attributes = worker_attributes,
                     attribute_match_type = attribute_match_type,
                     **function_kwargs,
@@ -364,6 +376,7 @@ class QueueTasks(abc.ABC):
                 default_kwargs = default_kwargs,
                 cronjob = cronjob,
                 disable_patch = disable_patch,
+                disable_ctx_in_patch = disable_ctx_in_patch,
                 worker_attributes = worker_attributes,
                 attribute_match_type = attribute_match_type,
                 **function_kwargs,
@@ -387,6 +400,7 @@ class QueueTasks(abc.ABC):
                     default_kwargs = default_kwargs,
                     cronjob = cronjob,
                     disable_patch = disable_patch,
+                    disable_ctx_in_patch = disable_ctx_in_patch,
                     worker_attributes = worker_attributes,
                     attribute_match_type = attribute_match_type,
                     **function_kwargs,
@@ -401,6 +415,7 @@ class QueueTasks(abc.ABC):
                 default_kwargs = default_kwargs,
                 cronjob = cronjob,
                 disable_patch = disable_patch,
+                disable_ctx_in_patch = disable_ctx_in_patch,
                 worker_attributes = worker_attributes,
                 attribute_match_type = attribute_match_type,
                 **function_kwargs,

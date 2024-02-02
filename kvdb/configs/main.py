@@ -60,6 +60,7 @@ class KVDBSettings(BaseSettings):
 
     scheme: Optional[str] = Field(None, validation_alias = create_alias_choices('scheme'))
     host: Optional[str] = Field(None, validation_alias = create_alias_choices('host'))
+    hosts: Optional[List[str]] = Field(None, validation_alias = create_alias_choices('hosts'))
     port: Optional[int] = Field(None, validation_alias = create_alias_choices('port'))
     username: Optional[str] = Field(None, validation_alias = create_alias_choices('username'))
     password: Optional[str] = Field(None, validation_alias = create_alias_choices('password'))

@@ -355,8 +355,9 @@ def create_patch_registered_function_wrapper(
         function,
         queue_task.modify_function_signature(
             function, 
-            args = ['ctx'] if task_function.function_inject_ctx else None,
+            args = ['ctx'] if (task_function.function_inject_ctx and not task_function.disable_ctx_in_patch) else None,
             kwargs = {'blocking': True}, 
+            # remove_args = 
         ),
         qualname = qualname,
     )(patched_function)

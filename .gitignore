@@ -36,3 +36,5 @@ tests/test_inheritence.py
 tests/wrappers.py
 kvdb/.data/kvdb.tmp.lock
 site/**
+kvdb/backends/**
+tests/devel**

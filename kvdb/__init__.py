@@ -809,3 +809,35 @@ def register_cachify_object(
     """
     from .io import cachify
     return cachify.register_object(cache_name = cache_name, **kwargs)
+
+
+def create_persistence(
+    name: Optional[str] = None,
+    base_key: Optional[str] = None,
+    expiration: Optional[int] = None,
+    hset_disabled: Optional[bool] = False,
+    keyjoin: Optional[str] = None,
+    async_enabled: Optional[bool] = False,
+    url: Optional[Union[str, KVDBUrl]] = None,
+    serializer: Optional[str] = None,
+    serializer_kwargs: Optional[Dict[str, Any]] = None,
+    session_name: Optional[str] = None,
+    **kwargs,
+) -> 'PersistentDict':
+    """
+    Create a new persistence instance
+
+    Args:
+        name (Optional[str], optional): The name of the persistence. Defaults to None.
+        base_key (Optional[str], optional): The base key of the persistence. Defaults to None.
+        expiration (Optional[int], optional): The expiration of the persistence. Defaults to None.
+        hset_disabled (Optional[bool], optional): Whether or not hset is disabled. Defaults to False.
+        keyjoin (Optional[str], optional): The keyjoin. Defaults to None.
+        async_enabled (Optional[bool], optional): Whether or not async is enabled. Defaults to False.
+        url (Optional[Union[str, KVDBUrl]], optional): The url of the persistence. Defaults to None.
+        serializer (Optional[str], optional): The serializer to use. Defaults to None.
+        serializer_kwargs (Optional[Dict[str, Any]], optional): The serializer kwargs to use. Defaults to None.
+        session_name (Optional[str], optional): The session name to use. Defaults to None.
+    """
+    session = get_session(name = session_name, url = url)
+    return session.create_persistence(name = name, base_key = base_key, expiration = expiration, hset_disabled = hset_disabled, keyjoin = keyjoin, async_enabled = async_enabled, serializer = serializer, serializer_kwargs = serializer_kwargs, **kwargs)
