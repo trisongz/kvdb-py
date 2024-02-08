@@ -149,10 +149,15 @@ class JsonSerializer(BaseSerializer):
         try:
             # value = self.check_encoded_value(value)
             value = self.jsonlib.loads(value, **kwargs)
+        except Exception as e:
+            if not self.is_encoder: logger.info(f'Error JSON Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+            if self.raise_errors: raise e
+        try:
             return deserialize_object(value)
         except Exception as e:
             if not self.is_encoder: 
-                logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+                logger.trace(f'Error Deserializing Object: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
+                # logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
 

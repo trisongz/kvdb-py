@@ -73,6 +73,7 @@ def serialize_object(
             "value": ...,
         }
     """
+    if obj is None: return None
 
     if isinstance(obj, BaseModel) or hasattr(obj, 'model_dump'):
         obj_class_name = register_object_class(obj)
@@ -216,7 +217,7 @@ def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any]) ->
     Args:
         obj: the object to deserialize
     """
-
+    if obj is None: return None
     if isinstance(obj, (list, tuple)):
         return [deserialize_object(item) for item in obj]
 
