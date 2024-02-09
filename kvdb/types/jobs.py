@@ -7,6 +7,7 @@ import contextlib
 
 from pydantic import Field, validator, computed_field, model_validator
 from lazyops.libs.pooler import ThreadPooler
+from lazyops.libs.abcs.utils.helpers import update_dict
 from kvdb.utils.logs import logger
 from kvdb.utils.helpers import (
     lazy_import,
@@ -235,7 +236,10 @@ class JobQueueMixin(BaseModel):
         Set properties with passed in kwargs.
         """
         for k, v in kwargs.items():
-            setattr(self, k, v)
+            if k == 'metadata' and v and hasattr(self, 'metadata'):
+                self.metadata = update_dict(self.metadata, v)
+            else:
+                setattr(self, k, v)
         # Allow Updates without breaking if something goes wrong
         with contextlib.suppress(Exception):
             await self.queue.update(self)

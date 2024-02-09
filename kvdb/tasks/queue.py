@@ -782,12 +782,16 @@ class TaskQueue(abc.ABC):
         # if self.function_tracker_enabled: 
         #     await self.track_job_id(job)
 
-    async def job(self, job: Union[str, Job]) -> Job:
+    async def job(self, job: Union[str, Job], raise_error: Optional[bool] = True) -> Optional[Job]:
         """
         Fetch a Job by key or refresh the job
         """
         job_id = self.job_id(job)
-        return await self.get_job_by_id(job_id)
+        try:
+            return await self.get_job_by_id(job_id)
+        except Exception as e:
+            if raise_error: raise e
+            return None
 
 
     async def job_exists(self, job: Union[str, Job]) -> bool:
@@ -889,8 +893,9 @@ class TaskQueue(abc.ABC):
         verbose: Optional[bool] = False,
         raise_exceptions: Optional[bool] = False,
         refresh_interval: Optional[float] = 0.5,
+        return_result: Optional[bool] = True,
         **kwargs,
-    ) -> JobResultT:  # sourcery skip: low-code-quality
+    ) -> Union[JobResultT, Job]:  # sourcery skip: low-code-quality
         """
         Waits for job to finish
         """
@@ -915,7 +920,7 @@ class TaskQueue(abc.ABC):
         if verbose:
             if source_job: self.autologger.info(f'Completed {source_job.id} in {t.total_s}')
             else: self.autologger.info(f'Completed job {job.id} in {t.total_s}')
-        return job.result
+        return job.result if return_result else job
     
 
     async def wait_for_jobs(

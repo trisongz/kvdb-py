@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .queue import TaskQueue
     from .worker import TaskWorker, WorkerTimerConfig, CronJob
     from .main import Ctx, ReturnValue, ReturnValueT, FunctionT, TaskPhase, TaskResult, QueueTasks, ModuleType
+    from .base import BaseTaskWorker
 
 
 @overload

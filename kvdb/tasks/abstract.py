@@ -7,7 +7,14 @@ A Generic KVDB Worker Class that can be inherited from
 import abc
 from kvdb.utils.logs import logger
 from kvdb.utils.lazy import lazy_import
-from typing import Callable, List, Optional, Type, Any, Dict, Union, TypeVar, Awaitable, Set, Tuple
+from typing import Callable, List, Optional, Type, Any, Dict, Union, TypeVar, Awaitable, Set, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from kvdb.types.jobs import CronJob
+    from .tasks import TaskFunction, Ctx
+
+
+RT = TypeVar('RT')
 
 
 class TaskABC(abc.ABC):
@@ -276,3 +283,5 @@ class TaskABC(abc.ABC):
     #     # logger.info(f'[[INIT] {self.__kvdb_obj_id__} {args} {kwargs}')
     #     self.__src_init__(*args, **kwargs)
     
+
+
