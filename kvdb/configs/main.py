@@ -128,7 +128,7 @@ class KVDBSettings(BaseSettings):
         # Allow the host to override the default URL
         if self.host is not None:
             self.url = KVDBUrl.build(
-                scheme = self.scheme,
+                scheme = self.scheme or 'redis',
                 host = self.host,
                 port = self.port or 6379,
                 username = self.username,
