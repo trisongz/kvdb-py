@@ -99,8 +99,11 @@ class TaskFunction(BaseModel):
         if isinstance(self.func, str): self.func = lazy_import(self.func)
         if self.function_signature is None: self.function_signature = signature(self.func)
         self.function_inject_ctx = 'ctx' in self.function_signature.parameters
-        self.function_inject_args = 'args' in self.function_signature.parameters
-        self.function_inject_kwargs = 'kwargs' in self.function_signature.parameters
+        # Check if has positional args
+        self.function_inject_args = 'args' in self.function_signature.parameters or any(p.kind in [p.VAR_POSITIONAL, p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD] for p in self.function_signature.parameters.values())
+        # self.function_inject_args = 'args' in self.function_signature.parameters
+        # Check if has keyword args
+        self.function_inject_kwargs = 'kwargs' in self.function_signature.parameters or any(p.kind in [p.VAR_KEYWORD, p.KEYWORD_ONLY, p.POSITIONAL_OR_KEYWORD] for p in self.function_signature.parameters.values())
         self.function_is_method = hasattr(self.func, '__class__')
         if self.function_is_method:
             if 'self' in self.function_signature.parameters:
@@ -250,12 +253,16 @@ class TaskFunction(BaseModel):
         if self.function_inject_args and self.function_inject_kwargs:
             return self.func(*args, **kwargs)
         elif self.function_inject_args:
-            return self.func(*args)
+            try:
+                return self.func(*args)
+            except Exception as e:
+                return self.func(*args, **kwargs)
         elif self.function_inject_kwargs:
-            return self.func(**kwargs)
+            try:
+                return self.func(**kwargs)
+            except Exception as e:
+                return self.func(*args, **kwargs)
         return self.func()
-
-
 
 
 class PushQueue:
