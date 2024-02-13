@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from .abstract import TaskABC
-from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, TypeVar, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, TypeVar, ParamSpec, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
 
 RT = TypeVar('RT')
+P = ParamSpec("P")
 
 if TYPE_CHECKING:
     import asyncio
@@ -134,6 +135,19 @@ def register_abstract(
     """
     from .main import TaskManager
     return TaskManager.register_abstract(func)
+
+
+@overload
+def register_abc(
+    cls_or_func: Callable[P, RT],
+) -> Callable[P, Awaitable[RT]]:
+    """
+    Registers an abstract class or function to the task queue
+    """
+    async def wrapper(*args: P.args, blocking: Optional[bool] = False, **kwargs: P.kwargs) -> RT:
+        ...
+    
+    return wrapper
 
 
 @overload

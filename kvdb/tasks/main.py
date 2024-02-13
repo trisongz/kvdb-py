@@ -382,7 +382,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         Registers an abstract method
         """
         obj_id, func_id = self._get_task_obj_id__(func)
-        # logger.info(f'Registering abstract method {obj_id} -> {func_id}')
+        # logger.info(f'Registering abstract method {obj_id} -> {func_id}: {kwargs}')
         if obj_id not in self._task_unregistered_abc_functions:
             self._task_unregistered_abc_functions[obj_id] = {}
             self._task_registered_abc_functions[obj_id] = set()
@@ -413,8 +413,10 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
                 self._task_unregistered_abc_partials[cls.__kvdb_obj_id__]['cls'].update(kwargs)
                 # logger.info(f'Updating partials for abstract class {cls.__kvdb_obj_id__}: {self._task_unregistered_abc_partials[cls.__kvdb_obj_id__]}')
             return cls
+        
         self._task_registered_abcs[cls.__kvdb_obj_id__] = cls
         if cls.__kvdb_obj_id__ in self._task_unregistered_abc_functions:
+            # logger.info(f'[L1] Registering abstract method {cls.__kvdb_obj_id__}: {kwargs}')
             for func_id in self._task_unregistered_abc_functions[cls.__kvdb_obj_id__]:
                 # logger.info(f'[L1] Registering abstract method {func_id}')
                 self._task_registered_abc_functions[cls.__kvdb_obj_id__].add(func_id)
@@ -452,11 +454,13 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
             base_partial_kws = self._task_unregistered_abc_partials.get(obj_id, {})
             cls_partial_kws = base_partial_kws.pop('cls', {})
             if cls_partial_kws: obj_cls.__add_task_function_partials__('cls', **cls_partial_kws)
+            # current_kwargs: Dict[str, Any] = {}
 
             for subcls in obj_cls.__subclasses__():
                 if subcls.__kvdb_obj_id__ not in self._task_unregistered_abc_functions: 
                     # logger.info(f'[L2] No unregistered functions for subclass {subcls}')
                     continue
+                
                 
                 subcls_partial_kws = self._task_unregistered_abc_partials.get(subcls.__kvdb_obj_id__, {})
                 if cls_partial_kws: subcls.__add_task_function_partials__('cls', **cls_partial_kws)
@@ -466,20 +470,25 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
 
                 for func_id in self._task_unregistered_abc_functions.get(subcls.__kvdb_obj_id__, {}):
                     if not hasattr(subcls, func_id): continue
-                    # logger.info(f'[L2.1] Compiling abstract subclass method {func_id}')
                     self._task_registered_abc_functions[subcls.__kvdb_obj_id__].add(func_id)
-
                     func_kws = base_partial_kws.get(func_id, {})
-                    if func_id in subcls_partial_kws: func_kws.update(subcls_partial_kws[func_id])
-                    if func_kws: subcls.__add_task_function_partials__(func_id, **func_kws)
+                    if func_id in subcls_partial_kws and subcls_partial_kws.get(func_id): func_kws.update(subcls_partial_kws[func_id])
+                    if func_kws: 
+                        subcls.__add_task_function_partials__(func_id, **func_kws)
+                        # current_kwargs[func_id] = func_kws
+                    # logger.info(f'[L2.1] Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {func_id}: {func_kws}')
                     
                 for func_id in self._task_unregistered_abc_functions.get(obj_id, {}):
                     if not hasattr(subcls, func_id): continue
                     # logger.info(f'[L2.2] Compiling abstract method {func_id} for subclass {subcls}')
                     self._task_registered_abc_functions[subcls.__kvdb_obj_id__].add(func_id)
                     func_kws = base_partial_kws.get(func_id, {})
-                    if func_id in subcls_partial_kws: func_kws.update(subcls_partial_kws[func_id])
-                    if func_kws: subcls.__add_task_function_partials__(func_id, **func_kws)
+                    if func_id in subcls_partial_kws and subcls_partial_kws.get(func_id): func_kws.update(subcls_partial_kws[func_id])
+                    # if func_id in subcls_partial_kws: func_kws.update(subcls_partial_kws[func_id])
+                    if func_kws: 
+                        subcls.__add_task_function_partials__(func_id, **func_kws)
+                        # current_kwargs[func_id] = func_kws
+                    # logger.info(f'[L2.2] Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {func_id}: {func_kws}')
 
 
                 for _obj_id, _obj_cls in self._task_registered_abcs.items():
@@ -492,8 +501,10 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
                         self._task_registered_abc_functions[subcls.__kvdb_obj_id__].update(subcls_obj_funcs)
                         for subcls_func_id in subcls_obj_funcs:
                             func_kws = base_partial_kws.get(subcls_func_id, {})
-                            if subcls_func_id in subcls_partial_kws: func_kws.update(subcls_partial_kws[subcls_func_id])
+                            if subcls_func_id in subcls_partial_kws and subcls_partial_kws.get(subcls_func_id): func_kws.update(subcls_partial_kws[subcls_func_id])
+                            # if current_kwargs.get(subcls_func_id): func_kws.update(current_kwargs[subcls_func_id])
                             if func_kws: subcls.__add_task_function_partials__(subcls_func_id, **func_kws)
+                            # logger.info(f'[L2.3] Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {subcls_func_id}: {func_kws}')
 
 
 

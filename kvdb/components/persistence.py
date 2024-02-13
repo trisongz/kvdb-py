@@ -4,6 +4,7 @@ from __future__ import annotations
 A KVDB-backed Dict-like object
 """
 import re
+import binascii
 from kvdb.configs import settings as kvdb_settings
 from kvdb.configs.base import SerializerConfig
 from kvdb.utils.logs import logger
@@ -576,6 +577,158 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             return
             # await self.cache.aexpire(self.base_key, ex)
         await self.cache.aexpire(self.get_key(key), ex)
+    
+    def get_all_data_raw(self, exclude_base_key: Optional[bool] = False, **kwargs) -> Dict[str, Any]:
+        """
+        Loads all the Data
+        """
+        if self.hset_enabled:
+            data = self.cache.hgetall(self.base_key)
+        else:
+            keys = self._fetch_set_keys(decode = False)
+            data = self.cache.mget(keys)
+        results = {}
+        for key, value in data.items():
+            if isinstance(key, bytes): key = key.decode()
+            if not exclude_base_key:
+                key = self.get_key(key)
+            else: 
+                key = key.replace(f'{self.base_key}{self.keyjoin}', '')
+            if isinstance(value, bytes): 
+                try:
+                    value = value.decode()
+                except Exception as e:
+                    value = value.hex()
+                    if '_hexed_' not in results: results['_hexed_'] = []
+                    results['_hexed_'].append(key)
+            results[key] = value
+        return results
+        
+    async def aget_all_data_raw(self, exclude_base_key: Optional[bool] = False, **kwargs) -> Dict[str, Any]:
+        """
+        Exports all the Data in Raw Format
+        """
+        if self.hset_enabled:
+            data = await self.cache.ahgetall(self.base_key)
+        else:
+            keys = await self._afetch_set_keys(decode = False)
+            data = await self.cache.amget(keys)
+        results = {}
+        for key, value in data.items():
+            if isinstance(key, bytes): key = key.decode()
+            if not exclude_base_key:
+                key = self.get_key(key)
+            else: 
+                key = key.replace(f'{self.base_key}{self.keyjoin}', '')
+            if isinstance(value, bytes):
+                try: 
+                    value = value.decode()
+                except Exception as e:
+                    value = value.hex()
+                    if '_hexed_' not in results: results['_hexed_'] = []
+                    results['_hexed_'].append(key)
+            results[key] = value
+        return results
+    
+    def load_data_raw(self, data: Dict[str, Any], includes_base_key: Optional[bool] = False, **kwargs):
+        # sourcery skip: default-get
+        """
+        Loads the Data
+        """
+        ex = kwargs.get('ex') if 'ex' in kwargs else self.expiration
+        hexed = data.pop('_hexed_', [])
+        for key in hexed:
+            try:
+                data[key] = binascii.unhexlify(data[key])
+            except Exception as e:
+                logger.warning(f'Error Decoding Hexed Key: {key} - {e}')
+        if self.hset_enabled:
+            # Remove the base key from the keys
+            if includes_base_key:
+                data = {k.replace(f'{self.base_key}{self.keyjoin}', ''): v for k, v in data.items()}
+            self.cache.hset(self.base_key, mapping = data)
+            if ex is not None: self.cache.expire(self.base_key, ex)
+            return
+        if not includes_base_key:
+            data = {self.get_key(k): v for k, v in data.items()}
+        self.cache.mset(data)
+    
+    async def aload_data_raw(self, data: Dict[str, Any], includes_base_key: Optional[bool] = False, **kwargs):
+        # sourcery skip: default-get
+        """
+        Loads the Data from a Raw Data Source
+        This implies that the data is already encoded
+        """
+        ex = kwargs.get('ex') if 'ex' in kwargs else self.expiration
+        hexed = data.pop('_hexed_', [])
+        for key in hexed:
+            try:
+                data[key] = binascii.unhexlify(data[key])
+            except Exception as e:
+                logger.warning(f'Error Decoding Hexed Key: {key} - {e}')
+        if self.hset_enabled:
+            # Remove the base key from the keys
+            if includes_base_key:
+                data = {k.replace(f'{self.base_key}{self.keyjoin}', ''): v for k, v in data.items()}
+            await self.cache.ahset(self.base_key, mapping = data)
+            if ex is not None: await self.cache.aexpire(self.base_key, ex)
+            return
+        if not includes_base_key:
+            data = {self.get_key(k): v for k, v in data.items()}
+        await self.cache.amset(data)
+        
+
+    def dump_data_raw(self, include_base_key: Optional[bool] = False, **kwargs) -> Dict[str, Any]:
+        """
+        Dumps the Data
+        """
+        return self.get_all_data_raw(exclude_base_key = not include_base_key, **kwargs)
+    
+
+    async def adump_data_raw(self, include_base_key: Optional[bool] = False, **kwargs) -> Dict[str, Any]:
+        """
+        Dumps the Data
+        """
+        return await self.aget_all_data_raw(exclude_base_key = not include_base_key, **kwargs)
+    
+    def replicate_from(self, source: Union[str, 'KVDBSession'], **kwargs):
+        """
+        Replicates the data from another source and merges it into the current source
+        """
+        if isinstance(source, str):
+            from kvdb import KVDBClient
+            source = KVDBClient.session(name = f'{self.name}_source', url = source, **kwargs)
+        if self.hset_enabled:
+            data = source.hgetall(self.base_key)
+            if data:
+                logger.info(f'[{self.base_key}] Replicating [{len(data)}] Data from {source.name} to {self.name}')
+                self.cache.hset(self.base_key, mapping = data)
+        else:
+            keys = source.keys(f'{self.base_key}{self.keyjoin}*')
+            data = source.mget(keys)
+            if data:
+                logger.info(f'[{self.base_key}] Replicating [{len(data)}] Data from {source.name} to {self.name}')
+                self.cache.mset(data)
+
+    async def areplicate_from(self, source: Union[str, 'KVDBSession'], **kwargs):
+        """
+        Replicates the data from another source and merges it into the current source
+        """
+        if isinstance(source, str):
+            from kvdb import KVDBClient
+            source = KVDBClient.session(name = f'{self.name}_source', url = source, **kwargs)
+        if self.hset_enabled:
+            data = await source.ahgetall(self.base_key)
+            if data:
+                logger.info(f'[{self.base_key}] Replicating [{len(data)}] Data from {source.name} to {self.name}')
+                await self.cache.ahset(self.base_key, mapping = data)
+        else:
+            keys = await source.akeys(f'{self.base_key}{self.keyjoin}*')
+            data = await source.amget(keys)
+            if data:
+                logger.info(f'[{self.base_key}] Replicating [{len(data)}] Data from {source.name} to {self.name}')
+                await self.cache.amset(data)
+    
 
     """
     Add methods that reflect the `PersistentDict` API
@@ -633,6 +786,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         keys: List[Union[str, bytes]] = await self.cache.ahkeys(self.base_key)
         if decode: return [key.decode() if isinstance(key, bytes) else key for key in keys]
         return keys
+    
+
+
     
 
 PersistentDict.register_backend('kvdb', KVDBStatefulBackend)

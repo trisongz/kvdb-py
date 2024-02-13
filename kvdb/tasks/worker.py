@@ -480,7 +480,7 @@ class TaskWorker(abc.ABC):
                 await job.retry("cancelled")
         except Exception:
             error = get_exc_error(job = job)
-            self.autologger.error(f"Error in process_queue for job {job.id}: {error}")
+            self.autologger.error(f"Error in process_queue for job {job}: {error}")
 
             if job:
                 if job.attempts >= job.retries: await job.finish(JobStatus.FAILED, error=error)
@@ -492,7 +492,7 @@ class TaskWorker(abc.ABC):
                 try: await self.after_process(context)
                 except (Exception, asyncio.CancelledError) as e: 
                     error = get_exc_error(job = job)
-                    self.autologger.error(f"Error in after_process for job {job.id}: {error}")
+                    self.autologger.error(f"Error in after_process for job {job}: {error}")
 
     async def process(self, broadcast: Optional[bool] = False, concurrency_id: Optional[int] = None):
         """

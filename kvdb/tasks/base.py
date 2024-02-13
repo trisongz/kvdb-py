@@ -259,6 +259,7 @@ class BaseTaskWorker(TaskABC):
         """
         Validates the Cronjob
         """
+        # self.autologger.info(f'Validating Cronjob: |y|{func}|e| {kwargs}', colored = True)
         if not self.cronjobs_enabled: return None
         if func in self.excluded_tasks: return None
         cronjob_list = self.get_base_cronjob_list()
@@ -281,6 +282,7 @@ class BaseTaskWorker(TaskABC):
         """
         Validates the Function
         """
+        # self.autologger.info(f'Validating Function: |y|{func}|e|', colored = True)
         if func in self.excluded_tasks: return None
         function_list = self.get_base_task_list()
         if not function_list: return kwargs

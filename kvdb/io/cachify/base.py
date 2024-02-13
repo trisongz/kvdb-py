@@ -83,7 +83,8 @@ class Cachify(KVDBCachifyConfig):
             if key in values:
                 values[key] = cls.validate_callable(values[key])
                 if key in {'encoder', 'decoder'}:
-                    if not inspect.isfunction(values[key]):
+                    # if not inspect.isfunction(values[key]):
+                    if not callable(values[key]):
                         func_value = 'loads' if key == 'decoder' else 'dumps'
                         if hasattr(values[key], func_value) and inspect.isfunction(getattr(values[key], func_value)):
                             values[key] = getattr(values[key], func_value)

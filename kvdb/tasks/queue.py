@@ -1264,7 +1264,7 @@ class TaskQueue(abc.ABC):
             'queue_name': self.queue_log_name,
             'kind': kind,
         }
-        if job or job_id: _kwargs['job_id'] = job.id if job else job_id
+        if job or job_id: _kwargs['job_id'] = job.id if job is not None else job_id
         if job: _kwargs['status'] = job.status
         return self.queue_settings.logger.bind(**_kwargs)
 

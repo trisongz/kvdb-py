@@ -72,6 +72,10 @@ class SerializerConfig(BaseModel):
         from kvdb.io.serializers import get_serializer
         serializer = self.serializer if serializer is None else serializer
         serializer_kwargs = self.serializer_kwargs if serializer_kwargs is None else serializer_kwargs
+        if 'compression' in serializer_kwargs:
+            compression = serializer_kwargs.pop('compression')
+        if 'compression_level' in serializer_kwargs:
+            compression_level = serializer_kwargs.pop('compression_level')
         compression = self.compression if compression is None else compression
         compression_level = self.compression_level if compression_level is None else compression_level
         encoding = self.encoding if encoding is None else encoding

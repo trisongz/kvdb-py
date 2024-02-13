@@ -87,6 +87,7 @@ class BaseSerializer(abc.ABC):
             if deprecated_compression is not None and deprecated_compression != compression:
                 self.previous_compressor = get_compression(deprecated_compression)
         if encoding is not None: self.encoding = encoding
+        # logger.info(f"Initializing Serializer: {self.name}: {self.compressor}")
         self.raise_errors = raise_errors
         self.enable_deprecation_support = enable_deprecation_support
         self.is_encoder = is_encoder
@@ -173,7 +174,7 @@ class BaseSerializer(abc.ABC):
             return zlib.decompress(value)
         except Exception as e:
             attempt_msg += " -> ZLib"
-            if self.raise_errors: raise DataError(f"[{attempt_msg}] Error in Decompression: {str(value)[:100]}")
+            if self.raise_errors: raise DataError(f"[{attempt_msg}] Error in Decompression: {str(value)[:100]}") from e
             return None
         
     
@@ -219,7 +220,15 @@ class BaseSerializer(abc.ABC):
         """
         Decodes the value
         """
-        return self.decode_value(self.decompress_value(value, **kwargs), **kwargs)
+        try:
+            decompressed_value = self.decompress_value(value, **kwargs)
+            if decompressed_value is not None:
+                value = decompressed_value
+        except Exception as e:
+            if self.raise_errors: raise DataError(f"[{self.name}] Error in Decompression: {str(value)[:100]}") from e
+            # return self.decode_value(value, **kwargs)
+        return self.decode_value(value, **kwargs)
+        # return self.decode_value(self.decompress_value(value, **kwargs), **kwargs)
     
     async def adecode(self, value: Union[str, bytes], **kwargs) -> ObjectValue:
         """

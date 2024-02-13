@@ -176,7 +176,8 @@ class TaskABC(abc.ABC):
         Add the task function partials
         """
         if func not in cls.__task_function_partials__: cls.__task_function_partials__[func] = {}
-        cls.__task_function_partials__[func].update(kwargs)
+        if kwargs: cls.__task_function_partials__[func].update(kwargs)
+        # logger.info(f'[{cls.__name__}] [PARTIALS] {func} {cls.__task_function_partials__[func]}')
 
     def __get_task_function_partials__(
         self, 
@@ -187,9 +188,11 @@ class TaskABC(abc.ABC):
         Return the task function partials
         """
         base_partials = self.__task_function_partials__.get('cls', {})
-        if func in self.__task_function_partials__:
+        if func in self.__task_function_partials__ and self.__task_function_partials__[func]:
             base_partials.update(self.__task_function_partials__[func])
         # if kwargs: base_partials.update(kwargs)
+        # obj_id = self.__kvdb_obj_id__
+        # logger.info(f'[{obj_id}] [PARTIALS] {func} {base_partials}: {self.__task_function_partials__}: {kwargs}')
         return base_partials
         # return self.__task_function_partials__.get(func, {})
         # If it's not a nested dict, return the value
@@ -219,6 +222,7 @@ class TaskABC(abc.ABC):
 
             src_func = getattr(self, func)
             if 'cron' in func_kws or 'cronjob' in func_kws:
+                # logger.info(f'[{self.queue_task.queue_name}] [CRON] {func} {func_kws}')
                 func_kws = self.validate_cronjob(func, **func_kws)
                 if func_kws is None: continue
                 if name := self.get_cronjob_name(src_func):
