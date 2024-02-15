@@ -3,11 +3,17 @@ from __future__ import annotations
 """
 Generic types for KVDB
 """
+import sys
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Awaitable, Iterable, TypeVar, Union
 
 from typing import Any, ClassVar, TypeVar, overload
 from typing_extensions import Literal, Self, TypeAlias
+
+if sys.version_info >= (3, 8):
+    from typing import ParamSpec
+else:
+    from typing_extensions import ParamSpec
 
 from redis.compat import Protocol
 

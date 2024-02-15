@@ -11,7 +11,7 @@ import threading
 import signal
 import contextlib
 import multiprocessing as mp
-from kvdb.utils.logs import logger
+from kvdb.utils.logs import logger, null_logger
 from kvdb.utils.helpers import lazy_import, create_cache_key_from_kwargs
 from kvdb.utils.patching import (
     patch_object_for_kvdb, 
@@ -21,6 +21,7 @@ from kvdb.utils.patching import (
     get_parent_object_class_names,
 )
 from lazyops.libs.proxyobj import ProxyObject, LockedSingleton
+from lazyops.libs.abcs.utils.helpers import update_dict
 from types import ModuleType
 from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from .types import (
@@ -43,6 +44,9 @@ if TYPE_CHECKING:
     from .worker import TaskWorker
     from .abstract import TaskABC
 
+
+
+_DEBUG_MODE_ENABLED = False
 
 class QueueTaskManager(abc.ABC, LockedSingleton):
     """
@@ -243,6 +247,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         disable_ctx_in_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
+        fallback_enabled: Optional[bool] = None,
         task_abc: Optional[bool] = None,
         **kwargs
     ) -> Callable[[FunctionT], FunctionT]:
@@ -448,17 +453,31 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         Compiles the abstract classes
         """
+        autologger = logger if _DEBUG_MODE_ENABLED else null_logger
         for obj_id, obj_cls in self._task_registered_abcs.items():
-            # logger.info(f'Compiling abstract class {obj_id}')
-
+            autologger.info(f'|g|[L0]|e| Compiling abstract class {obj_id}', colored = True)
             base_partial_kws = self._task_unregistered_abc_partials.get(obj_id, {})
             cls_partial_kws = base_partial_kws.pop('cls', {})
             if cls_partial_kws: obj_cls.__add_task_function_partials__('cls', **cls_partial_kws)
             # current_kwargs: Dict[str, Any] = {}
 
             for subcls in obj_cls.__subclasses__():
+                try:
+                    parents = get_parent_object_class_names(subcls)
+                    last_parent = parents[1]
+                    last_parent_partial_kws = self._task_unregistered_abc_partials.get(last_parent, {})
+                    autologger.info(f'|g|[L1]|e| Compiling abstract subclass {subcls} -> {last_parent}: {last_parent_partial_kws}', colored = True)
+                    if last_parent_partial_kws: 
+                        last_parent_partial_kws = {k: v for k, v in last_parent_partial_kws.items() if k not in cls_partial_kws}
+                        self._task_unregistered_abc_partials[subcls.__kvdb_obj_id__] = update_dict(
+                            self._task_unregistered_abc_partials.get(subcls.__kvdb_obj_id__, {}),
+                            last_parent_partial_kws,
+                        )
+                except Exception as e:
+                    autologger.error(f'|r|[L1]|e| Error compiling abstract subclass {subcls}: {e}', colored = True)
+                
                 if subcls.__kvdb_obj_id__ not in self._task_unregistered_abc_functions: 
-                    # logger.info(f'[L2] No unregistered functions for subclass {subcls}')
+                    autologger.info(f'|g|[L2]|e| No unregistered functions for subclass {subcls}', colored = True)
                     continue
                 
                 
@@ -476,7 +495,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
                     if func_kws: 
                         subcls.__add_task_function_partials__(func_id, **func_kws)
                         # current_kwargs[func_id] = func_kws
-                    # logger.info(f'[L2.1] Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {func_id}: {func_kws}')
+                    autologger.info(f'|y|[L2.1]|e| Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {func_id}: {func_kws}', colored = True)
                     
                 for func_id in self._task_unregistered_abc_functions.get(obj_id, {}):
                     if not hasattr(subcls, func_id): continue
@@ -488,8 +507,9 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
                     if func_kws: 
                         subcls.__add_task_function_partials__(func_id, **func_kws)
                         # current_kwargs[func_id] = func_kws
-                    # logger.info(f'[L2.2] Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {func_id}: {func_kws}')
 
+                    autologger.info(f'|b|[L2.2]|e| Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {func_id}: {func_kws}', colored = True)
+                    autologger.info('----------')
 
                 for _obj_id, _obj_cls in self._task_registered_abcs.items():
                     if _obj_id == obj_id: continue
@@ -497,15 +517,17 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
                         obj_funcs = self._task_registered_abc_functions[_obj_id]
                         subcls_obj_funcs = list(filter(lambda x: hasattr(subcls, x), obj_funcs))
                         if not subcls_obj_funcs: continue
-                        # logger.info(f'[L2.3] Compiling abstract method {func_id} for subclass {subcls}: {subcls_obj_funcs}')
+                        autologger.info(f'|y|[L2.3]|e| Compiling abstract method {func_id} for subclass {subcls}: {subcls_obj_funcs}', colored = True)
                         self._task_registered_abc_functions[subcls.__kvdb_obj_id__].update(subcls_obj_funcs)
                         for subcls_func_id in subcls_obj_funcs:
                             func_kws = base_partial_kws.get(subcls_func_id, {})
                             if subcls_func_id in subcls_partial_kws and subcls_partial_kws.get(subcls_func_id): func_kws.update(subcls_partial_kws[subcls_func_id])
                             # if current_kwargs.get(subcls_func_id): func_kws.update(current_kwargs[subcls_func_id])
                             if func_kws: subcls.__add_task_function_partials__(subcls_func_id, **func_kws)
-                            # logger.info(f'[L2.3] Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {subcls_func_id}: {func_kws}')
-
+                            autologger.info(f'|r|[L2.4]|e| Compiling abstract subclass method [{obj_id}] {subcls.__kvdb_obj_id__} -> {subcls_func_id}: {func_kws}', colored = True)
+                    
+                    autologger.info('----------')
+            autologger.info('--------------------------------------------------')
 
 
     @overload
@@ -523,6 +545,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         disable_ctx_in_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
+        fallback_enabled: Optional[bool] = None,
         **kwargs
     ) -> Callable[[Union[Type['TaskABC'], FunctionT, 'ReturnValue', 'ReturnValueT']], Union[Type['TaskABC'], FunctionT, 'ReturnValue', 'ReturnValueT']]:
         """
@@ -572,6 +595,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         disable_ctx_in_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
+        fallback_enabled: Optional[bool] = None,
         context: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> QueueTasks:

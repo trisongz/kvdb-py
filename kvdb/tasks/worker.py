@@ -475,6 +475,9 @@ class TaskWorker(abc.ABC):
             self.job_task_contexts[job] = {"task": task, "aborted": False}
             result = await asyncio.wait_for(task, job.timeout)
             await job.finish(JobStatus.COMPLETE, result=result)
+            if function.is_cronjob and not queue.queue_tasks.is_function_silenced(job.function, stage = "finish"):
+                function.cronjob.get_next_cron_run_data(verbose = True)
+
         except asyncio.CancelledError:
             if job and not self.job_task_contexts.get(job, {}).get("aborted"):
                 await job.retry("cancelled")

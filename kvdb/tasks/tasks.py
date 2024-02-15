@@ -60,10 +60,13 @@ class QueueTasks(abc.ABC):
 
         # if queue is not None: self.queue_name = queue
         # if context is not None: self.context = context
+        
         from kvdb.configs import settings
+        from lazyops.libs.pooler import ThreadPooler
         self.task_settings = settings
         self.logger = self.task_settings.logger
         self.autologger = self.task_settings.autologger
+        self.tpool = ThreadPooler
         self.verbose: Optional[bool] = kwargs.get('verbose', self.task_settings.debug_enabled)
         self.configure_classes(task_function_class = task_function_class, cronjob_class = cronjob_class, is_init = True)
 
@@ -180,6 +183,12 @@ class QueueTasks(abc.ABC):
         else:
             self.functions[function_name].silenced = True
 
+    def get_function_name_list_str(self) -> str:
+        """
+        Gets the function name list string
+        """
+        return '\n- '.join(self.functions.keys())
+
     def is_function_silenced(
         self, 
         function_name: str, 
@@ -189,7 +198,7 @@ class QueueTasks(abc.ABC):
         Checks if a function is silenced
         """
         if function_name not in self.functions:
-            raise ValueError(f'Function {function_name} not found in queue `{self.queue_name}`: Valid Functions: `{self.functions.keys()}`')
+            raise ValueError(f'Function {function_name} not found in queue `{self.queue_name}`\nValid Functions: {self.get_function_name_list_str()}')
         return self.functions[function_name].is_silenced(stage)
     
     def ensure_job_in_functions(
@@ -201,9 +210,9 @@ class QueueTasks(abc.ABC):
         """
         if job.function not in self.functions:
             if not self.has_child_objects:
-                raise ValueError(f'Function {job.function} not found in queue `{self.queue_name}`: Valid Functions: `{self.functions.keys()}`')
+                raise ValueError(f'Function {job.function} not found in queue `{self.queue_name}`\nValid Functions: {self.get_function_name_list_str()}')
             if job.function not in self.child_object_mapping:
-                raise ValueError(f'Function {job.function} not found in queue `{self.queue_name}`: Valid Functions: `{self.functions.keys()}`')
+                raise ValueError(f'Function {job.function} not found in queue `{self.queue_name}`\nValid Functions: {self.get_function_name_list_str()}')
             job.function = self.child_object_mapping[job.function]
         return job
 
@@ -261,6 +270,7 @@ class QueueTasks(abc.ABC):
         disable_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
+        fallback_enabled: Optional[bool] = None,
         **kwargs
     ) -> TaskFunction:
         """
@@ -277,6 +287,7 @@ class QueueTasks(abc.ABC):
             disable_patch = disable_patch,
             worker_attributes = worker_attributes,
             attribute_match_type = attribute_match_type,
+            fallback_enabled = fallback_enabled,
             queue_name = self.queue_name,
             kwargs = kwargs,
         )
@@ -345,6 +356,7 @@ class QueueTasks(abc.ABC):
         disable_ctx_in_patch: Optional[bool] = None,
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
+        fallback_enabled: Optional[bool] = None,
         subclass_name: Optional[str] = None,
         **function_kwargs,
     ) -> Callable[[FunctionT], FunctionT]:
@@ -365,6 +377,7 @@ class QueueTasks(abc.ABC):
                     disable_ctx_in_patch = disable_ctx_in_patch,
                     worker_attributes = worker_attributes,
                     attribute_match_type = attribute_match_type,
+                    fallback_enabled = fallback_enabled,
                     **function_kwargs,
                 )(function)
             task_function = self.add_function(
@@ -379,6 +392,7 @@ class QueueTasks(abc.ABC):
                 disable_ctx_in_patch = disable_ctx_in_patch,
                 worker_attributes = worker_attributes,
                 attribute_match_type = attribute_match_type,
+                fallback_enabled = fallback_enabled,
                 **function_kwargs,
             )
             if task_function.disable_patch: return function
@@ -403,6 +417,7 @@ class QueueTasks(abc.ABC):
                     disable_ctx_in_patch = disable_ctx_in_patch,
                     worker_attributes = worker_attributes,
                     attribute_match_type = attribute_match_type,
+                    fallback_enabled = fallback_enabled,
                     **function_kwargs,
                 )(func)
             # logger.info(f'Registering Task Function: POST-INIT {self.queue_name}', prefix = func.__qualname__, colored = True)
@@ -418,6 +433,7 @@ class QueueTasks(abc.ABC):
                 disable_ctx_in_patch = disable_ctx_in_patch,
                 worker_attributes = worker_attributes,
                 attribute_match_type = attribute_match_type,
+                fallback_enabled = fallback_enabled,
                 **function_kwargs,
             )
             if task_function.disable_patch: return func
@@ -730,20 +746,3 @@ class QueueTasks(abc.ABC):
         """
         return self.queue(job_or_func, *args, blocking = blocking, broadcast = broadcast, return_existing_job = return_existing_job, **kwargs)
     
-
-    # def __getstate__(self):
-    #     # Copy the object's state from self.__dict__ which contains
-    #     # all our instance attributes. Always use the dict.copy()
-    #     # method to avoid modifying the original state.
-    #     state = self.__dict__.copy()
-    #     # Remove the unpicklable entries.
-    #     # del state['']
-    #     logger.info(f'PICKLING {state}')
-    #     return state
-    #     # raise NotImplementedError()
-
-    # def __setstate__(self, state):
-    #     # Restore instance attributes
-    #     logger.info(f'UNPICKLING {state}')
-    #     # self.__dict__.update(state)
-    #     # raise NotImplementedError()

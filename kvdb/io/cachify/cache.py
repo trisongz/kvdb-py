@@ -29,7 +29,7 @@ from lazyops.libs.proxyobj import ProxyObject
 from types import ModuleType
 from typing import Optional, Dict, Any, Callable, List, Union, TypeVar, Tuple, Awaitable, Type, overload, TYPE_CHECKING
 
-from .base import Cachify, ReturnValue, ReturnValueT, FunctionT
+from .base import Cachify, ReturnValue, ReturnValueT, FunctionT, FuncT, FuncP
 
 if TYPE_CHECKING:
     from kvdb.components.client import ClientT
@@ -257,10 +257,38 @@ class CachifyContext(abc.ABC):
             return obj
         return object_decorator
     
+
     @overload
     def register(
         self,
-        function: Optional[FunctionT] = None,
+        function: Callable[FuncP, FuncT],
+        **kwargs,
+    ) -> Union[Awaitable[FuncT], FuncT]:
+        """
+        Registers a function to cachify
+        """
+        ...
+
+    
+    @overload
+    def register(
+        self,
+        function: Callable[FuncP, FuncT],
+        **kwargs,
+    ) -> Callable[FuncP, Union[Awaitable[FuncT], FuncT]]:
+        """
+        Registers a function to cachify
+        """
+        async def wrapper(*args: FuncP.args, **kwargs: FuncP.kwargs) -> FuncT:
+            ...
+        return wrapper
+        
+
+    
+    @overload
+    def register(
+        self,
+        function: Optional[Union[FunctionT, Callable[FuncP, FuncT]]] = None,
         ttl: Optional[int] = 60 * 10, # 10 minutes
         ttl_kws: Optional[List[str]] = ['cache_ttl'], # The keyword arguments to use for the ttl
 
@@ -312,7 +340,8 @@ class CachifyContext(abc.ABC):
         # Allow for post-call hooks
         post_call_hook: Optional[Union[str, Callable]] = None,
         hset_enabled: Optional[bool] = True,
-    ) -> Callable[[FunctionT], FunctionT]:  # sourcery skip: default-mutable-arg
+    ) -> Callable[FuncP, Union[Awaitable[FuncT], FuncT]]:
+    # ) -> Callable[[FunctionT], FunctionT]:  # sourcery skip: default-mutable-arg
         
         """
         Creates a new cachify partial decorator that
@@ -354,7 +383,11 @@ class CachifyContext(abc.ABC):
             post_call_hook (Optional[Union[str, Callable]], optional): The post call hook to use. Defaults to None.
             hset_enabled (Optional[bool], optional): Whether or not to enable hset/hget/hdel/hmset/hmget/hmgetall. Defaults to True.
         """
-        ...
+        async def wrapper(*args: FuncP.args, **kwargs: FuncP.kwargs) -> FuncT:
+            ...
+    
+        return wrapper
+
 
 
     def register(

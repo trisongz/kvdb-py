@@ -15,6 +15,7 @@ from kvdb.utils.patching import (
     get_parent_object_class_names,
 
 )
+from kvdb.types.generic import ParamSpec
 from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from types import ModuleType, FunctionType
 from .types import (
@@ -40,6 +41,9 @@ if TYPE_CHECKING:
 """
 TaskManager Wrappers
 """
+
+RT = TypeVar('RT')
+P = ParamSpec("P")
 
 def create_unset_task_init_wrapper(
     manager: 'QueueTaskManager',
@@ -326,27 +330,44 @@ def create_register_object_method_wrapper(
 
 def create_patch_registered_function_wrapper(
     queue_task: 'QueueTasks',
-    function: FunctionT,
+    function: Union[FunctionT, Callable[P, RT]],
     task_function: 'TaskFunction',
     subclass_name: Optional[str] = None,
-) -> Callable[..., TaskResult]:
+) -> Callable[P, Union[Awaitable[RT], Awaitable[Job]]]:
+# ) -> Callable[..., TaskResult]:
     """
     Creates a wrapper for the registered function
     """
-    async def patched_function(*args, blocking: Optional[bool] = True, **kwargs):
-        # logger.info(f'[{task_function.name}] [NON METHOD] running task {function.__name__} with args: {args} and kwargs: {kwargs}')
+    async def patched_function(*args: P.args, blocking: Optional[bool] = True, **kwargs: P.kwargs) -> Union[RT, Job]:
+        if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
+            logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
+            if blocking: 
+                # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
+                return await task_function({}, *args, **kwargs)
+            return await queue_task.tpool.create_background_task(task_function, {}, *args, **kwargs)
         method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
         return await method_func(task_function.name, *args, **kwargs)
     
     if task_function.function_is_method:
         if task_function.function_parent_type == 'instance':
-            async def patched_function(_self, *args, blocking: Optional[bool] = True, **kwargs):
-                # logger.info(f'[{task_function.name}] [INSTANCE] running task {function.__name__} with args: {args} and kwargs: {kwargs} {_self}')
+            async def patched_function(_self, *args: P.args, blocking: Optional[bool] = True, **kwargs: P.kwargs) -> Union[RT, Job]:
+                if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
+                    logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
+                    if blocking: 
+                        # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
+                        return await task_function({}, *args, **kwargs)
+                    return await queue_task.tpool.create_background_task(task_function, {}, *args, **kwargs)
                 method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
                 return await method_func(task_function.name, *args, **kwargs)
         
         elif task_function.function_parent_type == 'class':
-            async def patched_function(_cls, *args, blocking: Optional[bool] = True, **kwargs):
+            async def patched_function(_cls, *args: P.args, blocking: Optional[bool] = True, **kwargs: P.kwargs) -> Union[RT, Job]:
+                if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
+                    logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
+                    if blocking: 
+                        # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
+                        return await task_function({}, *args, **kwargs)
+                    return await queue_task.tpool.create_background_task(task_function, {}, *args, **kwargs)
                 method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
                 return await method_func(task_function.name, *args, **kwargs)
     

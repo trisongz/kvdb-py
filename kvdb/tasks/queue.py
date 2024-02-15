@@ -23,6 +23,7 @@ from kvdb.configs import settings
 from kvdb.configs.tasks import KVDBTaskQueueConfig
 import kvdb.errors as errors
 from lazyops.utils.times import Timer
+from lazyops.utils.helpers import timed_cache
 from kvdb.types.base import BaseModel, KVDBUrl
 from kvdb.types.jobs import (
     Job,
@@ -1284,6 +1285,15 @@ class TaskQueue(abc.ABC):
         """
         worker_ids = await self.get_worker_ids()
         return await self.data.aget_values(worker_ids)
+    
+    @timed_cache(secs = 10)
+    async def has_active_workers(self) -> bool:
+        """
+        Returns True if there are active workers
+        """
+        with anyio.move_on_after(2.0):
+            return bool(await self.get_worker_ids())
+        return False
     
 
     async def get_worker_attributes(self) -> Dict[str, Dict[str, Any]]:

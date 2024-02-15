@@ -15,6 +15,7 @@ from lazyops.utils.lazy import get_function_name
 from lazyops.libs.pooler import ThreadPooler
 from lazyops.libs.proxyobj import ProxyObject
 from types import ModuleType
+from kvdb.types.generic import ParamSpec
 from typing import Optional, Dict, Any, Callable, List, Union, TypeVar, Tuple, Awaitable, Type, overload, TYPE_CHECKING
 
 from .base import Cachify, ReturnValue, ReturnValueT, FunctionT
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from kvdb.components.session import KVDBSession
     from kvdb.configs import KVDBSettings
 
+
+P = ParamSpec("P")
 
 class CachifyContextManager(abc.ABC):
     """

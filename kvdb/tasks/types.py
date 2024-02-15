@@ -76,6 +76,8 @@ class TaskFunction(BaseModel):
     function_is_method: Optional[bool] = Field(None, exclude=True)
     function_parent_type: Optional[Literal['class', 'instance']] = Field(None, exclude=True)
 
+    fallback_enabled: Optional[bool] = None
+
     if TYPE_CHECKING:
         cronjob: Optional[Union[CronJob, bool, str]] = None
     else:

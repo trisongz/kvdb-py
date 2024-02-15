@@ -6,7 +6,6 @@ for convenience and readily subclassible
 """
 
 from .abstract import TaskABC, logger
-from .main import TaskManager
 from typing import Callable, List, Optional, Type, Any, Dict, Union, TypeVar, Iterable, Awaitable, Set, Tuple, TYPE_CHECKING
 
 
@@ -18,6 +17,8 @@ if TYPE_CHECKING:
     from lazyops.utils.logs import Logger
     from lazyops.libs.abcs.configs.base import AppSettings 
 
+    TaskWorkerT = TypeVar('TaskWorkerT', bound = 'BaseTaskWorker')
+
 
 RT = TypeVar('RT')
 
@@ -26,6 +27,46 @@ class BaseTaskWorker(TaskABC):
     """
     A Base Task Worker with Common Methods
     for convenience and readily subclassible
+
+    The following the methods are designed to be subclassed
+
+    Configuration:
+    -------------
+    - get_queue_config: Configures the Queue for the Worker. See `kvdb.tasks.queue.TaskQueue` for more parameters
+    - get_worker_config: Configures the Worker for the Worker. See `kvdb.tasks.worker.TaskWorker` for more parameters
+    - get_queue_name: Returns the Queue Name for the Worker
+    - get_base_task_list: Returns the Base Task List
+    - get_base_cronjob_list: Returns the Base Cronjob List
+
+    Validation:
+    -------------
+    - validate_cronjob: Validates the Cronjob. Returns the Cronjob Configuration Kwargs
+    - validate_function: Validates the Function. Returns the Function Configuration Kwargs
+
+    Properties:
+    -------------
+    - worker_key
+
+    Event Phases:
+    -------------
+
+    Startup:
+    - cls_setup_init
+    - cls_task_init
+    - cls_startup_init
+    - cls_shutdown_exit
+
+    - pre_task_init
+    - post_task_init
+    - finalize_task_init
+    - pre_startup_init
+    - post_startup_init
+    - finalize_startup_init
+
+    Shutdown:
+    - pre_shutdown_exit
+    - post_shutdown_exit
+    - finalize_shutdown_exit
     """
     name: Optional[str] = 'worker'
     kind: Optional[str] = 'svc'
@@ -42,7 +83,21 @@ class BaseTaskWorker(TaskABC):
     worker_timeout: Optional[int] = 1800
     cron_configurations: Optional[Dict[str, Any]] = {}
 
+    fallback_enabled: Optional[bool] = None # Fallback to executing the task locally if the queue is not available
+
     _worker_key: Optional[str] = None
+
+
+    def __init_subclass__(cls, **kwargs):
+        """
+        Called when a subclass is created
+        """
+        super().__init_subclass__(**kwargs)
+        from .main import TaskManager
+        TaskManager.register_abc(cls_or_func=cls.run_task_init, phase = 'startup', set_ctx = True)
+        TaskManager.register_abc(cls_or_func=cls.run_startup_init, phase = 'startup')
+        TaskManager.register_abc(cls_or_func=cls.run_shutdown_exit, phase = 'shutdown')
+
 
     def cls_setup_init(self, *args, **kwargs):
         """
@@ -130,7 +185,7 @@ class BaseTaskWorker(TaskABC):
         """
         pass
 
-    @TaskManager.register_abc(phase = 'startup', set_ctx = True)
+    # @TaskManager.register_abc(phase = 'startup', set_ctx = True)
     async def run_task_init(self, ctx: 'Ctx', *args, **kwargs) -> 'Ctx':
         """
         Runs the init
@@ -165,7 +220,7 @@ class BaseTaskWorker(TaskABC):
         """
         pass
 
-    @TaskManager.register_abc(phase = 'startup')
+    # @TaskManager.register_abc(phase = 'startup')
     async def run_startup_init(self, **kwargs) -> None:
         """
         Runs the startup init
@@ -229,7 +284,7 @@ class BaseTaskWorker(TaskABC):
         return f'{self.worker_module_name}.tasks'
     
 
-    @TaskManager.register_abc(phase = 'shutdown')
+    # @TaskManager.register_abc(phase = 'shutdown')
     async def run_shutdown_exit(self, **kwargs) -> None:
         """
         Runs the Shutdown Exit
@@ -285,6 +340,8 @@ class BaseTaskWorker(TaskABC):
         # self.autologger.info(f'Validating Function: |y|{func}|e|', colored = True)
         if func in self.excluded_tasks: return None
         function_list = self.get_base_task_list()
+        if self.fallback_enabled and 'fallback_enabled' not in kwargs: 
+            kwargs['fallback_enabled'] = True
         if not function_list: return kwargs
         function_list.extend([
             'run_task_init',
@@ -438,3 +495,35 @@ class BaseTaskWorker(TaskABC):
             **kwargs,
         )
     
+
+    async def retrieve_job(
+        self,
+        request_id: Optional[str] = None,
+        job_id: Optional[str] = None,
+        job: Optional[Job] = None,
+        blocking: Optional[bool] = None,
+        raise_error: Optional[bool] = False,
+        **kwargs,
+    ) -> Optional[Tuple[Optional[Job], str]]:
+        """
+        Retrieves a job
+
+        Returns a tuple of: [job, job_id]
+        """
+        job_id = job_id or request_id or job.id
+        if job is None: job = await self.queue.job(job_id, raise_error = raise_error)
+        if job and blocking: job = await self.queue.wait_for_job(job, return_result = False)
+        return (job, job_id)
+    
+
+    async def retrieve_job_if_exists(
+        self,
+        request_id: Optional[str] = None,
+        raise_error: Optional[bool] = False,
+    ) -> Optional[Job]:
+        """
+        Retrieves the Job if it exists
+        """
+        if request_id is None: return None
+        return await self.queue.job(request_id, raise_error = raise_error)
+

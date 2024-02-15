@@ -61,12 +61,14 @@ def exit_worker_loop(
         loop.close()
 
 
-def exit_task_workers(timeout: Optional[int] = 5.0):
+def exit_task_workers(timeout: Optional[int] = 5.0, worker_names: Optional[List[str]] = None):
     """
     Exits all registered task workers
     """
     global _WorkerProcesses
+    worker_names = worker_names or list(_WorkerProcesses.keys())
     for worker_name, values in _WorkerProcesses.items():
+        if worker_name not in worker_names: continue
         if values.get('task'):
             loop, task = values.get('loop'), values.get('task')
             exit_worker_loop(loop, task)
@@ -92,7 +94,9 @@ def exit_task_workers(timeout: Optional[int] = 5.0):
         finally:
             process = None
 
-    _WorkerProcesses = {}
+    for worker_name in worker_names:
+        if worker_name in _WorkerProcesses:
+            del _WorkerProcesses[worker_name]
 
 
 def lazy_worker_import(

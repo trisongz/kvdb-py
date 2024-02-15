@@ -17,7 +17,7 @@ import contextlib
 from pydantic import Field, model_validator, validator, root_validator
 from kvdb.types.base import BaseModel, computed_field
 from kvdb.types.common import CachePolicy
-from kvdb.types.generic import ENOVAL
+from kvdb.types.generic import ENOVAL, ParamSpec
 from kvdb.configs.caching import KVDBCachifyConfig
 from kvdb.utils.logs import logger
 from kvdb.utils.lazy import lazy_import
@@ -36,7 +36,8 @@ if TYPE_CHECKING:
 ReturnValue = TypeVar('ReturnValue')
 ReturnValueT = Union[ReturnValue, Awaitable[ReturnValue]]
 FunctionT = TypeVar('FunctionT', bound = Callable[..., ReturnValueT])
-
+FuncT = TypeVar('FuncT')
+FuncP = ParamSpec('FuncP')
 
 class Cachify(KVDBCachifyConfig):
     """
@@ -64,6 +65,23 @@ class Cachify(KVDBCachifyConfig):
         """
         Validates the config
         """
+        _validated_serializer = False
+        if 'serializer' in values:
+            serializer = values.pop('serializer')
+            from kvdb.io.serializers import get_serializer, BaseSerializer
+            if isinstance(serializer, str):
+                serializer_kwargs = values.pop('serializer_kwargs', {})
+                if 'compression' not in serializer_kwargs:
+                    serializer_kwargs['compression'] = values.pop('compression', None)
+                if 'compression_level' not in serializer_kwargs:
+                    serializer_kwargs['compression_level'] = values.pop('compression_level', None)
+                serializer = get_serializer(serializer, **serializer_kwargs)
+            if not isinstance(serializer, BaseSerializer):
+                raise ValueError('`serializer` must be an instance of `BaseSerializer`')
+            values['encoder'] = serializer.dumps
+            values['decoder'] = serializer.loads
+            _validated_serializer = True
+
         for key in {
             'name',
             'keybuilder',
@@ -83,6 +101,7 @@ class Cachify(KVDBCachifyConfig):
             if key in values:
                 values[key] = cls.validate_callable(values[key])
                 if key in {'encoder', 'decoder'}:
+                    if _validated_serializer: continue
                     # if not inspect.isfunction(values[key]):
                     if not callable(values[key]):
                         func_value = 'loads' if key == 'decoder' else 'dumps'
@@ -1165,7 +1184,8 @@ class Cachify(KVDBCachifyConfig):
         ThreadPooler.background_task(self.post_call_hook, result, *args, is_hit = is_hit, **kwargs)
 
 
-    def create_sync_decorator(self, func: FunctionT) -> Callable[..., ReturnValueT]:
+    # def create_sync_decorator(self, func: FunctionT) -> Callable[..., ReturnValueT]:
+    def create_sync_decorator(self, func: Callable[FuncP, FuncT]) -> Callable[FuncP, FuncT]:
         """
         Creates the sync wrapper
         """
@@ -1371,8 +1391,10 @@ class Cachify(KVDBCachifyConfig):
 
     def create_async_decorator(
         self,
-        func: FunctionT,
-    ) -> Callable[..., ReturnValueT]:
+        func: Callable[FuncP, FuncT]
+    ) -> Callable[FuncP, Awaitable[FuncT]]:
+        # func: FunctionT,
+    # ) -> Callable[..., ReturnValueT]:
         """
         Creates the async wrapper
         """
@@ -1401,7 +1423,7 @@ class Cachify(KVDBCachifyConfig):
         
 
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: FuncP.args, **kwargs: FuncP.kwargs) -> FuncT:
             """
             Inner wrapper
             """
@@ -1580,8 +1602,10 @@ class Cachify(KVDBCachifyConfig):
 
     def __call__(
         self,
-        function: FunctionT,
-    ) -> Callable[..., ReturnValueT]:
+        function: Callable[FuncP, FuncT]
+    ) -> Callable[FuncP, Union[FuncT, Awaitable[FuncT]]]:
+    #     function: FunctionT,
+    # ) -> Callable[..., ReturnValueT]:
         """
         Performs the decorator
         """
