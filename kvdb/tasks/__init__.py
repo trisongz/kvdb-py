@@ -137,17 +137,18 @@ def register_abstract(
     return TaskManager.register_abstract(func)
 
 
-# @overload
-# def register_abc(
-#     cls_or_func: Callable[P, RT] = None,
-# ) -> Callable[P, Awaitable[RT]]:
-#     """
-#     Registers an abstract class or function to the task queue
-#     """
-#     async def wrapper(*args: P.args, blocking: Optional[bool] = False, **kwargs: P.kwargs) -> RT:
-#         ...
+@overload
+def register_abc(
+    cls_or_func: Callable[P, RT] = None,
+) -> Callable[P, Awaitable[RT]]:
+    """
+    Registers an abstract class or function to the task queue
+    """
+    ...
+    # async def wrapper(*args: P.args, blocking: Optional[bool] = False, **kwargs: P.kwargs) -> RT:
+    #     ...
     
-#     return wrapper
+    # return wrapper
 
 
 @overload
