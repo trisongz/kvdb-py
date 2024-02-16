@@ -426,7 +426,7 @@ class TaskWorker(abc.ABC):
                 # self.autologger.info(f"Dequeued job {job}")
 
             if not job: 
-                self.autologger.info(f"No job found in queue {queue_name}")
+                # self.autologger.info(f"No job found in queue {queue_name}")
                 return
             if job.worker_id and job.worker_id != self.worker_id:
                 if self.config.debug_enabled:
