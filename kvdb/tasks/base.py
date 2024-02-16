@@ -129,9 +129,23 @@ class BaseTaskWorker(TaskABC):
     def is_primary_task_worker(self) -> bool:
         """
         Returns True if the Worker is the Primary Task Worker
+
+        This is True for the first task worker within a node
         """
         if self.task_worker is None: return False
         return self.task_worker.is_primary_worker
+    
+    @property
+    def is_main_task_worker(self) -> bool:
+        """
+        Returns True if the Worker is the Main Task Worker
+
+        This is True for the first task worker within the primary node. 
+
+        Should only be true for one worker
+        """
+        if self.task_worker is None: return False
+        return self.is_primary_task_worker and self.task_worker.is_leader_process
 
     def set_task_worker(self, task_worker: 'TaskWorker') -> None:
         """
