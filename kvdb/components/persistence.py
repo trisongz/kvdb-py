@@ -153,39 +153,39 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         )
 
 
-    def encode_value(self, value: Union[Any, SchemaType], **kwargs) -> Union[str, bytes]:
+    def encode_value(self, value: Union[Any, SchemaType], _raw: Optional[bool] = None, **kwargs) -> Union[str, bytes]:
         """
         Encodes a Value
         """
-        if self.session_serialization_enabled: return value
+        if self.session_serialization_enabled or _raw: return value
         return self.serializer.encode(value, **kwargs) if self.serializer is not None else value
     
-    async def aencode_value(self, value: Union[Any, SchemaType], **kwargs) -> Union[str, bytes]:
+    async def aencode_value(self, value: Union[Any, SchemaType], _raw: Optional[bool] = None, **kwargs) -> Union[str, bytes]:
         """
         Encodes a Value
         """
         # logger.info(f'[{self.base_key}] Decoding Value: {value}')
-        if self.session_serialization_enabled: return value
+        if self.session_serialization_enabled or _raw: return value
         return await self.serializer.aencode(value, **kwargs) if self.serializer is not None else value
 
-    def decode_value(self, value: Union[str, bytes], **kwargs) -> Any:
+    def decode_value(self, value: Union[str, bytes], _raw: Optional[bool] = None, **kwargs) -> Any:
         """
         Decodes a Value
         """
         # logger.info(f'[{self.base_key}] Decoding Value: {value}')
         # if self.session_serialization_enabled:
         #     return value
-        if self.session_serialization_enabled: return value
+        if self.session_serialization_enabled or _raw: return value
         return self.serializer.decode(value, **kwargs) if self.serializer is not None else value
     
-    async def adecode_value(self, value: Union[str, bytes], **kwargs) -> Any:
+    async def adecode_value(self, value: Union[str, bytes], _raw: Optional[bool] = None, **kwargs) -> Any:
         """
         Decodes a Value
         """
         # logger.info(f'[{self.base_key}] Decoding Value: {value}')
         # if self.session_serialization_enabled:
         #     return value
-        if self.session_serialization_enabled: return value
+        if self.session_serialization_enabled or _raw: return value
         return await self.serializer.adecode(value, **kwargs) if self.serializer is not None else value
 
 
@@ -196,7 +196,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         if not self.base_key: return key
         return key if self.base_key in key else f'{self.base_key}{self.keyjoin}{key}'
     
-    def get(self, key: str, default: Optional[Any] = None, **kwargs) -> Optional[Any]:
+    def get(self, key: str, default: Optional[Any] = None, _raw: Optional[bool] = None, **kwargs) -> Optional[Any]:
         """
         Gets a Value from the DB
         """
@@ -204,13 +204,13 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         else: value = self.cache.client.get(self.get_key(key))
         if value is None: return default
         try:
-            return self.decode_value(value)
+            return self.decode_value(value, _raw = _raw, **kwargs)
         except Exception as e:
             logger.error(f'Error Getting Value for Key: {key} - {e}')
             self.delete(key)
             return default
 
-    def get_values(self, keys: Iterable[str]) -> List[Any]:
+    def get_values(self, keys: Iterable[str], _raw: Optional[bool] = None, **kwargs) -> List[Any]:
         """
         Gets a Value from the DB
         """
@@ -219,7 +219,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         results = []
         for key, value in zip(keys, values):
             try:
-                results.append(self.decode_value(value))
+                results.append(self.decode_value(value, _raw = _raw, **kwargs))
             except Exception as e:
                 logger.error(f'Error Getting Value for Key: {key} - {e}')
                 self.delete(key)
@@ -227,23 +227,23 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         return results
 
 
-    def set(self, key: str, value: Any, ex: Optional[int] = None, **kwargs) -> None:
+    def set(self, key: str, value: Any, ex: Optional[int] = None, _raw: Optional[bool] = None, **kwargs) -> None:
         """
         Saves a Value to the DB
         """
         ex = ex or self.expiration
         if self.hset_enabled:
-            self.cache.hset(self.base_key, key, self.encode_value(value))
+            self.cache.hset(self.base_key, key, self.encode_value(value, _raw = _raw, **kwargs))
             if ex is not None: self.cache.expire(self.base_key, ex)
         else:
-            self.cache.client.set(self.get_key(key), self.encode_value(value), ex = ex)
+            self.cache.client.set(self.get_key(key), self.encode_value(value, _raw = _raw, **kwargs), ex = ex)
     
-    def set_batch(self, data: Dict[str, Any], ex: Optional[int] = None, **kwargs) -> None:
+    def set_batch(self, data: Dict[str, Any], ex: Optional[int] = None, _raw: Optional[bool] = None, **kwargs) -> None:
         """
         Saves a Value to the DB
         """
         ex = ex or self.expiration
-        data = {k: self.encode_value(v) for k, v in data.items()}
+        data = {k: self.encode_value(v, _raw = _raw, **kwargs) for k, v in data.items()}
         if self.hset_enabled:
             self.cache.client.hset(self.base_key, mapping = data)
             if ex is not None: self.cache.expire(self.base_key, ex)
@@ -276,7 +276,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             keys = self.cache.client.keys(f'{self.base_key}{self.keyjoin}*')
             if keys: self.cache.client.delete(*keys)
     
-    async def aget(self, key: str, default: Optional[Any] = None, **kwargs) -> Optional[Any]:
+    async def aget(self, key: str, default: Optional[Any] = None, _raw: Optional[bool] = None, **kwargs) -> Optional[Any]:
         """
         Gets a Value from the DB
         """
@@ -284,13 +284,13 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         else: value = await self.cache.aget(self.get_key(key))
         if value is None: return default
         try:
-            return self.decode_value(value)
+            return self.decode_value(value, _raw = _raw, **kwargs)
         except Exception as e:
             logger.error(f'Error Getting Value for Key: {key} - {e}')
             await self.adelete(key)
             return default
 
-    async def aget_values(self, keys: Iterable[str]) -> List[Any]:
+    async def aget_values(self, keys: Iterable[str], _raw: Optional[bool] = None, **kwargs) -> List[Any]:
         """
         Gets a Value from the DB
         """
@@ -298,30 +298,30 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         else: values = await self.cache.amget([self.get_key(key) for key in keys])
         results = []
         for key, value in zip(keys, values):
-            try: results.append(self.decode_value(value))
+            try: results.append(self.decode_value(value, _raw = _raw, **kwargs))
             except Exception as e:
                 logger.error(f'Error Getting Value for Key: {key} - {e}')
                 await self.adelete(key)
                 results.append(None)
         return results
         
-    async def aset(self, key: str, value: Any, ex: Optional[int] = None, **kwargs) -> None:
+    async def aset(self, key: str, value: Any, ex: Optional[int] = None, _raw: Optional[bool] = None, **kwargs) -> None:
         """
         Saves a Value to the DB
         """
         ex = ex or self.expiration
         if self.hset_enabled:
-            await self.cache.ahset(self.base_key, key, self.encode_value(value))
+            await self.cache.ahset(self.base_key, key, self.encode_value(value, _raw = _raw, **kwargs))
             if ex is not None: await self.cache.aexpire(self.base_key, ex)
         else:
-            await self.cache.aset(self.get_key(key), self.encode_value(value), ex = ex)
+            await self.cache.aset(self.get_key(key), self.encode_value(value, _raw = _raw, **kwargs), ex = ex)
 
-    async def aset_batch(self, data: Dict[str, Any], ex: Optional[int] = None, **kwargs) -> None:
+    async def aset_batch(self, data: Dict[str, Any], ex: Optional[int] = None, _raw: Optional[bool] = None, **kwargs) -> None:
         """
         Saves a Value to the DB
         """
         ex = ex or self.expiration
-        data = {k: self.encode_value(v) for k, v in data.items()}
+        data = {k: self.encode_value(v, _raw = _raw, **kwargs) for k, v in data.items()}
         if self.hset_enabled:
             await self.cache.ahset(self.base_key, mapping = data)
             if ex is not None: await self.cache.aexpire(self.base_key, ex)
@@ -363,7 +363,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             raise NotImplementedError('Cannot iterate over a Redis Cache without a base key')
         return iter(self.cache.client.keys(f'{self.base_key}{self.keyjoin}*'))
     
-    def __len__(self):
+    def length(self, **kwargs) -> int:
         """
         Returns the Length of the Cache
         """
@@ -372,8 +372,24 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             raise NotImplementedError('Cannot get the length of a Redis Cache without a base key')
         return len(self.cache.client.keys(f'{self.base_key}{self.keyjoin}*'))
     
+    async def alength(self, **kwargs) -> int:
+        """
+        Returns the Length of the Cache
+        """
+        if self.hset_enabled: return await self.cache.ahlen(self.base_key)
+        if not self.base_key:
+            raise NotImplementedError('Cannot get the length of a Redis Cache without a base key')
+        return len(await self.cache.akeys(f'{self.base_key}{self.keyjoin}*'))
+    
+    def __len__(self):
+        """
+        Returns the Length of the Cache
+        """
+        return self.length()
+    
 
-    def get_all_data(self, exclude_base_key: Optional[bool] = False) -> Dict[str, Any]:
+
+    def get_all_data(self, exclude_base_key: Optional[bool] = False, _raw: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
         """
         Loads all the Data
         """
@@ -384,7 +400,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             results = {}
             for key, value in data.items():
                 if isinstance(key, bytes): key = key.decode()
-                try: results[key] = self.decode_value(value)
+                try: results[key] = self.decode_value(value, _raw = _raw, **kwargs)
                 except AttributeError:
                     logger.warning(f'Unable to decode value for {key}')
                     self.delete(key)
@@ -396,7 +412,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         for key, value in zip(keys, data_list):
             if isinstance(key, bytes): key = key.decode()
             try:
-                results[key] = self.decode_value(value)
+                results[key] = self.decode_value(value, _raw = _raw, **kwargs)
             except AttributeError:
                 logger.warning(f'Unable to decode value for {key}')
                 self.delete(key)
@@ -404,7 +420,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             results = {k.replace(f'{self.base_key}.', ''): v for k, v in results.items()}
         return results
     
-    def get_keys(self, pattern: str, exclude_base_key: Optional[str] = False) -> List[str]:
+    def get_keys(self, pattern: str, exclude_base_key: Optional[str] = False, **kwargs) -> List[str]:
         """
         Returns the keys that match the pattern
         """
@@ -421,7 +437,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         return keys
 
 
-    def get_all_keys(self, exclude_base_key: Optional[bool] = False) -> List[str]:
+    def get_all_keys(self, exclude_base_key: Optional[bool] = False, **kwargs) -> List[str]:
         """
         Returns all the Keys
         """
@@ -433,7 +449,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             keys = [key.replace(f'{self.base_key}.', '') for key in keys]
         return keys
     
-    def get_all_values(self) -> List[Any]:
+    def get_all_values(self, _raw: Optional[bool] = None, **kwargs) -> List[Any]:
         """
         Returns all the Values
         """
@@ -444,7 +460,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             results = []
             for key, value in data.items():
                 try:
-                    results.append(self.decode_value(value))
+                    results.append(self.decode_value(value, _raw = _raw, **kwargs))
                 except Exception as e:
                     logger.warning(f'Unable to decode value for {key}: {e}')
                     self.delete(key)
@@ -454,13 +470,13 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         results = []
         for key, value in zip(keys, data_list):
             try:
-                results.append(self.decode_value(value))
+                results.append(self.decode_value(value, _raw = _raw, **kwargs))
             except Exception as e:
                 logger.warning(f'Unable to decode value for {key}: {e}')
                 self.delete(key)
         return results
 
-    async def aget_all_data(self, exclude_base_key: Optional[bool] = False) -> Dict[str, Any]:
+    async def aget_all_data(self, exclude_base_key: Optional[bool] = False, _raw: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
         """
         Loads all the Data
         """
@@ -472,7 +488,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             for key, value in data.items():
                 if isinstance(key, bytes): key = key.decode()
                 try:
-                    results[key] = self.decode_value(value)
+                    results[key] = self.decode_value(value, _raw = _raw, **kwargs)
                 except Exception as e:
                     logger.warning(f'Unable to decode value for {key}: {e}')
                     await self.adelete(key)
@@ -482,7 +498,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         results: Dict[str, Any] = {}
         for key, value in zip(keys, data_list):
             try:
-                results[key] = self.decode_value(value)
+                results[key] = self.decode_value(value, _raw = _raw, **kwargs)
             except Exception as e:
                 logger.warning(f'Unable to decode value for {key}: {e}')
                 await self.adelete(key)
@@ -490,7 +506,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             results = {k.replace(f'{self.base_key}.', ''): v for k, v in results.items()}
         return results
     
-    async def aget_keys(self, pattern: str, exclude_base_key: Optional[str] = False) -> List[str]:
+    async def aget_keys(self, pattern: str, exclude_base_key: Optional[str] = False, **kwargs) -> List[str]:
         """
         Returns the keys that match the pattern
         """
@@ -505,7 +521,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         return keys
 
     
-    async def aget_all_keys(self, exclude_base_key: Optional[bool] = False) -> List[str]:
+    async def aget_all_keys(self, exclude_base_key: Optional[bool] = False, **kwargs) -> List[str]:
         """
         Returns all the Keys
         """
@@ -518,7 +534,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             keys = [key.replace(f'{self.base_key}.', '') for key in keys]
         return keys
     
-    async def aget_all_values(self) -> List[Any]:
+    async def aget_all_values(self, _raw: Optional[bool] = None, **kwargs) -> List[Any]:
         """
         Returns all the Values
         """
@@ -529,7 +545,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             results = []
             for key, value in data.items():
                 try:
-                    results.append(self.decode_value(value))
+                    results.append(self.decode_value(value, _raw = _raw, **kwargs))
                 except Exception as e:
                     logger.warning(f'Unable to decode value for {key}: {e}')
                     await self.adelete(key)
@@ -539,27 +555,27 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         results = []
         for key, value in zip(keys, data_list):
             try:
-                results.append(self.decode_value(value))
+                results.append(self.decode_value(value, _raw = _raw, **kwargs))
             except Exception as e:
                 logger.warning(f'Unable to decode value for {key}: {e}')
                 await self.adelete(key)
         return results
 
-    def contains(self, key):
+    def contains(self, key, **kwargs):
         """
         Returns True if the Cache contains the Key
         """
         if self.hset_enabled: return self.cache.hexists(self.base_key, key)
         return self.cache.client.exists(self.get_key(key))
     
-    async def acontains(self, key):
+    async def acontains(self, key, **kwargs):
         """
         Returns True if the Cache contains the Key
         """
         if self.hset_enabled: return await self.cache.ahexists(self.base_key, key)
         return await self.cache.aexists(self.get_key(key))
     
-    def expire(self, key: str, ex: int) -> None:
+    def expire(self, key: str, ex: int, **kwargs) -> None:
         """
         Expires a Key
         """
@@ -568,7 +584,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             return
         self.cache.client.expire(self.get_key(key), ex)
 
-    async def aexpire(self, key: str, ex: int) -> None:
+    async def aexpire(self, key: str, ex: int, **kwargs) -> None:
         """
         Expires a Key
         """
