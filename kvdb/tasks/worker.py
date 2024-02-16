@@ -130,6 +130,12 @@ class TaskWorker(abc.ABC):
         self.post_init(**kwargs)
         self.finalize_init(**kwargs)
 
+    @property
+    def is_primary_worker(self) -> bool:
+        """
+        Checks if the worker is the primary worker
+        """
+        return self.worker_attributes.get('is_primary_index')
 
     @classmethod
     def build_function_name(cls, func: Callable) -> str:
@@ -716,6 +722,8 @@ class TaskWorker(abc.ABC):
         # _msg = f'{self._worker_identity}: {self.worker_host}.{self.name} v{self.worker_settings.version}'
         _msg = f'{self.worker_identity}: v{self.worker_settings.version}'
         _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset} {ColorMap.cyan}[Worker Name]{ColorMap.reset}: {ColorMap.bold}{self.name}{ColorMap.reset} {ColorMap.cyan}[Node Name]{ColorMap.reset}: {ColorMap.bold}{self.node_name} {ColorMap.cyan}'
+        if self.is_primary_worker:
+            _msg += '[Primary Worker]'
         # _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset}'
         if self.config.debug_enabled:
             _msg += f'\n- {ColorMap.cyan}[Concurrency]{ColorMap.reset}: {ColorMap.bold}{self.max_concurrency}/jobs, {self.max_broadcast_concurrency}/broadcasts{ColorMap.reset}'

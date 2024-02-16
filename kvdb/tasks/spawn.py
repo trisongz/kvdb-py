@@ -194,6 +194,7 @@ def spawn_new_task_worker(
     """
     queue_config = queue_config or {}
     worker_config = worker_config or {}
+    update_workers = []
     if worker_imports:
         if isinstance(worker_imports, str):
             worker_imports = [worker_imports]
@@ -202,13 +203,18 @@ def spawn_new_task_worker(
         for worker_import in worker_imports:
             module_or_func = lazy_worker_import(worker_import)
             if callable(module_or_func) or isinstance(module_or_func, type):
-                module_or_func()
+                module_or_func = module_or_func()
             if hasattr(module_or_func, 'get_worker_config'):
                 if config := module_or_func.get_worker_config():
                     worker_config.update(config)
             if hasattr(module_or_func, 'get_queue_config'):
                 if config := module_or_func.get_queue_config():
                     queue_config.update(config)
+            if hasattr(module_or_func, 'set_task_worker'):
+                # logger.warning(f'Updating worker: `{module_or_func}`', prefix = worker_name)
+                update_workers.append(module_or_func)
+            # else:
+            #     logger.warning(f'No set_task_worker method found for worker: `{module_or_func}`', prefix = worker_name)
     
     if max_broadcast_concurrency:
         if 'max_broadcast_concurrency' not in queue_config: queue_config['max_broadcast_concurrency'] = max_broadcast_concurrency
@@ -224,6 +230,9 @@ def spawn_new_task_worker(
         queue_config['task_queue_class'] = queue_class
     if 'debug_enabled' not in worker_config: worker_config['debug_enabled'] = debug_enabled or task_debug_enabled
     if 'debug_enabled' not in queue_config: queue_config['debug_enabled'] = debug_enabled or task_debug_enabled
+    if _is_primary:
+        worker_attributes = worker_attributes or {}
+        worker_attributes['is_primary_index'] = _is_primary
     worker_config.update(
         {
             'functions': worker_functions,
@@ -258,6 +267,11 @@ def spawn_new_task_worker(
         **kwargs,
     )
     register_worker_process(worker_name, task_worker = task_worker)
+    if update_workers:
+        # logger.warning(f'Updating worker: `{task_worker.worker_name}`', prefix = worker_name)
+        for update_worker in update_workers:
+            update_worker.set_task_worker(task_worker)
+    
     if disable_worker_start: return task_worker
 
     # if debug_enabled:
@@ -298,7 +312,7 @@ def create_worker_names(
     """
     if num_workers is None: num_workers = 1
     if start_index is None: 
-        start_index = get_worker_start_index()
+        start_index = get_worker_start_index() * num_workers
     if worker_name is None: worker_name = 'global'
     if worker_name_sep is None: worker_name_sep = '-'
     if not disable_env_name:

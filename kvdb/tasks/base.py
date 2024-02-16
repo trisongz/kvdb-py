@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from kvdb.types.jobs import CronJob, Job
     from kvdb.components.session import KVDBSession
     from .tasks import TaskFunction, Ctx
+    from .worker import TaskWorker
     from lazyops.utils.logs import Logger
     from lazyops.libs.abcs.configs.base import AppSettings 
 
@@ -114,6 +115,7 @@ class BaseTaskWorker(TaskABC):
 
         self.pooler = ThreadPooler
         self.excluded_tasks: List[str] = []
+        self.task_worker: Optional['TaskWorker'] = None
         self.registered_functions: Dict[str, 'TaskFunction'] = {}
         self.settings: Optional['AppSettings'] = None
         self.cls_setup_init(*args, **kwargs)
@@ -122,6 +124,21 @@ class BaseTaskWorker(TaskABC):
         else:
             self.worker_module_name: str = self.__class__.__module__.split(".")[0]
         self.configure(**kwargs)
+
+    @property
+    def is_primary_task_worker(self) -> bool:
+        """
+        Returns True if the Worker is the Primary Task Worker
+        """
+        if self.task_worker is None: return False
+        return self.task_worker.is_primary_worker
+
+    def set_task_worker(self, task_worker: 'TaskWorker') -> None:
+        """
+        Sets the Task Worker
+        """
+        self.task_worker = task_worker
+        # self.logger.warning(f'Setting Task Worker: |g|{task_worker}|e|', colored = True, prefix = self.worker_key)
     
     def configure(self, **kwargs) -> None:
         """
