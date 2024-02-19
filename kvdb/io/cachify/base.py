@@ -1259,7 +1259,7 @@ class Cachify(KVDBCachifyConfig):
                 
                 except Exception as e:
                     if self.verbosity: logger.trace(f'[{self.cache_field}:{cache_key}] Exception', error = e)
-                    if self.raise_exceptions: raise e
+                    if self.raise_exceptions and e is not None: raise e
                     return None
             _current_was_cached = True
             if self.super_verbose: logger.info('Cache Hit', prefix = f'{self.cache_field}:{cache_key}', colored = True)
@@ -1467,7 +1467,7 @@ class Cachify(KVDBCachifyConfig):
                 
                 except Exception as e:
                     if self.verbosity: logger.trace(f'[{self.cache_field}:{cache_key}] Exception', error = e)
-                    if self.raise_exceptions: raise e
+                    if self.raise_exceptions and e is not None: raise e
                     return None
             
             _current_was_cached = True
