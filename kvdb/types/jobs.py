@@ -302,7 +302,11 @@ class CronJob(BaseJobProperties, BaseModel):
         Validates the cronjob
         """
         from kvdb.utils.cron import validate_cron_schedule
-        self.cron = validate_cron_schedule(self.cron)
+        try:
+            self.cron = validate_cron_schedule(self.cron)
+        except Exception as e:
+            logger.error(f"Invalid cron schedule: {self.cron} for {self.function_name}: {e}: {self}")
+            raise e
         return self
 
 

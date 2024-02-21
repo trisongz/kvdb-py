@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
 
 _DEBUG_MODE_ENABLED = False
+autologger = logger if _DEBUG_MODE_ENABLED else null_logger
 
 class QueueTaskManager(abc.ABC, LockedSingleton):
     """
@@ -453,7 +454,6 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         """
         Compiles the abstract classes
         """
-        autologger = logger if _DEBUG_MODE_ENABLED else null_logger
         for obj_id, obj_cls in self._task_registered_abcs.items():
             autologger.info(f'|g|[L0]|e| Compiling abstract class {obj_id}', colored = True)
             base_partial_kws = self._task_unregistered_abc_partials.get(obj_id, {})
@@ -462,8 +462,10 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
             # current_kwargs: Dict[str, Any] = {}
 
             for subcls in obj_cls.__subclasses__():
+                last_parent = None
                 try:
                     parents = get_parent_object_class_names(subcls)
+                    autologger.info(f'|g|[L1]|e| Compiling subclass from |y|parent|e| {subcls} -> {parents}', colored = True)
                     last_parent = parents[1]
                     last_parent_partial_kws = self._task_unregistered_abc_partials.get(last_parent, {})
                     autologger.info(f'|g|[L1]|e| Compiling abstract subclass {subcls} -> {last_parent}: {last_parent_partial_kws}', colored = True)
@@ -477,9 +479,15 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
                     autologger.error(f'|r|[L1]|e| Error compiling abstract subclass {subcls}: {e}', colored = True)
                 
                 if subcls.__kvdb_obj_id__ not in self._task_unregistered_abc_functions: 
-                    autologger.info(f'|g|[L2]|e| No unregistered functions for subclass {subcls}', colored = True)
-                    continue
-                
+                    # autologger.info(f'|g|[L2]|e| No unregistered functions for subclass {subcls}', colored = True)
+                    # continue
+                    if not last_parent:
+                        autologger.info(f'|g|[L2]|e| No unregistered functions for subclass {subcls}', colored = True)
+                        continue
+                    else:
+                        self._task_registered_abc_functions[subcls.__kvdb_obj_id__] = self._task_registered_abc_functions[last_parent].copy()
+                        self._task_unregistered_abc_partials[subcls.__kvdb_obj_id__] = self._task_unregistered_abc_partials.get(last_parent, {}).copy()
+                        autologger.info(f'|y|[L2]|e| Inheriting registered functions {subcls} from {last_parent}: {self._task_registered_abc_functions[subcls.__kvdb_obj_id__]}', colored = True)
                 
                 subcls_partial_kws = self._task_unregistered_abc_partials.get(subcls.__kvdb_obj_id__, {})
                 if cls_partial_kws: subcls.__add_task_function_partials__('cls', **cls_partial_kws)

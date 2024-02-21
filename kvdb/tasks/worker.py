@@ -645,6 +645,8 @@ class TaskWorker(abc.ABC):
             self.cronjobs = {f.name: f for f in cronjobs}
         if self.is_leader_process:
             self.autologger.info(f"Initializing {len(functions)} functions and {len(cronjobs)} cronjobs", prefix = self.name)
+            for cronjob in self.cronjobs.values():
+                cronjob.cronjob.get_next_cron_run_data(verbose = True)
     
     def init_processes(
         self, 

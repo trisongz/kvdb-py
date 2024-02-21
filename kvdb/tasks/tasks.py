@@ -139,11 +139,11 @@ class QueueTasks(abc.ABC):
         for name, obj in self.context.items():
             if name not in ctx: 
                 if callable(obj):
-                    if self.verbose: self.logger.info(f'[context] setting ctx[{name}]: result of {obj.__name__}')
+                    # if self.verbose: self.logger.info(f'[context] setting ctx[{name}]: result of {obj.__name__}')
                     result = await obj(ctx) if is_coro_func(obj) else obj(ctx)
                     if result is not None: ctx[name] = result
                 else:
-                    if self.verbose: self.logger.info(f'[context] setting ctx[{name}]: {obj}')
+                    # if self.verbose: self.logger.info(f'[context] setting ctx[{name}]: {obj}')
                     ctx[name] = obj
         return ctx
 

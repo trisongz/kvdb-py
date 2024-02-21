@@ -94,10 +94,12 @@ class BaseTaskWorker(TaskABC):
         Called when a subclass is created
         """
         super().__init_subclass__(**kwargs)
-        from .main import TaskManager
+        from .main import TaskManager, autologger
         TaskManager.register_abc(cls_or_func=cls.run_task_init, phase = 'startup', set_ctx = True)
         TaskManager.register_abc(cls_or_func=cls.run_startup_init, phase = 'startup')
         TaskManager.register_abc(cls_or_func=cls.run_shutdown_exit, phase = 'shutdown')
+
+        autologger.warning(f'Registered ABCs for |y|{cls}|e|', colored = True, prefix = cls.__name__)
 
 
     def cls_setup_init(self, *args, **kwargs):
@@ -525,6 +527,24 @@ class BaseTaskWorker(TaskABC):
             *args,
             **kwargs,
         )
+    
+    def defer(
+        self,
+        func: Union[str, Callable[..., RT]],
+        *args,
+        wait_time: Optional[float] = 180.0,
+        **kwargs,
+    ) -> Awaitable['Job']:
+        """
+        Defers the function
+        """
+        return self.queue.defer(
+            self.get_function_name(func),
+            *args,
+            wait_time = wait_time,
+            **kwargs,
+        )
+    
     
 
     async def retrieve_job(

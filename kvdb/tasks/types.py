@@ -206,10 +206,10 @@ class TaskFunction(BaseModel):
         Runs the phase
         """
         if self.should_set_ctx:
-            if verbose: logger.info(f'Setting ctx[{self.name}]: result of |g|`{self.func.__name__}`|e|', colored = True, prefix = self.phase)
+            # if verbose: logger.info(f'Setting ctx[{self.name}]: result of |g|`{self.func.__name__}`|e|', colored = True, prefix = self.phase)
             ctx = await self.func(ctx, **self.kwargs) if is_coro_func(self.func) else self.func(ctx, **self.kwargs)
         else:
-            if verbose: logger.info(f'Running task {self.name} = |g|`{self.func.__name__}`|e|', colored = True, prefix = self.phase)
+            # if verbose: logger.info(f'Running task {self.name} = |g|`{self.func.__name__}`|e|', colored = True, prefix = self.phase)
             result = await self.func(**self.kwargs) if is_coro_func(self.func) else self.func(**self.kwargs)
             if result is not None: ctx[self.name] = result
         return ctx

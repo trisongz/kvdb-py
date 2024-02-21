@@ -36,6 +36,7 @@ class TaskABC(abc.ABC):
 
     # __kvdb_cls_inits__: List[Callable] = []
 
+
     def __init_subclass__(cls, **kwargs):
         """
         Called when a subclass is created
@@ -44,7 +45,6 @@ class TaskABC(abc.ABC):
         cls.__kvdb_obj_id__ = cls.__get_task_obj_id__(cls)
         cls.__task_subclasses__[cls.__kvdb_obj_id__] = cls
         cls.__task_function_partials__ = cls.__task_function_partials__.get(cls.__kvdb_obj_id__, {})
-
 
         from .main import TaskManager
         TaskManager._register_abc(cls)
@@ -200,19 +200,44 @@ class TaskABC(abc.ABC):
 
 
     def __register_abc_task_init__(self, *args, **kwargs):
+        # sourcery skip: low-code-quality
         """
         Register the task class and runs the registration hook
         """
-        from .main import TaskManager
+        from .main import TaskManager, autologger
         TaskManager.compile_tasks()
         queue_name = self.get_queue_name(*args, **kwargs)
-        
-        func_methods = TaskManager._task_registered_abc_functions.get(self.__kvdb_obj_id__, [])
-        if not func_methods: return
-        
+
         self.queue_task = TaskManager.get_queue(queue_name)
         if self.__kvdb_obj_id__ in TaskManager._task_initialized_abcs.get(self.queue_task.queue_name, []):
+            # logger.warning(f'[{self.queue_task.queue_name}] Task {self.__kvdb_obj_id__} already initialized')
             return
+        
+        func_methods = TaskManager._task_registered_abc_functions.get(self.__kvdb_obj_id__, [])
+        if not func_methods: 
+            try:
+                from kvdb.utils.patching import get_parent_object_class_names
+                parents = get_parent_object_class_names(self.__class__)
+                last_parent = parents[1]
+                func_methods = TaskManager._task_registered_abc_functions[last_parent].copy()
+                if not func_methods: 
+                    autologger.warning(f'[{self.__kvdb_obj_id__}] No functions registered for parent {last_parent}')
+                    return
+                autologger.info(f'[{self.__kvdb_obj_id__}] Got functions from parent {last_parent}: {func_methods}')
+                # Merge the partials from the parent
+                if last_parent in TaskManager._task_unregistered_abc_partials:
+                    for func in func_methods:
+                        if func not in self.__task_function_partials__ and func in TaskManager._task_unregistered_abc_partials[last_parent]:
+                            self.__task_function_partials__[func] = TaskManager._task_unregistered_abc_partials[last_parent].get(func, {}).copy()
+                            autologger.info(f'[{self.__kvdb_obj_id__}] Merged partials from parent {last_parent} for {func}: {self.__task_function_partials__[func]}')
+
+            except Exception as e:
+                autologger.warning(f'[{self.__kvdb_obj_id__}] No functions registered for {self.__class__.__name__}: {e}')
+                return
+
+            # logger.warning(f'[{self.__kvdb_obj_id__}] No functions registered for {self.__class__.__name__}')
+            # return
+
         # logger.info(f'[{self.queue_task.queue_name}] [ABC] {self.__kvdb_obj_id__} {func_methods}')
         for func in func_methods:
             func_kws = self.__get_task_function_partials__(func, **kwargs)
@@ -224,7 +249,16 @@ class TaskABC(abc.ABC):
             if 'cron' in func_kws or 'cronjob' in func_kws:
                 # logger.info(f'[{self.queue_task.queue_name}] [CRON] {func} {func_kws}')
                 func_kws = self.validate_cronjob(func, **func_kws)
+                # if func_kws is None: 
+                #     if not (func_kws := self.validate_function(func, **func_kws)):
+                #         continue
                 if func_kws is None: continue
+
+                # cronjob_kws = self.validate_cronjob(func, **func_kws)
+                # if cronjob_kws is None: 
+                #     if not (cronjob_kws := self.validate_function(func, **func_kws)):
+                #         continue
+                # func_kws = cronjob_kws
                 if name := self.get_cronjob_name(src_func):
                     func_kws['name'] = name
                 elif name := self.get_function_name(src_func):
@@ -234,10 +268,10 @@ class TaskABC(abc.ABC):
                 if func_kws is None: continue
                 if name := self.get_function_name(src_func):
                     func_kws['name'] = name
-            
+
             if 'name' not in func_kws:
                 func_kws['name'] = f'{self.__class__.__name__}.{func}'
-            
+
             # logger.error(f'[{self.queue_task.queue_name}] [SET] {func} {func_kws}')
             out_func = self.queue_task.register(function = src_func, subclass_name = self.__class__.__name__, **func_kws)
             if not func_kws.get('disable_patch'):
@@ -271,6 +305,8 @@ class TaskABC(abc.ABC):
         self.cls_post_init(*args, **kwargs)
         self.cls_finalize_init(*args, **kwargs)
 
+    
+
     def __new__(cls, *args, **kwargs):
         """
         This initializes the class and calls `__task_init__`
@@ -279,6 +315,8 @@ class TaskABC(abc.ABC):
         instance.__task_init__(*args, **kwargs)
         return instance
     
+    # def __init__(self, )
+
     # def __init__(self, *args, **kwargs):
     #     """
     #     The patched init method
