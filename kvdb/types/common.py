@@ -17,13 +17,15 @@ class JobStatus(str, Enum):
     ABORTED = "ABORTED"
     FAILED = "FAILED"
     COMPLETE = "COMPLETE"
+    RESCHEDULED = "RESCHEDULED"
 
 
 INCOMPLETE_JOB_STATUSES = {
     JobStatus.NEW, 
     JobStatus.DEFERRED, 
     JobStatus.QUEUED, 
-    JobStatus.ACTIVE
+    JobStatus.ACTIVE,
+    JobStatus.RESCHEDULED
 }
 TERMINAL_JOB_STATUSES = {
     JobStatus.COMPLETE, 

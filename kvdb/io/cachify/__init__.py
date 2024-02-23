@@ -66,6 +66,7 @@ def register(
     # Allow for post-call hooks
     post_call_hook: Optional[Union[str, Callable]] = None,
     hset_enabled: Optional[bool] = True,
+    silenced_stages: Optional[List[str]] = None,
 
     session: Optional['KVDBSession'] = None,
     session_name: Optional[str] = None,
@@ -112,6 +113,7 @@ def register(
         post_init_hook (Optional[Union[str, Callable]], optional): The post init hook to use. Defaults to None.
         post_call_hook (Optional[Union[str, Callable]], optional): The post call hook to use. Defaults to None.
         hset_enabled (Optional[bool], optional): Whether or not to enable hset/hget/hdel/hmset/hmget/hmgetall. Defaults to True.
+        silenced_stages (Optional[List[str]], optional): The stages to silence. Defaults to None.
         session (Optional['KVDBSession'], optional): The session to use. Defaults to None.
         session_name (Optional[str], optional): The session name to use. Defaults to None.
         session_kwargs (Optional[Dict[str, Any]], optional): The session kwargs to use. Defaults to None.

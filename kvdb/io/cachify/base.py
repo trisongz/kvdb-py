@@ -47,6 +47,7 @@ class Cachify(KVDBCachifyConfig):
     kwarg_override_prefix: Optional[str] = Field(None, description = 'The prefix for the kwargs that override the default config')
     has_async_loop: Optional[bool] = Field(None, description = 'Whether or not the async loop is running', exclude = True)
     session_available: Optional[bool] = Field(None, description = 'Whether or not the session is available', exclude = True)
+    silenced_stages: Optional[List[str]] = Field(default_factory=list, description = 'The stages to silence')
 
     if TYPE_CHECKING:
         settings: KVDBSettings
@@ -192,6 +193,13 @@ class Cachify(KVDBCachifyConfig):
             serializer=self.serializer,
         )
 
+    def is_silenced(self, *stages: str) -> bool:
+        """
+        Returns whether or not the stage is silenced
+        """
+        if not self.silenced_stages: return False
+        return any(stage in self.silenced_stages for stage in stages)
+        # return stage in self.silenced_stages
 
     def get_key(self, key: str) -> str:
         """
@@ -901,7 +909,8 @@ class Cachify(KVDBCachifyConfig):
                 self.data['expirations'] = expirations
                 self.data['keyhits'] = keyhits
                 self.data['timestamps'] = timestamps
-                if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(to_delete)} Expired Keys: {to_delete}')
+                if self.verbosity and not self.is_silenced('expire'): 
+                    logger.info(f'[{self.cache_field}] Deleting {len(to_delete)} Expired Keys: {to_delete}')
                 self.clear(to_delete)
     
     async def aexpire_cache_expired_keys(self):
@@ -928,7 +937,7 @@ class Cachify(KVDBCachifyConfig):
                 await self.data.aset('expirations', expirations)
                 await self.data.aset('keyhits', keyhits)
                 await self.data.aset('timestamps', timestamps)
-                if self.verbosity: logger.info(f'[{self.cache_field}] Deleting {len(to_delete)} Expired Keys: {to_delete}')
+                if self.verbosity and not self.is_silenced('expire'): logger.info(f'[{self.cache_field}] Deleting {len(to_delete)} Expired Keys: {to_delete}')
                 await self.clear(to_delete)
 
 
@@ -939,13 +948,13 @@ class Cachify(KVDBCachifyConfig):
         """
         if self.num_keys <= self.cache_max_size: return
         num_keys = self.num_keys
-        if self.verbosity: logger.info(f'[{self.cache_field}] Cache Max Size Reached: {num_keys}/{self.cache_max_size}. Running Cache Policy: {self.cache_max_size_policy}')
+        if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field}] Cache Max Size Reached: {num_keys}/{self.cache_max_size}. Running Cache Policy: {self.cache_max_size_policy}')
         if self.cache_max_size_policy == CachePolicy.LRU:
             # Least Recently Used
             timestamps = self.data.get('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field}- LRU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field}- LRU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             self.clear(keys_to_delete)
             return
         
@@ -954,7 +963,7 @@ class Cachify(KVDBCachifyConfig):
             key_hits = self.data.get('keyhits', {})
             keys_to_delete = sorted(key_hits, key = key_hits.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field} - LFU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field} - LFU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             self.clear(keys_to_delete)
             return
         
@@ -963,7 +972,7 @@ class Cachify(KVDBCachifyConfig):
             timestamps = self.data.get('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get, reverse = True)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field} - FIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field} - FIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             self.clear(keys_to_delete)
             return
         
@@ -972,7 +981,7 @@ class Cachify(KVDBCachifyConfig):
             timestamps = self.data.get('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field} - LIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field} - LIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             self.clear(keys_to_delete)
             return
     
@@ -984,13 +993,13 @@ class Cachify(KVDBCachifyConfig):
         """
         if await self.anum_keys <= self.cache_max_size: return
         num_keys = await self.anum_keys
-        if self.verbosity: logger.info(f'[{self.cache_field}] Cache Max Size Reached: {num_keys}/{self.cache_max_size}. Running Cache Policy: {self.cache_max_size_policy}')
+        if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field}] Cache Max Size Reached: {num_keys}/{self.cache_max_size}. Running Cache Policy: {self.cache_max_size_policy}')
         if self.cache_max_size_policy == CachePolicy.LRU:
             # Least Recently Used
             timestamps = await self.data.aget('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get, reverse=True)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field} - LRU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field} - LRU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             await self.clear(keys_to_delete)
             return
         
@@ -999,7 +1008,7 @@ class Cachify(KVDBCachifyConfig):
             key_hits = await self.data.aget('keyhits', {})
             keys_to_delete = sorted(key_hits, key = key_hits.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field} - LFU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field} - LFU] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             await self.clear(keys_to_delete)
             return
         
@@ -1008,7 +1017,7 @@ class Cachify(KVDBCachifyConfig):
             timestamps = await self.data.aget('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get, reverse = True)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field} - FIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field} - FIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             await self.clear(keys_to_delete)
             return
         
@@ -1017,7 +1026,7 @@ class Cachify(KVDBCachifyConfig):
             timestamps = await self.data.aget('timestamps', {})
             keys_to_delete = sorted(timestamps, key = timestamps.get)[:num_keys - self.cache_max_size]
             if key in keys_to_delete: keys_to_delete.remove(key)
-            if self.verbosity: logger.info(f'[{self.cache_field} - LIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
+            if self.verbosity and not self.is_silenced('cache_policy'): logger.info(f'[{self.cache_field} - LIFO] Deleting {len(keys_to_delete)} Keys: {keys_to_delete}')
             await self.clear(keys_to_delete)
             return
 
@@ -1048,19 +1057,19 @@ class Cachify(KVDBCachifyConfig):
         Retrieves the value from the cache
         """
         if self.should_overwrite(*args, cache_kwargs = cache_kwargs, **kwargs): 
-            if self.super_verbose: logger.info(f'[{self.cache_field}:{key}] Overwriting Cache')
+            if self.super_verbose and not self.is_silenced('cache_overwrite', 'cache', 'retrieve'): logger.info(f'[{self.cache_field}:{key}] Overwriting Cache')
             return ENOVAL
         value = None
         try:
             with self.safely():
                 if not self._exists(key):
-                    if self.super_verbose: logger.info(f'[{self.cache_field}:{key}] Not Found')
+                    if self.super_verbose and not self.is_silenced('cache_miss', 'cache', 'retrieve'): logger.info(f'[{self.cache_field}:{key}] Not Found')
                     return ENOVAL
                 value = self._get(key)
             if value is None: return ENOVAL
 
         except TimeoutError:
-            if self.super_verbose: logger.error(f'[{self.cache_field}:{key}] Retrieve Timeout')
+            if self.super_verbose and not self.is_silenced('retrieve'): logger.error(f'[{self.cache_field}:{key}] Retrieve Timeout')
             return ENOVAL
         
         except Exception as e:
@@ -1082,13 +1091,13 @@ class Cachify(KVDBCachifyConfig):
         Retrieves the value from the cache
         """
         if await self.ashould_overwrite(*args, cache_kwargs = cache_kwargs, **kwargs): 
-            if self.super_verbose: logger.info(f'[{self.cache_field}:{key}] Overwriting Cache')
+            if self.super_verbose and not self.is_silenced('cache_ovewrite', 'cache', 'retrieve'): logger.info(f'[{self.cache_field}:{key}] Overwriting Cache')
             return ENOVAL
         value = None
         try:
             with self.safely():
                 if not await self._exists(key):
-                    if self.super_verbose: logger.info(f'[{self.cache_field}:{key}] Not Found')
+                    if self.super_verbose and not self.is_silenced('cache_miss', 'cache', 'retrieve'): logger.info(f'[{self.cache_field}:{key}] Not Found')
                     return ENOVAL
                 value = await self._get(key)
             if value is None: return ENOVAL
@@ -1150,7 +1159,7 @@ class Cachify(KVDBCachifyConfig):
         """
         if not self.has_post_init_hook: return
         if self.has_ran_post_init_hook: return
-        if self.verbosity: logger.info(f'[{self.cache_field}] Running Post Init Hook')
+        if self.verbosity and not self.is_silenced('post_init'): logger.info(f'[{self.cache_field}] Running Post Init Hook')
         # ThreadPooler.threadpool_task(self.post_init_hook, func, *args, **kwargs)
         self.post_init_hook(func, *args, **kwargs)
         self.has_ran_post_init_hook = True
@@ -1162,7 +1171,7 @@ class Cachify(KVDBCachifyConfig):
         """
         if not self.has_post_init_hook: return
         if self.has_ran_post_init_hook: return
-        if self.verbosity: logger.info(f'[{self.cache_field}] Running Post Init Hook')
+        if self.verbosity and not self.is_silenced('post_init'): logger.info(f'[{self.cache_field}] Running Post Init Hook')
         ThreadPooler.background_task(self.post_init_hook, func, *args, **kwargs)
         self.has_ran_post_init_hook = True
 
@@ -1171,7 +1180,7 @@ class Cachify(KVDBCachifyConfig):
         Runs the post call hook which fires after the function is called
         """
         if not self.has_post_call_hook: return
-        if self.super_verbose: logger.info(f'[{self.cache_field}] Running Post Call Hook')
+        if self.super_verbose and not self.is_silenced('post_call'): logger.info(f'[{self.cache_field}] Running Post Call Hook')
         self.post_call_hook(result, *args, is_hit = is_hit, **kwargs)
         # ThreadPooler.threadpool_task(self.post_call_hook, result, *args, is_hit = is_hit, **kwargs)
 
@@ -1180,7 +1189,7 @@ class Cachify(KVDBCachifyConfig):
         Runs the post call hook which fires after the function is called
         """
         if not self.has_post_call_hook: return
-        if self.super_verbose: logger.info(f'[{self.cache_field}] Running Post Call Hook')
+        if self.super_verbose and not self.is_silenced('post_call'): logger.info(f'[{self.cache_field}] Running Post Call Hook')
         ThreadPooler.background_task(self.post_call_hook, result, *args, is_hit = is_hit, **kwargs)
 
 
@@ -1232,7 +1241,7 @@ class Cachify(KVDBCachifyConfig):
 
             # Check if we should disable the cache
             if self.should_disable(*args, cache_kwargs = cachify_kwargs, **kwargs):
-                if self.super_verbose: logger.info('Disabling', prefix = self.cache_field, colored = True)
+                if self.super_verbose and not self.is_silenced('cache_disable', 'cache'): logger.info('Disabling', prefix = self.cache_field, colored = True)
                 return func(*args, **kwargs)
             
             # Get the cache key
@@ -1242,18 +1251,19 @@ class Cachify(KVDBCachifyConfig):
             
             # Check if we should invalidate
             if self.should_invalidate(*args, cache_kwargs = cachify_kwargs, **kwargs):
-                if self.verbosity: logger.info('Invalidating', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                if self.verbosity and not self.is_silenced('cache_invalidate', 'cache'): logger.info('Invalidating', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                 self.invalidate_cache(cache_key)
             
             # Check if we have a cache hit
             value = self.retrieve(cache_key, *args, cache_kwargs = cachify_kwargs, **kwargs)
             if value == ENOVAL:
+                if self.super_verbose and not self.is_silenced('cache_miss', 'cache'): logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                 try:
                     value = func(*args, **kwargs)
                     if self.should_cache_value(value, *args, cache_kwargs = cachify_kwargs, **kwargs):
-                        if self.super_verbose: logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                        if self.super_verbose and not self.is_silenced('cache_value', 'cache'): logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                         self.set(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
-                    if self.super_verbose: logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                    
                     self.run_post_call_hook(value, *args, is_hit = False, **kwargs)
                     return value
                 
@@ -1262,7 +1272,7 @@ class Cachify(KVDBCachifyConfig):
                     if self.raise_exceptions and e is not None: raise e
                     return None
             _current_was_cached = True
-            if self.super_verbose: logger.info('Cache Hit', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+            if self.super_verbose and not self.is_silenced('cache_hit', 'cache'): logger.info('Cache Hit', prefix = f'{self.cache_field}:{cache_key}', colored = True)
             self.run_post_call_hook(value, *args, is_hit = True, **kwargs)
             return value
 
@@ -1441,7 +1451,7 @@ class Cachify(KVDBCachifyConfig):
 
             # Check if we should disable the cache
             if await self.ashould_disable(*args, cache_kwargs = cachify_kwargs, **kwargs):
-                if self.super_verbose: logger.info('Disabling', prefix = self.cache_field, colored = True)
+                if self.super_verbose and not self.is_silenced('cache_disable', 'cache'): logger.info('Disabling', prefix = self.cache_field, colored = True)
                 return await func(*args, **kwargs)
             
             # Get the cache key
@@ -1450,18 +1460,18 @@ class Cachify(KVDBCachifyConfig):
             
             # Check if we should invalidate
             if await self.ashould_invalidate(*args, cache_kwargs = cachify_kwargs, **kwargs):
-                if self.verbosity: logger.info('Invalidating', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                if self.verbosity and not self.is_silenced('cache_invalidate', 'cache'): logger.info('Invalidating', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                 await self.invalidate_cache(cache_key)
             
             # Check if we have a cache hit
             value = await self.aretrieve(cache_key, *args, cache_kwargs = cachify_kwargs, **kwargs)
             if value == ENOVAL:
+                if self.super_verbose and not self.is_silenced('cache_miss', 'cache'): logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                 try:
                     value = await func(*args, **kwargs)
                     if await self.ashould_cache_value(value, *args, cache_kwargs = cachify_kwargs, **kwargs):
-                        if self.super_verbose: logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                        if self.super_verbose and not self.is_silenced('cache_value', 'cache'): logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                         await self.aset(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
-                    if self.super_verbose: logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                     await self.arun_post_call_hook(value, *args, is_hit = False, **kwargs)
                     return value
                 
@@ -1471,7 +1481,7 @@ class Cachify(KVDBCachifyConfig):
                     return None
             
             _current_was_cached = True
-            if self.super_verbose: logger.info('Cache Hit', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+            if self.super_verbose and not self.is_silenced('cache_hit', 'cache'): logger.info('Cache Hit', prefix = f'{self.cache_field}:{cache_key}', colored = True)
             await self.arun_post_call_hook(value, *args, is_hit = True, **kwargs)
             return value
 

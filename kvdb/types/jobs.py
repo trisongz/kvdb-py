@@ -219,12 +219,24 @@ class JobQueueMixin(BaseModel):
     async def retry(
         self, 
         error: Optional[Any] = None,
+        **kwargs
     ):
         """
         Retries the job by removing it from active and requeueing it.
         """
         error = error or "Retrying"
         await self.queue.retry(self, error)
+
+    async def reschedule(
+        self,
+        wait_time: Optional[float] = 10.0,
+        error: Optional[Any] = None,
+        **kwargs
+    ):
+        """
+        Reschedules the job.
+        """
+        await self.queue.reschedule(self, wait_time = wait_time, error = error)
 
     async def update(
         self, 

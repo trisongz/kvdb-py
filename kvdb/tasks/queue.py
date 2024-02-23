@@ -322,17 +322,53 @@ class TaskQueue(abc.ABC):
             await self.notify(job)
             # if self.debug_enabled:
             #     self.log(job=job, kind = "finish").info(f"Finished {job}")
-            if not self.queue_tasks.is_function_silenced(
-                job.function, stage='finish'
-            ):
-                job_msg = f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}"
-                if self.logging_max_length:
-                    job_result = job.get_truncated_result(self.logging_max_length)
-                    job_msg += f", result={job_result}"
-                if job.status in UNSUCCESSFUL_TERMINAL_JOB_STATUSES:
-                    job_msg += f", kwargs={job.get_truncated_kwargs(self.logging_max_length)}, error={job.error}"
-                self.log(job=job, kind = "finish").info(job_msg)
-    
+            if status != JobStatus.RESCHEDULED:
+                if not self.queue_tasks.is_function_silenced(
+                    job.function, stage='finish'
+                ):
+                    job_msg = f"● duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}"
+                    if self.logging_max_length:
+                        job_result = job.get_truncated_result(self.logging_max_length)
+                        job_msg += f", result={job_result}"
+                    if job.status in UNSUCCESSFUL_TERMINAL_JOB_STATUSES:
+                        job_msg += f", kwargs={job.get_truncated_kwargs(self.logging_max_length)}, error={job.error}"
+                    self.log(job=job, kind = "finish").info(job_msg)
+
+    async def _reschedule(
+        self,
+        job: Job,
+        wait_time: float = 10.0,
+        error: Optional[Any] = None,
+        **kwargs
+    ):
+        """
+        Reschedule a job after a certain amount of time
+        """
+        await self.finish(job, JobStatus.RESCHEDULED, error = error)
+        job.scheduled = now() + wait_time
+        async with self.pipeline(transaction = True, retryable = True) as pipe:
+            pipe = pipe.lrem(job.active_key, 1, job.id).zrem(job.incomplete_key, job.id)
+            pipe = pipe.zadd(job.incomplete_key, {job.id: job.scheduled})
+            pipe = pipe.rpush(job.queued_key, job.id)
+            await self.push_queue.push(job_id = job.id, pipeline = pipe)
+            await pipe.set(job.id, await self.serialize(job)).execute()
+        await self.notify(job)
+        if not self.queue_tasks.is_function_silenced(job.function, stage = 'reschedule'):
+            self.log(job=job, kind = "reschedule").info(f"↻ duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}, kwargs={job.get_truncated_kwargs(self.logging_max_length)}")
+
+    async def reschedule(
+        self, 
+        job: Job,
+        wait_time: float = 10.0, 
+        error: Optional[Any] = None,
+        **kwargs
+    ):
+        """
+        Reschedule a job after a certain amount of time
+        """
+        asyncio.create_task(self._reschedule(job, wait_time = wait_time, error = error, **kwargs))
+
+
     async def defer(
         self, 
         job_or_func: Union[Job, str],

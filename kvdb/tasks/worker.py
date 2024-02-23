@@ -233,6 +233,7 @@ class TaskWorker(abc.ABC):
         finally:
             self.log(kind = "shutdown").warning(f'{self.worker_identity} is shutting down. Error: {error}')
             self.event.set()
+            await self.reschedule_jobs(error = f'{self.worker_identity} is shutting down. Error: {error}')
             await self.aworker_onstop_pre(**kwargs)
             if self.shutdown:
                 for func in self.shutdown:
@@ -378,6 +379,21 @@ class TaskWorker(abc.ABC):
             queue.append(job)
         return queues
 
+    async def reschedule_jobs(self, wait_time: Optional[float] = 10.0, error: Optional[str] = None):
+        """
+        Reschedule Jobs in the Queue
+
+        - Used when the worker is shutting down
+        """
+        existing_jobs = self.job_task_contexts
+        if not existing_jobs: return
+        jobs_by_queues = await self.sort_jobs(existing_jobs)
+        for queue_name, jobs in jobs_by_queues.items():
+            queue = self.queue_dict[queue_name]
+            for job in jobs:
+                await queue.reschedule(job, wait_time, error = error)
+
+
     async def abort(self, abort_threshold: int):
         """
         Abort jobs that have been running for too long.
@@ -492,7 +508,7 @@ class TaskWorker(abc.ABC):
             self.autologger.error(f"Error in process_queue for job {job}: {error}")
 
             if job:
-                if job.attempts >= job.retries: await job.finish(JobStatus.FAILED, error=error)
+                if job.attempts > job.retries: await job.finish(JobStatus.FAILED, error=error)
                 else: await job.retry(error)
         finally:
             self.tasks_idx -= 1
