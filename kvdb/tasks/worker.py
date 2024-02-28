@@ -508,7 +508,10 @@ class TaskWorker(abc.ABC):
             self.autologger.error(f"Error in process_queue for job {job}: {error}")
 
             if job:
-                if job.attempts > job.retries: await job.finish(JobStatus.FAILED, error=error)
+                if job.attempts > job.retries: 
+                    await job.finish(JobStatus.FAILED, error=error)
+                    await function.run_on_failure_callback(job)
+
                 else: await job.retry(error)
         finally:
             self.tasks_idx -= 1

@@ -31,6 +31,8 @@ def register(
     disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional['AttributeMatchType'] = None,
+    fallback_enabled: Optional[bool] = None,
+    on_failure_callback: Optional[Union[Callable, str]] = None,
     task_abc: Optional[bool] = None,
     **kwargs
 ) -> Callable[['FunctionT'], 'FunctionT']:
@@ -64,6 +66,8 @@ def create_context(
     disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional['AttributeMatchType'] = None,
+    fallback_enabled: Optional[bool] = None,
+    on_failure_callback: Optional[Union[Callable, str]] = None,
     context: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> 'QueueTasks':
@@ -98,6 +102,8 @@ def register_object(
     disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional['AttributeMatchType'] = None,
+    fallback_enabled: Optional[bool] = None,
+    on_failure_callback: Optional[Union[Callable, str]] = None,
     context: Optional[Dict[str, Any]] = None,
     is_unset: Optional[bool] = False,
     **kwargs,
@@ -173,6 +179,8 @@ def register_abc(
     disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional[AttributeMatchType] = None,
+    fallback_enabled: Optional[bool] = None,
+    on_failure_callback: Optional[Union[Callable, str]] = None,
     **kwargs
 ) -> Callable[..., 'ReturnValue']:
     """
@@ -194,6 +202,8 @@ def register_abc(
     disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional[AttributeMatchType] = None,
+    fallback_enabled: Optional[bool] = None,
+    on_failure_callback: Optional[Union[Callable, str]] = None,
     **kwargs
 ) -> Callable[['Job'], 'Job']:
     """
@@ -216,6 +226,8 @@ def register_abc(
     disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional[AttributeMatchType] = None,
+    fallback_enabled: Optional[bool] = None,
+    on_failure_callback: Optional[Union[Callable, str]] = None,
     **kwargs
 ) -> Callable[..., 'ReturnValue']:
     """
@@ -235,6 +247,8 @@ def register_abc(
     disable_ctx_in_patch: Optional[bool] = None,
     worker_attributes: Optional[Dict[str, Any]] = None,
     attribute_match_type: Optional[AttributeMatchType] = None,
+    fallback_enabled: Optional[bool] = None,
+    on_failure_callback: Optional[Union[Callable, str]] = None,
     **kwargs
 ) -> Callable[['RT'], 'RT']:
     """

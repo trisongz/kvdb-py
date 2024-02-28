@@ -4,6 +4,7 @@ from __future__ import annotations
 Base Task Types
 """
 import abc
+import collections.abc
 from inspect import signature, Signature
 from pydantic import Field, model_validator
 from kvdb.types.base import BaseModel
@@ -11,6 +12,7 @@ from kvdb.utils.logs import logger
 from kvdb.utils.helpers import is_coro_func, lazy_import, ensure_coro
 from lazyops.libs.proxyobj import ProxyObject
 from lazyops.libs.pooler import ThreadPooler
+from lazyops.libs.abcs.utils.helpers import update_dict
 from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, TypeAlias, List, Type, Tuple, Literal, TYPE_CHECKING, overload
 from .utils import AttributeMatchType, determine_match_from_attributes, get_func_name
 
@@ -73,6 +75,8 @@ class TaskFunction(BaseModel):
     function_inject_args: Optional[bool] = Field(None, exclude=True)
     function_inject_kwargs: Optional[bool] = Field(None, exclude=True)
 
+    function_default_kwargs: Optional[Dict[str, Any]] = Field(None, exclude=True)
+
     function_is_method: Optional[bool] = Field(None, exclude=True)
     function_parent_type: Optional[Literal['class', 'instance']] = Field(None, exclude=True)
 
@@ -82,6 +86,8 @@ class TaskFunction(BaseModel):
         cronjob: Optional[Union[CronJob, bool, str]] = None
     else:
         cronjob: Optional[Any] = None
+
+    on_failure_callback: Optional[Union[Callable, str]] = None
 
     @classmethod
     def build_function_name(cls, func: Callable) -> str:
@@ -113,6 +119,11 @@ class TaskFunction(BaseModel):
             elif 'cls' in self.function_signature.parameters:
                 self.function_parent_type = 'class'
         
+        if self.default_kwargs is not None:
+            self.function_default_kwargs = {
+                k: v.default for k, v in self.function_signature.parameters.items() if k in self.default_kwargs
+            }
+        
         if self.cronjob:
             if isinstance(self.cronjob, str):
                 # Move to cron
@@ -133,6 +144,8 @@ class TaskFunction(BaseModel):
             self.default_kwargs = self.kwargs.pop('default_kwargs')
         if self.silenced_stages is None: self.silenced_stages = []
         if self.silenced is None: self.silenced = False
+        if self.on_failure_callback is not None and isinstance(self.on_failure_callback, str):
+            self.on_failure_callback = lazy_import(self.on_failure_callback)
         return self
     
     @property
@@ -244,6 +257,10 @@ class TaskFunction(BaseModel):
         Calls the function
         """
         # logger.info(f'[{self.name}] running task {self.func.__name__} with args: {args} and kwargs: {kwargs}')
+        # if self.default_kwargs: 
+        #     _kwargs = self.default_kwargs.copy()
+        #     _kwargs.update(kwargs)
+        #     kwargs = _kwargs
         if self.function_inject_ctx:
             if self.function_inject_args and self.function_inject_kwargs:
                 return self.func(ctx, *args, **kwargs)
@@ -265,6 +282,35 @@ class TaskFunction(BaseModel):
             except Exception as e:
                 return self.func(*args, **kwargs)
         return self.func()
+    
+    async def run_on_failure_callback(self, job: 'Job'):
+        """
+        Runs the on failure callback
+        """
+        if self.on_failure_callback is None: return
+        if is_coro_func(self.on_failure_callback):
+            return await self.on_failure_callback(job)
+        return self.on_failure_callback(job)
+
+    def update_function_kwargs(self, **kwargs) -> Dict[str, Any]:
+        """
+        Merges the default kwargs
+        """
+        if not self.default_kwargs: return kwargs
+        default_kws = self.default_kwargs.copy()
+        extra_kws = {k:v for k,v in default_kws.items() if k not in kwargs}
+        for k,v in kwargs.items():
+            if k in default_kws and self.function_default_kwargs.get(k) == v:
+                if isinstance(v, collections.abc.Mapping):
+                    kwargs[k] = update_dict(default_kws[k], v)
+                elif isinstance(v, list):
+                    kwargs[k] = list(set(default_kws[k] + v))
+                else:
+                    kwargs[k] = v
+        kwargs.update(extra_kws)
+        logger.info(f'Updated Kwargs: {kwargs}')
+        return kwargs
+
 
 
 class PushQueue:

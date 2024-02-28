@@ -249,6 +249,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
         fallback_enabled: Optional[bool] = None,
+        on_failure_callback: Optional[Union[Callable, str]] = None,
         task_abc: Optional[bool] = None,
         **kwargs
     ) -> Callable[[FunctionT], FunctionT]:

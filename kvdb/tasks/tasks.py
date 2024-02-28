@@ -271,6 +271,7 @@ class QueueTasks(abc.ABC):
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
         fallback_enabled: Optional[bool] = None,
+        on_failure_callback: Optional[Union[Callable, str]] = None,
         **kwargs
     ) -> TaskFunction:
         """
@@ -288,6 +289,7 @@ class QueueTasks(abc.ABC):
             worker_attributes = worker_attributes,
             attribute_match_type = attribute_match_type,
             fallback_enabled = fallback_enabled,
+            on_failure_callback = on_failure_callback,
             queue_name = self.queue_name,
             kwargs = kwargs,
         )
@@ -357,6 +359,7 @@ class QueueTasks(abc.ABC):
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
         fallback_enabled: Optional[bool] = None,
+        on_failure_callback: Optional[Union[Callable, str]] = None,
         subclass_name: Optional[str] = None,
         **function_kwargs,
     ) -> Callable[[FunctionT], FunctionT]:
@@ -378,6 +381,7 @@ class QueueTasks(abc.ABC):
                     worker_attributes = worker_attributes,
                     attribute_match_type = attribute_match_type,
                     fallback_enabled = fallback_enabled,
+                    on_failure_callback = on_failure_callback,
                     **function_kwargs,
                 )(function)
             task_function = self.add_function(
@@ -393,6 +397,7 @@ class QueueTasks(abc.ABC):
                 worker_attributes = worker_attributes,
                 attribute_match_type = attribute_match_type,
                 fallback_enabled = fallback_enabled,
+                on_failure_callback = on_failure_callback,
                 **function_kwargs,
             )
             if task_function.disable_patch: return function
@@ -418,6 +423,7 @@ class QueueTasks(abc.ABC):
                     worker_attributes = worker_attributes,
                     attribute_match_type = attribute_match_type,
                     fallback_enabled = fallback_enabled,
+                    on_failure_callback = on_failure_callback,
                     **function_kwargs,
                 )(func)
             # logger.info(f'Registering Task Function: POST-INIT {self.queue_name}', prefix = func.__qualname__, colored = True)

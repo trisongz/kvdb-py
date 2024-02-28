@@ -16,6 +16,7 @@ from kvdb.utils.patching import (
 
 )
 from kvdb.types.generic import ParamSpec
+from lazyops.libs.abcs.utils.helpers import update_dict
 from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from types import ModuleType, FunctionType
 from .types import (
@@ -338,37 +339,64 @@ def create_patch_registered_function_wrapper(
     """
     Creates a wrapper for the registered function
     """
-    async def patched_function(*args: P.args, blocking: Optional[bool] = True, **kwargs: P.kwargs) -> Union[RT, Job]:
+    async def patched_function(*args: P.args, blocking: Optional[bool] = True, defer_duration: Optional[float] = None, **kwargs: P.kwargs) -> Union[RT, Job]:
         if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
             logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
             if blocking: 
                 # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
                 return await task_function({}, *args, **kwargs)
             return await queue_task.tpool.create_background_task(task_function, {}, *args, **kwargs)
-        method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
+        kwargs = task_function.update_function_kwargs(**kwargs)
+        # if task_function.default_kwargs: 
+        #     kwargs = update_dict(kwargs, task_function.default_kwargs)
+        #     logger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
+        if defer_duration is not None:
+            method_func = queue_task.queue.defer
+            kwargs['wait_time'] = defer_duration
+        else:
+            method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
         return await method_func(task_function.name, *args, **kwargs)
     
     if task_function.function_is_method:
         if task_function.function_parent_type == 'instance':
-            async def patched_function(_self, *args: P.args, blocking: Optional[bool] = True, **kwargs: P.kwargs) -> Union[RT, Job]:
+            async def patched_function(_self, *args: P.args, blocking: Optional[bool] = True, defer_duration: Optional[float] = None, **kwargs: P.kwargs) -> Union[RT, Job]:
+                
                 if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
                     logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
                     if blocking: 
                         # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
                         return await task_function({}, *args, **kwargs)
                     return await queue_task.tpool.create_background_task(task_function, {}, *args, **kwargs)
-                method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
+                
+                kwargs = task_function.update_function_kwargs(**kwargs)
+                # if task_function.default_kwargs: 
+                #     kwargs = update_dict(kwargs, task_function.default_kwargs)
+                #     logger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
+                    
+                if defer_duration is not None:
+                    method_func = queue_task.queue.defer
+                    kwargs['wait_time'] = defer_duration
+                else:
+                    method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
                 return await method_func(task_function.name, *args, **kwargs)
         
         elif task_function.function_parent_type == 'class':
-            async def patched_function(_cls, *args: P.args, blocking: Optional[bool] = True, **kwargs: P.kwargs) -> Union[RT, Job]:
+            async def patched_function(_cls, *args: P.args, blocking: Optional[bool] = True, defer_duration: Optional[float] = None, **kwargs: P.kwargs) -> Union[RT, Job]:
                 if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
                     logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
                     if blocking: 
                         # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
                         return await task_function({}, *args, **kwargs)
                     return await queue_task.tpool.create_background_task(task_function, {}, *args, **kwargs)
-                method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
+                kwargs = task_function.update_function_kwargs(**kwargs)
+                # if task_function.default_kwargs: 
+                #     kwargs = update_dict(kwargs, task_function.default_kwargs)
+                #     logger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
+                if defer_duration is not None:
+                    method_func = queue_task.queue.defer
+                    kwargs['wait_time'] = defer_duration
+                else:
+                    method_func = queue_task.queue.apply if blocking else queue_task.queue.enqueue
                 return await method_func(task_function.name, *args, **kwargs)
     
     qualname = f'{subclass_name}.{function.__name__}' if subclass_name is not None else function.__qualname__
@@ -377,7 +405,7 @@ def create_patch_registered_function_wrapper(
         queue_task.modify_function_signature(
             function, 
             args = ['ctx'] if (task_function.function_inject_ctx and not task_function.disable_ctx_in_patch) else None,
-            kwargs = {'blocking': True}, 
+            kwargs = {'blocking': True, 'defer_duration': None}, 
             # remove_args = 
         ),
         qualname = qualname,
