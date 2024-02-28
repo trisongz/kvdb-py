@@ -340,6 +340,7 @@ class CachifyContext(abc.ABC):
         # Allow for post-call hooks
         post_call_hook: Optional[Union[str, Callable]] = None,
         hset_enabled: Optional[bool] = True,
+        silenced_stages: Optional[List[str]] = None,
     ) -> Callable[FuncP, Union[Awaitable[FuncT], FuncT]]:
     # ) -> Callable[[FunctionT], FunctionT]:  # sourcery skip: default-mutable-arg
         

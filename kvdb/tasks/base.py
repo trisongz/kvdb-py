@@ -451,12 +451,13 @@ class BaseTaskWorker(TaskABC):
         Returns the function name
         """
         return f'{self.worker_key}:{(func.__name__ if callable(func) else func)}'
+
     
     def get_cronjob_key(self, func: Union[str, Callable]) -> str:
         """
         Returns the cronjob key for the unique key
         """
-        return f'task:{self.get_function_name(func)}'
+        return f'task:{self.get_cronjob_name(func)}'
 
     def get_job_key(self, job_id: str, *keys: Iterable[Any]) -> str:
         """
@@ -474,7 +475,7 @@ class BaseTaskWorker(TaskABC):
         """
         Gets the next cron run data
         """
-        func_name = self.get_function_name(func)
+        func_name = self.get_cronjob_name(func)
         cron = self.cron_schedules.get(func_name)
         if cron is None:
             raise ValueError(f'No Cron Schedule found for |g|{func_name}|e|')

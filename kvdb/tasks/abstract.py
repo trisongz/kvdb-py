@@ -146,7 +146,7 @@ class TaskABC(abc.ABC):
 
         This can be overriden by the subclass
         """
-        return None
+        return self.get_function_name(func)
     
     def validate_cronjob(self, func: Callable, **kwargs) -> Dict[str, Any]:
         """
