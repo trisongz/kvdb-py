@@ -112,6 +112,7 @@ class JsonSerializer(BaseSerializer):
         """
         Decode the value with the JSON Library
         """
+        if value is None: return None
         try:
             value = self.jsonlib.loads(value, **kwargs)
             if not self.disable_object_serialization and isinstance(value, dict) and '__class__' in value:
@@ -124,7 +125,9 @@ class JsonSerializer(BaseSerializer):
                 value = self.serialization_obj.model_validate(value)
             return value
         except Exception as e:
-            if not self.is_encoder: logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+            if not self.is_encoder: 
+                logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+                # logger.trace(f'Error Decoding Value: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
     
@@ -146,18 +149,21 @@ class JsonSerializer(BaseSerializer):
         """
         Decode the value with the JSON Library
         """
+        if value is None: return None
         try:
             # value = self.check_encoded_value(value)
             value = self.jsonlib.loads(value, **kwargs)
         except Exception as e:
-            if not self.is_encoder: logger.info(f'Error JSON Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+            if not self.is_encoder: 
+                logger.info(f'Error JSON Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+                # logger.trace(f'Error JSON Decoding Value: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         try:
             return deserialize_object(value)
         except Exception as e:
             if not self.is_encoder: 
-                logger.trace(f'Error Deserializing Object: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
-                # logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+                # logger.trace(f'Error Deserializing Object: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
+                logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         return None
 
