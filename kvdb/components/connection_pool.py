@@ -644,7 +644,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
             # ensure this connection is connected to Redis
             await connection.connect()
         
-        except rerrors.TimeoutError as exc:
+        except (rerrors.TimeoutError, rerrors.ConnectionError) as exc:
             if not self.auto_pause_enabled or not await self.reestablish_connection(connection): 
                 raise errors.TimeoutError(source_error = exc) from exc
 
@@ -655,7 +655,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         try:
             if await connection.can_read_destructive():
                 raise errors.ConnectionError("Connection has data")
-        except (errors.ConnectionError, ConnectionError, OSError) as exc:
+        except (errors.ConnectionError, rerrors.ConnectionError, ConnectionError, OSError) as exc:
             await connection.disconnect()
             await connection.connect()
             if await connection.can_read_destructive():
