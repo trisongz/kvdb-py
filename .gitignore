@@ -38,3 +38,4 @@ kvdb/.data/kvdb.tmp.lock
 site/**
 kvdb/backends/**
 tests/devel**
+/tests/replicate

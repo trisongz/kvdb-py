@@ -12,7 +12,7 @@ from kvdb.types.base import supported_schemas, KVDBUrl
 from lazyops.libs.persistence.backends.base import BaseStatefulBackend, SchemaType
 from lazyops.libs.persistence import PersistentDict
 
-from typing import Any, Dict, Optional, Union, Iterable, List, Type, TYPE_CHECKING
+from typing import Any, Dict, Optional, Union, Iterable, List, Type, Set, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
@@ -803,8 +803,189 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         if decode: return [key.decode() if isinstance(key, bytes) else key for key in keys]
         return keys
     
+    """
+    Math Operations
+    """
 
-
+    def incrby(self, key: str, amount: int = 1, **kwargs) -> int:
+        """
+        [int] Increments the value of the key by the given amount
+        """
+        if self.hset_enabled:
+            return self.cache.hincrby(self.base_key, key, amount = amount, **kwargs)
+        return self.cache.incrby(self.get_key(key), amount = amount, **kwargs)
     
+    def incrbyfloat(self, key: str, amount: float = 1.0, **kwargs) -> float:
+        """
+        [float] Increments the value of the key by the given amount
+        """
+        if self.hset_enabled:
+            return self.cache.hincrbyfloat(self.base_key, key, amount = amount, **kwargs)
+        return self.cache.incrbyfloat(self.get_key(key), amount = amount, **kwargs)
+    
+    async def aincrby(self, key: str, amount: int = 1, **kwargs) -> int:
+        """
+        [int] Increments the value of the key by the given amount
+        """
+        if self.hset_enabled:
+            return await self.cache.ahincrby(self.base_key, key, amount = amount, **kwargs)
+        return await self.cache.aincrby(self.get_key(key), amount = amount, **kwargs)
+    
+    async def aincrbyfloat(self, key: str, amount: float = 1.0, **kwargs) -> float:
+        """
+        [float] Increments the value of the key by the given amount
+        """
+        if self.hset_enabled:
+            return await self.cache.ahincrbyfloat(self.base_key, key, amount = amount, **kwargs)
+        return await self.cache.aincrbyfloat(self.get_key(key), amount = amount, **kwargs)
+    
+    def decrby(self, key: str, amount: int = 1, **kwargs) -> int:
+        """
+        [int] Decrements the value of the key by the given amount
+        """
+        if self.hset_enabled:
+            return self.cache.hincrby(self.base_key, key, amount = (amount * -1), **kwargs)
+        return self.cache.decrby(self.get_key(key), amount = amount, **kwargs)
+
+    def decrbyfloat(self, key: str, amount: float = 1.0, **kwargs) -> float:
+        """
+        [float] Decrements the value of the key by the given amount
+        """
+        if self.hset_enabled:
+            return self.cache.hincrbyfloat(self.base_key, key, amount = (amount * -1), **kwargs)
+        return self.cache.incrbyfloat(self.get_key(key), amount = (amount * -1), **kwargs)
+    
+    async def adecrby(self, key: str, amount: int = 1, **kwargs) -> int:
+        """
+        [int] Decrements the value of the key by the given amount
+        """
+        if self.hset_enabled:
+            return await self.cache.ahincrby(self.base_key, key, amount = (amount * -1), **kwargs)
+        return await self.cache.adecrby(self.get_key(key), amount = amount, **kwargs)
+    
+    async def adecrbyfloat(self, key: str, amount: float = 1.0, **kwargs) -> float:
+        """
+        [float] Decrements the value of the key by the given amount
+        """
+        if self.hset_enabled:
+            return await self.cache.ahincrbyfloat(self.base_key, key, amount = (amount * -1), **kwargs)
+        return await self.cache.aincrbyfloat(self.get_key(key), amount = (amount * -1), **kwargs)
+    
+    """
+    Set Operations
+    """
+
+    def sadd(self, key: str, *values: str, **kwargs) -> int:
+        """
+        Adds the given values to the set stored at key
+        """
+        if self.hset_enabled:
+            value: Set = self.get(key, default = set())
+            value.update(values)
+            self.set(key, values, **kwargs)
+            return len(value)
+        return self.cache.sadd(self.get_key(key), *values, **kwargs)
+    
+    async def asadd(self, key: str, *values: str, **kwargs) -> int:
+        """
+        Adds the given values to the set stored at key
+        """
+        if self.hset_enabled:
+            value: Set = await self.aget(key, default = set())
+            value.update(values)
+            await self.aset(key, value, **kwargs)
+            return len(value)
+        return await self.cache.asadd(self.get_key(key), *values, **kwargs)
+    
+    def smembers(self, key: str, **kwargs) -> List[str]:
+        """
+        Returns the members of the set stored at key
+        """
+        if self.hset_enabled:
+            return self.get(key, default = set())
+        return self.cache.smembers(self.get_key(key), **kwargs)
+    
+    async def asmembers(self, key: str, **kwargs) -> List[str]:
+        """
+        Returns the members of the set stored at key
+        """
+        if self.hset_enabled:
+            return await self.aget(key, default = set())
+        return await self.cache.asmembers(self.get_key(key), **kwargs)
+    
+    def sismember(self, key: str, value: str, **kwargs) -> bool:
+        """
+        Returns True if value is a member of the set stored at key
+        """
+        if self.hset_enabled:
+            return value in self.get(key, default = set())
+        return self.cache.sismember(self.get_key(key), value, **kwargs)
+    
+    async def asismember(self, key: str, value: str, **kwargs) -> bool:
+        """
+        Returns True if value is a member of the set stored at key
+        """
+        if self.hset_enabled:
+            return value in await self.aget(key, default = set())
+        return await self.cache.asismember(self.get_key(key), value, **kwargs)
+    
+    def slength(self, key: str, **kwargs) -> int:
+        """
+        Returns the number of elements in the set stored at key
+        """
+        if self.hset_enabled:
+            return len(self.get(key, default = set()))
+        return self.cache.scard(self.get_key(key), **kwargs)
+    
+    async def aslength(self, key: str, **kwargs) -> int:
+        """
+        Returns the number of elements in the set stored at key
+        """
+        if self.hset_enabled:
+            return len(await self.aget(key, default = set()))
+        return await self.cache.ascard(self.get_key(key), **kwargs)
+    
+    def srem(self, key: str, *values: str, **kwargs) -> int:
+        """
+        Removes the given values from the set stored at key
+        """
+        if self.hset_enabled:
+            value: Set = self.get(key, default = set())
+            value.difference_update(values)
+            self.set(key, value, **kwargs)
+            return len(value)
+        return self.cache.srem(self.get_key(key), *values, **kwargs)
+    
+    async def asrem(self, key: str, *values: str, **kwargs) -> int:
+        """
+        Removes the given values from the set stored at key
+        """
+        if self.hset_enabled:
+            value: Set = await self.aget(key, default = set())
+            value.difference_update(values)
+            await self.aset(key, value, **kwargs)
+            return len(value)
+        return await self.cache.asrem(self.get_key(key), *values, **kwargs)
+    
+    def spop(self, key: str, count: int = 1, **kwargs) -> List[str]:
+        """
+        Removes and returns a random member of the set stored at key
+        """
+        if self.hset_enabled:
+            value: Set = self.get(key, default = set())
+            return [] if len(value) < count else list(value)[:count]
+        return self.cache.spop(self.get_key(key), count = count, **kwargs)
+    
+
+    async def aspop(self, key: str, count: int = 1, **kwargs) -> List[str]:
+        """
+        Removes and returns a random member of the set stored at key
+        """
+        if self.hset_enabled:
+            value: Set = await self.aget(key, default = set())
+            return [] if len(value) < count else list(value)[:count]
+        return await self.cache.aspop(self.get_key(key), count = count, **kwargs)
+
+
 
 PersistentDict.register_backend('kvdb', KVDBStatefulBackend)
