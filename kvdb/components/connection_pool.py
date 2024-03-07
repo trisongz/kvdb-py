@@ -44,7 +44,7 @@ from .connection import (
     parse_url,
 )
 
-from typing import Union, Optional, Any, Dict, List, Tuple, Iterable, Set, Type, TypeVar, Callable, Awaitable, TYPE_CHECKING
+from typing import Union, Optional, Any, Dict, List, Tuple, Iterable, Set, Type, TypeVar, Callable, Generator, Awaitable, AsyncGenerator, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kvdb.configs import KVDBSettings
@@ -230,7 +230,7 @@ class ConnectionPool(_ConnectionPool):
         return False
 
     @contextlib.contextmanager
-    def ensure_connection(self, connection: Connection) -> Connection:
+    def ensure_connection(self, connection: Connection) -> Generator[Connection, None, None]:
         """
         Ensure that the connection is available and that the host is available
         """
@@ -249,11 +249,16 @@ class ConnectionPool(_ConnectionPool):
         try:
             if connection.can_read():
                 raise errors.ConnectionError("Connection has data")
-        except (errors.ConnectionError, ConnectionError, OSError) as exc:
+        except (errors.ConnectionError, rerrors.ConnectionError, ConnectionError, OSError) as exc:
             connection.disconnect()
             connection.connect()
-            if connection.can_read():
-                raise errors.ConnectionError("Connection not ready") from exc
+            try:
+                if connection.can_read():
+                    raise errors.ConnectionError("Connection not ready") from exc
+                
+            except (errors.ConnectionError, rerrors.ConnectionError, ConnectionError, OSError) as exc:
+                if not self.reestablish_connection(connection): 
+                    raise errors.TimeoutError(source_error = exc) from exc
         
         except BaseException:
             # release the connection back to the pool so that we don't
@@ -410,7 +415,7 @@ class BlockingConnectionPool(_BlockingConnectionPool, ConnectionPool):
         self._connections.append(connection)
         return connection
 
-    def get_connection(self, command_name: str, *keys: Any, **options: Dict[str, Any]) -> Connection:
+    def get_connection(self, command_name: str, *keys: Any, **options: Dict[str, Any]) -> Generator[Connection, None, None]:
         """
         Get a connection, blocking for ``self.timeout`` until a connection
         is available from the pool.
@@ -636,7 +641,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         return False
     
     @contextlib.asynccontextmanager
-    async def ensure_connection(self, connection: AsyncConnection) -> AsyncConnection:
+    async def ensure_connection(self, connection: AsyncConnection) -> AsyncGenerator[AsyncConnection, None]:
         """
         Ensure that the connection is available and that the host is available
         """
@@ -658,8 +663,13 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         except (errors.ConnectionError, rerrors.ConnectionError, ConnectionError, OSError) as exc:
             await connection.disconnect()
             await connection.connect()
-            if await connection.can_read_destructive():
-                raise errors.ConnectionError("Connection not ready") from exc
+            try:
+                if await connection.can_read_destructive():
+                    raise errors.ConnectionError("Connection not ready") from exc
+            
+            except (errors.ConnectionError, rerrors.ConnectionError, ConnectionError, OSError) as exc:
+                if not await self.reestablish_connection(connection): 
+                    raise errors.TimeoutError(source_error = exc) from exc
         
         except BaseException:
             # release the connection back to the pool so that we don't

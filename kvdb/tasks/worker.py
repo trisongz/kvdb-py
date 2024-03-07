@@ -13,13 +13,17 @@ import asyncio
 import contextlib
 import croniter
 import contextvars
+import kvdb.errors as errors
 from kvdb.utils.logs import logger
 from kvdb.configs import settings
 from kvdb.configs.tasks import KVDBTaskQueueConfig
 from kvdb.configs.base import WorkerTimerConfig
 from kvdb.types.jobs import CronJob, Job, JobStatus
+from redis import exceptions as rerrors
+
 from kvdb.utils.helpers import is_coro_func, lazy_import
 from lazyops.libs.proxyobj import ProxyObject
+from lazyops.utils.times import Timer
 from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from .static import ColorMap
 from .utils import get_exc_error, get_func_name
@@ -211,11 +215,9 @@ class TaskWorker(abc.ABC):
                 for func in self.startup:
                     await func(self.ctx)
             
-            if self.display_on_startup:
-                self.autologger.info(self.build_startup_display_message(), prefix = self.name)
+            if self.display_on_startup: self.logger.info(self.build_startup_display_message(), prefix = self.name)
 
             await self.heartbeat()        
-
             self.tasks.update(await self.upkeep())
             for cid in range(self.max_concurrency):
                 self.process_task(concurrency_id = cid)
@@ -422,7 +424,25 @@ class TaskWorker(abc.ABC):
                     await queue.ctx.adelete(job.abort_id)
                     if not queue.queue_tasks.is_function_silenced(job.function, stage = "abort"):
                         self.log(job = job, kind = "abort").info(f"⊘ {job.get_duration('running')}ms, node={self.node_name}, func={job.function}, id={job.id}")
-            
+    
+    async def wait_until_connection_restored(self, queue: 'TaskQueue'):
+        """
+        Waits until the connection is restored in the event of a connection error
+        """
+        attempts = 0
+        t = Timer()
+        while True:
+            try:
+                if await queue.ctx.aping():
+                    self.logger.info(f"Connection restored in {t.total_s} after |g|{attempts}|e| attempts", colored = True, prefix = self.name)
+                    return
+            except (rerrors.ConnectionError, errors.ConnectionError, ConnectionError) as e:
+                self.autologger.error(f"Connection Error: {e}")
+                await asyncio.sleep(10.0)
+            except Exception as e:
+                self.autologger.error(f"Unknown Error: [{type(e)}] {e}")
+                await asyncio.sleep(10.0)
+            attempts += 1
 
     async def process_queue(
         self, 
@@ -529,19 +549,25 @@ class TaskWorker(abc.ABC):
         for queue in self.queues:
             await self.process_queue(queue.queue_name, broadcast = broadcast, concurrency_id = concurrency_id)
 
-
     async def process_broadcast(self, queue_name: str):
         """
         This is a separate process that runs in the background to process broadcasts.
         """
         queue = self.queue_dict[queue_name]
-        await self.process_queue(broadcast = True, queue_name = queue_name)
+        try:
+            await self.process_queue(broadcast = True, queue_name = queue_name)
 
-        await queue.schedule(lock = 1, worker_id = self.worker_id)
-        await queue.schedule(lock = 1, worker_id = self.name)
+            await queue.schedule(lock = 1, worker_id = self.worker_id)
+            await queue.schedule(lock = 1, worker_id = self.name)
 
-        await queue.sweep(worker_id = self.worker_id)
-        await queue.sweep(worker_id = self.name)
+            await queue.sweep(worker_id = self.worker_id)
+            await queue.sweep(worker_id = self.name)
+        
+        except Exception as e:
+            self.autologger.error(f"Error: {type(e)} {e} in process_broadcast for queue {queue_name}")
+            await self.wait_until_connection_restored(queue)
+            return 
+
 
     def process_task(
         self, 
@@ -569,7 +595,6 @@ class TaskWorker(abc.ABC):
                 self.tasks.add(new_task)
                 new_task.add_done_callback(self.broadcast_process_task)
                 
-    
 
     """
     Initialize the Worker
@@ -727,6 +752,13 @@ class TaskWorker(abc.ABC):
         self.queue_names = [q.queue_name for q in self.queues]
         self.queue_dict = {q.queue_name: q for q in self.queues}
         self.queue_name = '[' + '|'.join(self.queue_names) + ']'
+
+    @property
+    def logger(self) -> 'Logger':
+        """
+        Returns the logger
+        """
+        return self.worker_settings.logger
 
     @property
     def autologger(self) -> 'Logger':
