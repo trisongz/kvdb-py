@@ -9,6 +9,7 @@ from kvdb.types.generic import (
     ENCODER_SERIALIZER_PREFIX_LEN,
     ENCODER_SERIALIZER_PREFIX_BYTES,
     ENCODER_SERIALIZER_PREFIX_BYTES_LEN,
+    ENCODER_NULL_VALUE,
 )
 from typing import Any, Dict, Optional, Type, Union, Callable, TYPE_CHECKING
 # import redis._parsers.encoders
@@ -91,12 +92,13 @@ class Encoder:
         """
         if isinstance(value, (bytes, memoryview)): return value
         if isinstance(value, (int, float)): return repr(value).encode()
+        if isinstance(value, type(None)): return ENCODER_NULL_VALUE
         _serialized = False
         if not isinstance(value, str):
             if not self.serialization_enabled:
                 typename = type(value).__name__
                 raise DataError(
-                    f"Invalid input of type: '{typename}'. "
+                    f"Invalid input of type: `{typename}` {value}. "
                     f"Convert to a bytes, string, int or float first."
                 )
             value = self.serializer.encode(value)
@@ -115,6 +117,7 @@ class Encoder:
                 value = value.tobytes()
             
             if isinstance(value, bytes):
+                if value == ENCODER_NULL_VALUE: return None
                 if self.serializer is not None and value[:ENCODER_SERIALIZER_PREFIX_BYTES_LEN] == ENCODER_SERIALIZER_PREFIX_BYTES:
                     value = value[ENCODER_SERIALIZER_PREFIX_BYTES_LEN:]
                     with contextlib.suppress(Exception):
