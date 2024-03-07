@@ -158,6 +158,35 @@ def register_abc(
 ) -> Callable[P, Union[RT, Awaitable[RT]]]:
     """
     Registers an abstract class or function to the task queue
+
+    Args:
+        cls_or_func: The class or function to register
+        
+        phase: The phase to register the function under
+        
+        silenced: Whether or not to silence the function
+        
+        silenced_stages: The stages to silence the function: 
+          
+          `enqueue`, `retry`, `sweep`, `finish`, `abort, `reschedule`, `process`
+        
+        default_kwargs: The default kwargs to use for the function
+        
+        cronjob: Whether or not the function is a cronjob
+        
+        queue_name: The name of the queue to register the function under
+        
+        disable_patch: Whether or not to disable the patching of the function
+        
+        disable_ctx_in_patch: Whether or not to disable the patching of the function's context
+        
+        worker_attributes: The worker attributes to use for the function
+        
+        attribute_match_type: The attribute match type to use for the function
+        
+        fallback_enabled: Whether or not to enable the fallback for the function
+        
+        on_failure_callback: The callback to use for the function's on_failure
     """
     ...
     # def wrapper(*args: P.args, blocking: Optional[bool] = False, **kwargs: P.kwargs) -> RT:
@@ -185,6 +214,35 @@ def register_abc(
 ) -> Callable[..., 'ReturnValue']:
     """
     Registers an abstract class or function to the task queue
+    
+    Args:
+        cls_or_func: The class or function to register
+        
+        phase: The phase to register the function under
+        
+        silenced: Whether or not to silence the function
+        
+        silenced_stages: The stages to silence the function: 
+          
+          `enqueue`, `retry`, `sweep`, `finish`, `abort, `reschedule`, `process`
+        
+        default_kwargs: The default kwargs to use for the function
+        
+        cronjob: Whether or not the function is a cronjob
+        
+        queue_name: The name of the queue to register the function under
+        
+        disable_patch: Whether or not to disable the patching of the function
+        
+        disable_ctx_in_patch: Whether or not to disable the patching of the function's context
+        
+        worker_attributes: The worker attributes to use for the function
+        
+        attribute_match_type: The attribute match type to use for the function
+        
+        fallback_enabled: Whether or not to enable the fallback for the function
+        
+        on_failure_callback: The callback to use for the function's on_failure
     """
     ...
 
@@ -208,6 +266,35 @@ def register_abc(
 ) -> Callable[['Job'], 'Job']:
     """
     Registers an abstract class or function to the task queue
+
+    Args:
+        cls_or_func: The class or function to register
+        
+        phase: The phase to register the function under
+        
+        silenced: Whether or not to silence the function
+        
+        silenced_stages: The stages to silence the function: 
+          
+          `enqueue`, `retry`, `sweep`, `finish`, `abort, `reschedule`, `process`
+        
+        default_kwargs: The default kwargs to use for the function
+        
+        cronjob: Whether or not the function is a cronjob
+        
+        queue_name: The name of the queue to register the function under
+        
+        disable_patch: Whether or not to disable the patching of the function
+        
+        disable_ctx_in_patch: Whether or not to disable the patching of the function's context
+        
+        worker_attributes: The worker attributes to use for the function
+        
+        attribute_match_type: The attribute match type to use for the function
+        
+        fallback_enabled: Whether or not to enable the fallback for the function
+        
+        on_failure_callback: The callback to use for the function's on_failure
     """
     ...
 
@@ -232,6 +319,35 @@ def register_abc(
 ) -> Callable[..., 'ReturnValue']:
     """
     Registers an abstract class or function to the task queue
+
+    Args:
+        cls_or_func: The class or function to register
+        
+        phase: The phase to register the function under
+        
+        silenced: Whether or not to silence the function
+        
+        silenced_stages: The stages to silence the function: 
+          
+          `enqueue`, `retry`, `sweep`, `finish`, `abort, `reschedule`, `process`
+        
+        default_kwargs: The default kwargs to use for the function
+        
+        cronjob: Whether or not the function is a cronjob
+        
+        queue_name: The name of the queue to register the function under
+        
+        disable_patch: Whether or not to disable the patching of the function
+        
+        disable_ctx_in_patch: Whether or not to disable the patching of the function's context
+        
+        worker_attributes: The worker attributes to use for the function
+        
+        attribute_match_type: The attribute match type to use for the function
+        
+        fallback_enabled: Whether or not to enable the fallback for the function
+        
+        on_failure_callback: The callback to use for the function's on_failure
     """
     ...
 
@@ -253,6 +369,35 @@ def register_abc(
 ) -> Callable[['RT'], 'RT']:
     """
     Registers an abstract class or function to the task queue
+
+    Args:
+        cls_or_func: The class or function to register
+        
+        phase: The phase to register the function under
+        
+        silenced: Whether or not to silence the function
+        
+        silenced_stages: The stages to silence the function: 
+          
+          `enqueue`, `retry`, `sweep`, `finish`, `abort, `reschedule`, `process`
+        
+        default_kwargs: The default kwargs to use for the function
+        
+        cronjob: Whether or not the function is a cronjob
+        
+        queue_name: The name of the queue to register the function under
+        
+        disable_patch: Whether or not to disable the patching of the function
+        
+        disable_ctx_in_patch: Whether or not to disable the patching of the function's context
+        
+        worker_attributes: The worker attributes to use for the function
+        
+        attribute_match_type: The attribute match type to use for the function
+        
+        fallback_enabled: Whether or not to enable the fallback for the function
+        
+        on_failure_callback: The callback to use for the function's on_failure
     """
     ...
 
