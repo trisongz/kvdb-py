@@ -308,7 +308,7 @@ class TaskFunction(BaseModel):
                 else:
                     kwargs[k] = v
         kwargs.update(extra_kws)
-        logger.info(f'Updated Kwargs: {kwargs}')
+        # logger.info(f'Updated Kwargs: {kwargs}')
         return kwargs
 
 
