@@ -755,6 +755,17 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
         }:
             if duration := self.get_duration(kind): return duration
         return None
+    
+    @property
+    def duration_secs(self) -> Optional[int]:
+        """
+        Returns the duration of the job in seconds.
+        """
+        for kind in {
+            'process', 'total', 'start', 'running', 'queued'
+        }:
+            if duration := self.get_duration(kind): return duration / 1000
+        return None
 
 
     @property
