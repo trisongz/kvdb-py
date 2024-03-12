@@ -250,7 +250,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             if int(exp_time) < int(time.time()): 
                 self.cache.hdel(self.exp_index_key, key)
                 self.cache.hdel(self.base_key, key)
-                logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
+                # logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
     
     async def _arun_expiration_check(self, keys: Optional[List[str]] = None):
         """
@@ -265,7 +265,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             if int(exp_time) < int(time.time()): 
                 await self.cache.ahdel(self.exp_index_key, key)
                 await self.cache.ahdel(self.base_key, key)
-                logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
+                # logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
 
     def hset_expiration_check(self, key: str):
         """
@@ -279,7 +279,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         if int(exp_time) < int(time.time()): 
             self.cache.hdel(self.exp_index_key, key)
             self.cache.hdel(self.base_key, key)
-            logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
+            # logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
 
     async def ahset_expiration_check(self, key: str):
         """
@@ -293,7 +293,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         if int(exp_time) < int(time.time()): 
             await self.cache.ahdel(self.exp_index_key, key)
             await self.cache.ahdel(self.base_key, key)
-            logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
+            # logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
     
     def get(self, key: str, default: Optional[Any] = None, _raw: Optional[bool] = None, **kwargs) -> Optional[Any]:
         """
