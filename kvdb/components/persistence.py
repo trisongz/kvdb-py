@@ -4,6 +4,7 @@ from __future__ import annotations
 A KVDB-backed Dict-like object
 """
 import re
+import time
 import binascii
 from kvdb.configs import settings as kvdb_settings
 from kvdb.configs.base import SerializerConfig
@@ -56,6 +57,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         if settings is None: settings = kvdb_settings
         self.base_key = base_key
+        self.exp_index_key = f'_exp_:{self.base_key}'
         self.async_enabled = async_enabled
         self.settings = settings
         if name is not None: self.name = name
@@ -188,7 +190,6 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         if self.session_serialization_enabled or _raw: return value
         return await self.serializer.adecode(value, **kwargs) if self.serializer is not None else value
 
-
     def get_key(self, key: str) -> str:
         """
         Gets a Key
@@ -196,11 +197,111 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         if not self.base_key: return key
         return key if self.base_key in key else f'{self.base_key}{self.keyjoin}{key}'
     
+    """
+    Expiration Methods for HSET
+    """
+
+    def hset_expire(self, key: str, ex: int):
+        """
+        Sets the expiration for a key
+        """
+        if ex is None: return
+        exp_time = int(time.time()) + ex
+        self.cache.hset(self.exp_index_key, key, exp_time)
+
+    def hset_expire_batch(self, keys: Union[Dict[str, Any], List[str]], ex: int):
+        """
+        Sets the expiration for a batch of keys
+        """
+        if ex is None: return
+        if isinstance(keys, dict): keys = list(keys.keys())
+        exp_time = int(time.time()) + ex
+        data = {k: exp_time for k in keys}
+        self.cache.hset(self.exp_index_key, mapping = data)
+
+    async def ahset_expire(self, key: str, ex: int):
+        """
+        Sets the expiration for a key
+        """
+        if ex is None: return
+        exp_time = int(time.time()) + ex
+        await self.cache.ahset(self.exp_index_key, key, exp_time)
+
+    async def ahset_expire_batch(self, keys: Union[Dict[str, Any], List[str]], ex: int):
+        """
+        Sets the expiration for a batch of keys
+        """
+        if ex is None: return
+        if isinstance(keys, dict): keys = list(keys.keys())
+        exp_time = int(time.time()) + ex
+        data = {k: exp_time for k in keys}
+        await self.cache.ahset(self.exp_index_key, mapping = data)
+
+    def _run_expiration_check(self, keys: Optional[List[str]] = None):
+        """
+        [HSET] Runs the expiration check
+        """
+        if not keys: keys = self.cache.hkeys(self.exp_index_key)
+        if not keys: return
+        exp_times = self.cache.hmget(self.exp_index_key, keys)
+        # exp_items = dict(zip(keys, exp_times))
+        for key, exp_time in zip(keys, exp_times):
+            if exp_time is None: continue
+            if int(exp_time) < int(time.time()): 
+                self.cache.hdel(self.exp_index_key, key)
+                self.cache.hdel(self.base_key, key)
+                logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
+    
+    async def _arun_expiration_check(self, keys: Optional[List[str]] = None):
+        """
+        [HSET] Runs the expiration check
+        """
+        if not keys: keys = await self.cache.ahkeys(self.exp_index_key)
+        if not keys: return
+        exp_times = await self.cache.ahmget(self.exp_index_key, keys)
+        # exp_items = dict(zip(keys, exp_times))
+        for key, exp_time in zip(keys, exp_times):
+            if exp_time is None: continue
+            if int(exp_time) < int(time.time()): 
+                await self.cache.ahdel(self.exp_index_key, key)
+                await self.cache.ahdel(self.base_key, key)
+                logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
+
+    def hset_expiration_check(self, key: str):
+        """
+        [HSET] Checks if the key has expired
+        """
+        if not self.cache.hexists(self.exp_index_key, key): return
+        exp_time = self.cache.hget(self.exp_index_key, key)
+        if exp_time is None:
+            self.cache.hdel(self.exp_index_key, key)
+            return
+        if int(exp_time) < int(time.time()): 
+            self.cache.hdel(self.exp_index_key, key)
+            self.cache.hdel(self.base_key, key)
+            logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
+
+    async def ahset_expiration_check(self, key: str):
+        """
+        [HSET] Checks if the key has expired
+        """
+        if not await self.cache.ahexists(self.exp_index_key, key): return
+        exp_time = await self.cache.ahget(self.exp_index_key, key)
+        if exp_time is None:
+            await self.cache.ahdel(self.exp_index_key, key)
+            return
+        if int(exp_time) < int(time.time()): 
+            await self.cache.ahdel(self.exp_index_key, key)
+            await self.cache.ahdel(self.base_key, key)
+            logger.info(f'Expired key `|g|{key}|e|` (TTL: {int(exp_time) - int(time.time())})', prefix = self.base_key, colored = True)
+    
     def get(self, key: str, default: Optional[Any] = None, _raw: Optional[bool] = None, **kwargs) -> Optional[Any]:
         """
         Gets a Value from the DB
         """
-        if self.hset_enabled: value = self.cache.hget(self.base_key, key)
+        if self.hset_enabled: 
+            self.hset_expiration_check(key)
+            value = self.cache.hget(self.base_key, key)
         else: value = self.cache.client.get(self.get_key(key))
         if value is None: return default
         try:
@@ -214,7 +315,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Gets a Value from the DB
         """
-        if self.hset_enabled: values = self.cache.hmget(self.base_key, keys)
+        if self.hset_enabled: 
+            self._run_expiration_check(keys)
+            values = self.cache.hmget(self.base_key, keys)
         else: values = self.cache.client.mget([self.get_key(key) for key in keys])
         results = []
         for key, value in zip(keys, values):
@@ -234,7 +337,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         ex = ex or self.expiration
         if self.hset_enabled:
             self.cache.hset(self.base_key, key, self.encode_value(value, _raw = _raw, **kwargs))
-            if ex is not None: self.cache.expire(self.base_key, ex)
+            if ex is not None: self.hset_expire(key, ex)
+            # if ex is not None: self.cache.expire(self.base_key, ex)
         else:
             self.cache.client.set(self.get_key(key), self.encode_value(value, _raw = _raw, **kwargs), ex = ex)
     
@@ -246,7 +350,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         data = {k: self.encode_value(v, _raw = _raw, **kwargs) for k, v in data.items()}
         if self.hset_enabled:
             self.cache.client.hset(self.base_key, mapping = data)
-            if ex is not None: self.cache.expire(self.base_key, ex)
+            if ex is not None: self.hset_expire_batch(data, ex)
+            # if ex is not None: self.cache.expire(self.base_key, ex)
         else:
             if self.base_key: data = {self.get_key(k): v for k, v in data.items()}
             self.cache.client.mset(data)
@@ -259,7 +364,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Deletes a Value from the DB
         """
-        if self.hset_enabled: self.cache.hdel(self.base_key, key)
+        if self.hset_enabled: 
+            self.cache.hdel(self.base_key, key)
+            self.cache.hdel(self.exp_index_key, key)
         else: self.cache.client.delete(self.get_key(key))
 
     def clear(self, *keys, **kwargs):
@@ -267,7 +374,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Clears the Cache
         """
         if self.hset_enabled:
-            if keys: self.cache.hdel(self.base_key, *keys)
+            if keys: 
+                self.cache.hdel(self.base_key, *keys)
+                self.cache.hdel(self.exp_index_key, *keys)
             else: self.cache.delete(self.base_key)
         elif keys:
             keys = [self.get_key(key) for key in keys]
@@ -280,7 +389,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Gets a Value from the DB
         """
-        if self.hset_enabled: value = await self.cache.ahget(self.base_key, key)
+        if self.hset_enabled: 
+            await self.ahset_expiration_check(key)
+            value = await self.cache.ahget(self.base_key, key)
         else: value = await self.cache.aget(self.get_key(key))
         if value is None: return default
         try:
@@ -294,7 +405,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Gets a Value from the DB
         """
-        if self.hset_enabled: values = await self.cache.ahmget(self.base_key, keys)
+        if self.hset_enabled: 
+            await self._arun_expiration_check(keys)
+            values = await self.cache.ahmget(self.base_key, keys)
         else: values = await self.cache.amget([self.get_key(key) for key in keys])
         results = []
         for key, value in zip(keys, values):
@@ -312,7 +425,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         ex = ex or self.expiration
         if self.hset_enabled:
             await self.cache.ahset(self.base_key, key, self.encode_value(value, _raw = _raw, **kwargs))
-            if ex is not None: await self.cache.aexpire(self.base_key, ex)
+            if ex is not None: await self.ahset_expire(key, ex)
+            # if ex is not None: await self.cache.aexpire(self.base_key, ex)
         else:
             await self.cache.aset(self.get_key(key), self.encode_value(value, _raw = _raw, **kwargs), ex = ex)
 
@@ -324,7 +438,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         data = {k: self.encode_value(v, _raw = _raw, **kwargs) for k, v in data.items()}
         if self.hset_enabled:
             await self.cache.ahset(self.base_key, mapping = data)
-            if ex is not None: await self.cache.aexpire(self.base_key, ex)
+            if ex is not None: await self.ahset_expire_batch(data, ex)
+            # if ex is not None: await self.cache.aexpire(self.base_key, ex)
         else:
             if self.base_key: data = {self.get_key(k): v for k, v in data.items()}
             await self.cache.amset(data)
@@ -336,7 +451,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Deletes a Value from the DB
         """
-        if self.hset_enabled: await self.cache.ahdel(self.base_key, key)
+        if self.hset_enabled: 
+            await self.cache.ahdel(self.base_key, key)
+            await self.cache.ahdel(self.exp_index_key, key)
         else: await self.cache.adelete(self.get_key(key))
 
     async def aclear(self, *keys, **kwargs):
@@ -344,7 +461,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Clears the Cache
         """
         if self.hset_enabled:
-            if keys: await self.cache.ahdel(self.base_key, *keys)
+            if keys: 
+                await self.cache.ahdel(self.base_key, *keys)
+                await self.cache.ahdel(self.exp_index_key, *keys)
             else: await self.cache.adelete(self.base_key)
         elif keys:
             keys = [self.get_key(key) for key in keys]
@@ -358,7 +477,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Iterates over the Cache
         """
-        if self.hset_enabled: return iter(self.cache.hkeys(self.base_key))
+        if self.hset_enabled: 
+            self._run_expiration_check()
+            return iter(self.cache.hkeys(self.base_key))
         if not self.base_key:
             raise NotImplementedError('Cannot iterate over a Redis Cache without a base key')
         return iter(self.cache.client.keys(f'{self.base_key}{self.keyjoin}*'))
@@ -367,7 +488,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Returns the Length of the Cache
         """
-        if self.hset_enabled: return self.cache.hlen(self.base_key)
+        if self.hset_enabled: 
+            self._run_expiration_check()
+            return self.cache.hlen(self.base_key)
         if not self.base_key:
             raise NotImplementedError('Cannot get the length of a Redis Cache without a base key')
         return len(self.cache.client.keys(f'{self.base_key}{self.keyjoin}*'))
@@ -376,7 +499,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Returns the Length of the Cache
         """
-        if self.hset_enabled: return await self.cache.ahlen(self.base_key)
+        if self.hset_enabled: 
+            await self._arun_expiration_check()
+            return await self.cache.ahlen(self.base_key)
         if not self.base_key:
             raise NotImplementedError('Cannot get the length of a Redis Cache without a base key')
         return len(await self.cache.akeys(f'{self.base_key}{self.keyjoin}*'))
@@ -388,14 +513,14 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         return self.length()
     
 
-
     def get_all_data(self, exclude_base_key: Optional[bool] = False, _raw: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
         """
         Loads all the Data
         """
         if not self.hset_enabled and not self.base_key:
-            raise NotImplementedError('Cannot get all data from a Redis Cache without a base key')
+            raise NotImplementedError('Cannot get all data from a KVDB Cache without a base key')
         if self.hset_enabled:
+            self._run_expiration_check()
             data = self.cache.hgetall(self.base_key)
             results = {}
             for key, value in data.items():
@@ -428,6 +553,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         #     raise NotImplementedError('Cannot get keys from a Redis Cache without a base key')
         base_pattern = pattern if self.hset_enabled else f'{self.base_key}{pattern}'
         if self.hset_enabled: 
+            self._run_expiration_check()
             keys = self._fetch_hset_keys(decode = True)
             keys = [key for key in keys if re.match(base_pattern, key)]
         else:
@@ -436,14 +562,15 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             keys = [key.replace(f'{self.base_key}.', '') for key in keys]
         return keys
 
-
     def get_all_keys(self, exclude_base_key: Optional[bool] = False, **kwargs) -> List[str]:
         """
         Returns all the Keys
         """
         if not self.base_key:
-            raise NotImplementedError('Cannot get all keys from a Redis Cache without a base key')
-        if self.hset_enabled: return self._fetch_hset_keys(decode = True)
+            raise NotImplementedError('Cannot get all keys from a KVDB Cache without a base key')
+        if self.hset_enabled: 
+            self._run_expiration_check()
+            return self._fetch_hset_keys(decode = True)
         keys = self._fetch_set_keys(decode = True)
         if exclude_base_key:
             keys = [key.replace(f'{self.base_key}.', '') for key in keys]
@@ -454,8 +581,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Returns all the Values
         """
         if not self.base_key:
-            raise NotImplementedError('Cannot get all values from a Redis Cache without a base key')
+            raise NotImplementedError('Cannot get all values from a KVDB Cache without a base key')
         if self.hset_enabled:
+            self._run_expiration_check()
             data = self.cache.hgetall(self.base_key)
             results = []
             for key, value in data.items():
@@ -481,8 +609,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Loads all the Data
         """
         if not self.base_key:
-            raise NotImplementedError('Cannot get all data from a Redis Cache without a base key')
+            raise NotImplementedError('Cannot get all data from a KVDB Cache without a base key')
         if self.hset_enabled:
+            await self._arun_expiration_check()
             data = await self.cache.ahgetall(self.base_key)
             results = {}
             for key, value in data.items():
@@ -512,6 +641,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         base_pattern = pattern if self.hset_enabled else f'{self.base_key}{pattern}'
         if self.hset_enabled: 
+            self._run_expiration_check()
             keys = await self._afetch_hset_keys(decode = True)
             keys = [key for key in keys if re.match(base_pattern, key)]
         else:
@@ -526,8 +656,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Returns all the Keys
         """
         if not self.base_key:
-            raise NotImplementedError('Cannot get all keys from a Redis Cache without a base key')
+            raise NotImplementedError('Cannot get all keys from a KVDB Cache without a base key')
         if self.hset_enabled: 
+            await self._arun_expiration_check()
             return await self._afetch_hset_keys(decode = True)
         keys = await self._afetch_set_keys(decode = True)
         if exclude_base_key:
@@ -539,8 +670,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Returns all the Values
         """
         if not self.base_key:
-            raise NotImplementedError('Cannot get all values from a Redis Cache without a base key')
+            raise NotImplementedError('Cannot get all values from a KVDB Cache without a base key')
         if self.hset_enabled:
+            await self._arun_expiration_check()
             data = await self.cache.ahgetall(self.base_key)
             results = []
             for key, value in data.items():
@@ -565,14 +697,18 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Returns True if the Cache contains the Key
         """
-        if self.hset_enabled: return self.cache.hexists(self.base_key, key)
+        if self.hset_enabled: 
+            self.hset_expiration_check(key)
+            return self.cache.hexists(self.base_key, key)
         return self.cache.client.exists(self.get_key(key))
     
     async def acontains(self, key, **kwargs):
         """
         Returns True if the Cache contains the Key
         """
-        if self.hset_enabled: return await self.cache.ahexists(self.base_key, key)
+        if self.hset_enabled: 
+            await self.ahset_expiration_check(key)
+            return await self.cache.ahexists(self.base_key, key)
         return await self.cache.aexists(self.get_key(key))
     
     def expire(self, key: str, ex: int, **kwargs) -> None:
@@ -580,8 +716,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Expires a Key
         """
         if self.hset_enabled: 
-            logger.warning(f'Cannot expire a key in a hset cache: {self.base_key}.{key}')
-            return
+            # logger.warning(f'Cannot expire a key in a hset cache: {self.base_key}.{key}')
+            return self.hset_expire(key, ex)
         self.cache.client.expire(self.get_key(key), ex)
 
     async def aexpire(self, key: str, ex: int, **kwargs) -> None:
@@ -589,8 +725,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Expires a Key
         """
         if self.hset_enabled: 
-            logger.warning(f'Cannot expire a key in a hset cache: {self.base_key}.{key}')
-            return
+            # logger.warning(f'Cannot expire a key in a hset cache: {self.base_key}.{key}')
+            return await self.ahset_expire(key, ex)
             # await self.cache.aexpire(self.base_key, ex)
         await self.cache.aexpire(self.get_key(key), ex)
     
@@ -598,12 +734,16 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Loads all the Data
         """
+        results = {}
         if self.hset_enabled:
+            self._run_expiration_check()
             data = self.cache.hgetall(self.base_key)
+            exp_index = self.cache.hgetall(self.exp_index_key)
+            if exp_index: results['_exp_'] = {k: int(v) for k, v in exp_index.items()}
         else:
             keys = self._fetch_set_keys(decode = False)
             data = self.cache.mget(keys)
-        results = {}
+        
         for key, value in data.items():
             if isinstance(key, bytes): key = key.decode()
             if not exclude_base_key:
@@ -624,12 +764,16 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Exports all the Data in Raw Format
         """
+        results = {}
         if self.hset_enabled:
+            await self._arun_expiration_check()
             data = await self.cache.ahgetall(self.base_key)
+            exp_index = await self.cache.ahgetall(self.exp_index_key)
+            if exp_index: results['_exp_'] = {k: int(v) for k, v in exp_index.items()}
         else:
             keys = await self._afetch_set_keys(decode = False)
             data = await self.cache.amget(keys)
-        results = {}
+        
         for key, value in data.items():
             if isinstance(key, bytes): key = key.decode()
             if not exclude_base_key:
@@ -653,6 +797,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         ex = kwargs.get('ex') if 'ex' in kwargs else self.expiration
         hexed = data.pop('_hexed_', [])
+        exp_index = data.pop('_exp_', {})
         for key in hexed:
             try:
                 data[key] = binascii.unhexlify(data[key])
@@ -663,11 +808,14 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             if includes_base_key:
                 data = {k.replace(f'{self.base_key}{self.keyjoin}', ''): v for k, v in data.items()}
             self.cache.hset(self.base_key, mapping = data)
-            if ex is not None: self.cache.expire(self.base_key, ex)
+            if exp_index: self.cache.hset(self.exp_index_key, mapping = exp_index)
+            elif ex is not None: self.cache.expire(self.base_key, ex)
+            # if ex is not None: self.cache.expire(self.base_key, ex)
             return
         if not includes_base_key:
             data = {self.get_key(k): v for k, v in data.items()}
         self.cache.mset(data)
+        
     
     async def aload_data_raw(self, data: Dict[str, Any], includes_base_key: Optional[bool] = False, **kwargs):
         # sourcery skip: default-get
@@ -677,6 +825,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         ex = kwargs.get('ex') if 'ex' in kwargs else self.expiration
         hexed = data.pop('_hexed_', [])
+        exp_index = data.pop('_exp_', {})
         for key in hexed:
             try:
                 data[key] = binascii.unhexlify(data[key])
@@ -687,7 +836,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             if includes_base_key:
                 data = {k.replace(f'{self.base_key}{self.keyjoin}', ''): v for k, v in data.items()}
             await self.cache.ahset(self.base_key, mapping = data)
-            if ex is not None: await self.cache.aexpire(self.base_key, ex)
+            if exp_index: await self.cache.ahset(self.exp_index_key, mapping = exp_index)
+            elif ex is not None: await self.cache.aexpire(self.base_key, ex)
             return
         if not includes_base_key:
             data = {self.get_key(k): v for k, v in data.items()}
@@ -716,9 +866,11 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             source = KVDBClient.session(name = f'{self.name}_source', url = source, **kwargs)
         if self.hset_enabled:
             data = source.hgetall(self.base_key)
+            exp_index = source.hgetall(self.exp_index_key)
             if data:
                 logger.info(f'[{self.base_key}] Replicating [{len(data)}] Data from {source.name} to {self.name}')
                 self.cache.hset(self.base_key, mapping = data)
+                if exp_index: self.cache.hset(self.exp_index_key, mapping = exp_index)
         else:
             keys = source.keys(f'{self.base_key}{self.keyjoin}*')
             data = source.mget(keys)
@@ -735,9 +887,11 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             source = KVDBClient.session(name = f'{self.name}_source', url = source, **kwargs)
         if self.hset_enabled:
             data = await source.ahgetall(self.base_key)
+            exp_index = source.hgetall(self.exp_index_key)
             if data:
                 logger.info(f'[{self.base_key}] Replicating [{len(data)}] Data from {source.name} to {self.name}')
                 await self.cache.ahset(self.base_key, mapping = data)
+                if exp_index: await self.cache.ahset(self.exp_index_key, mapping = exp_index)
         else:
             keys = await source.akeys(f'{self.base_key}{self.keyjoin}*')
             data = await source.amget(keys)
