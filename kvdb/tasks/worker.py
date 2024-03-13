@@ -403,7 +403,7 @@ class TaskWorker(abc.ABC):
         existing_jobs = [
             job
             for job in self.job_task_contexts
-            if job.get_duration("running") >= millis(abort_threshold)
+            if (job.get_duration("running") or 0.0) >= millis(abort_threshold)
         ]
         if not existing_jobs: return
         jobs_by_queues = await self.sort_jobs(existing_jobs)
