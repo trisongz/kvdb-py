@@ -739,7 +739,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             self._run_expiration_check()
             data = self.cache.hgetall(self.base_key)
             exp_index = self.cache.hgetall(self.exp_index_key)
-            if exp_index: results['_exp_'] = {k: int(v) for k, v in exp_index.items()}
+            if exp_index: results['_exp_'] = {str(k): int(v) for k, v in exp_index.items()}
         else:
             keys = self._fetch_set_keys(decode = False)
             data = self.cache.mget(keys)
@@ -769,7 +769,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             await self._arun_expiration_check()
             data = await self.cache.ahgetall(self.base_key)
             exp_index = await self.cache.ahgetall(self.exp_index_key)
-            if exp_index: results['_exp_'] = {k: int(v) for k, v in exp_index.items()}
+            if exp_index: results['_exp_'] = {str(k): int(v) for k, v in exp_index.items()}
         else:
             keys = await self._afetch_set_keys(decode = False)
             data = await self.cache.amget(keys)
