@@ -1139,6 +1139,64 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             value: Set = await self.aget(key, default = set())
             return [] if len(value) < count else list(value)[:count]
         return await self.cache.aspop(self.get_key(key), count = count, **kwargs)
+    
+
+    def migrate_schema(self, schema_map: Dict[str, str], overwrite: Optional[bool] = False, **kwargs) -> None:
+        """
+        Migrates the schema of the current object to the new schema
+        """
+        if self.serializer.name != 'json': 
+            raise ValueError(f'Cannot migrate schema for {self.serializer.name} serializer')
+        logger.info(f'Migrating schema for {self.name} using {schema_map}')
+        results = {}
+        if self.hset_enabled:
+            self._run_expiration_check()
+            data = self.cache.hgetall(self.base_key)
+        else:
+            keys = self._fetch_set_keys(decode = False)
+            data = self.cache.mget(keys)
+
+        for key, value in data.items():
+            if isinstance(key, bytes): key = key.decode()
+            try:
+                value = self.serializer.decode(value, schema_map = schema_map)
+            except Exception as e:
+                logger.trace(f'Error Decoding Value: ({type(value)}) {str(value)[:1000]}', e)
+                raise e
+            results[key] = self.serializer.encode(value)
+        
+        if self.hset_enabled: self.cache.hmset(self.base_key, mapping = results)
+        else: self.cache.mset(results)
+        logger.info(f'Completed Migration for {self.name} with {len(results)} results')
+        return results
+
+    async def amigrate_schema(self, schema_map: Dict[str, str], overwrite: Optional[bool] = False, **kwargs) -> None:
+        """
+        Migrates the schema of the current object to the new schema
+        """
+        if self.serializer.name != 'json': raise ValueError(f'Cannot migrate schema for {self.serializer.name} serializer')
+        logger.info(f'Migrating schema for {self.name} using {schema_map}')
+        results = {}
+        if self.hset_enabled:
+            self._run_expiration_check()
+            data = await self.cache.ahgetall(self.base_key)
+        else:
+            keys = await self._afetch_set_keys(decode = False)
+            data = await self.cache.amget(keys)
+
+        for key, value in data.items():
+            if isinstance(key, bytes): key = key.decode()
+            try:
+                value = await self.serializer.adecode(value, schema_map = schema_map)
+            except Exception as e:
+                logger.trace(f'Error Decoding Value: ({type(value)}) {str(value)[:1000]}', e)
+                raise e
+            results[key] = await self.serializer.aencode(value)
+        
+        if self.hset_enabled: await self.cache.ahmset(self.base_key, mapping = results)
+        else: await self.cache.amset(results)
+        logger.info(f'Completed Migration for {self.name} with {len(results)} results')
+        return results
 
 
 

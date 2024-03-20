@@ -9,7 +9,7 @@ from kvdb.types.generic import (
     ENCODER_SERIALIZER_PREFIX_BYTES,
     ENCODER_SERIALIZER_PREFIX_BYTES_LEN,
 )
-from .base import BaseSerializer, ObjectValue, SchemaType, BaseModel, ModuleType, logger
+from .base import BaseSerializer, ObjectValue, SchemaType, BaseModel, ModuleType, logger, DataError, Pooler
 from .utils import is_primitive, serialize_object, deserialize_object
 
 try:
@@ -145,7 +145,21 @@ class JsonSerializer(BaseSerializer):
                 value = value[ENCODER_SERIALIZER_PREFIX_LEN:]
         return value
 
-    def decode_value(self, value: str, **kwargs) -> Union[SchemaType, Dict, Any]:
+    def decode(self, value: Union[str, bytes], schema_map: Optional[Dict[str, str]] = None, **kwargs) -> ObjectValue:
+        """
+        Decodes the value
+        """
+        try:
+            decompressed_value = self.decompress_value(value, **kwargs)
+            if decompressed_value is not None:
+                value = decompressed_value
+        except Exception as e:
+            if self.raise_errors: raise DataError(f"[{self.name}] Error in Decompression: {str(value)[:100]}") from e
+            # return self.decode_value(value, **kwargs)
+        return self.decode_value(value, **kwargs)
+    
+    
+    def decode_value(self, value: str, schema_map: Optional[Dict[str, str]] = None, **kwargs) -> Union[SchemaType, Dict, Any]:
         """
         Decode the value with the JSON Library
         """
@@ -159,7 +173,7 @@ class JsonSerializer(BaseSerializer):
                 # logger.trace(f'Error JSON Decoding Value: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
             if self.raise_errors: raise e
         try:
-            return deserialize_object(value)
+            return deserialize_object(value, schema_map = schema_map)
         except Exception as e:
             if not self.is_encoder: 
                 # logger.trace(f'Error Deserializing Object: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
@@ -167,6 +181,12 @@ class JsonSerializer(BaseSerializer):
             if self.raise_errors: raise e
         return None
 
+
+    async def adecode(self, value: Union[str, bytes], schema_map: Optional[Dict[str, str]] = None,  **kwargs) -> ObjectValue:
+        """
+        Decodes the value asynchronously
+        """
+        return await Pooler.arun(self.decode, value, schema_map = schema_map,**kwargs)
 
         
     

@@ -31,7 +31,7 @@ class KVDBException(Exception):
         **kwargs,
     ):
         
-        self.msg = msg
+        self.msg = msg or ''
         self.source_error = source_error
         if source_error is not None: self.msg += f'\n{source_error}'
         if fatal is not None: self.fatal = fatal

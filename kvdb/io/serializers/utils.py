@@ -210,7 +210,8 @@ def serialize_object(
     raise TypeError(f"Cannot serialize object of type {type(obj)}")
 
 
-def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any]) -> SerializableObject:
+def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any], schema_map: Optional[Dict[str, str]] = None) -> SerializableObject:
+    # sourcery skip: extract-duplicate-method
     """
     Deserialize an object
 
@@ -227,9 +228,14 @@ def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any]) ->
         
         obj_type = obj["__type__"]
         obj_value = obj["value"]
+        if '__class__' in obj and schema_map is not None and obj['__class__'] in schema_map:
+            obj['__class__'] = schema_map[obj['__class__']]
+
 
         if obj_type == "pydantic":
-            obj_class = get_object_class(obj["__class__"])
+            obj_class_type = obj["__class__"]
+            
+            obj_class = get_object_class(obj_class_type)
             # for k,v in obj_value.items():
             #     if not is_primitive(v):
             #         obj_value[k] = deserialize_object(v)
@@ -250,6 +256,8 @@ def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any]) ->
         
         if obj_type == "dataclass":
             obj_class_type = obj["__class__"]
+            # if schema_map is not None and obj_class_type in schema_map:
+            #     obj_class_type = schema_map[obj_class_type]
             obj_class = get_object_class(obj_class_type)
             return obj_class(**obj_value)
         
