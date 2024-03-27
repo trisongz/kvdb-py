@@ -145,7 +145,7 @@ class JsonSerializer(BaseSerializer):
                 value = value[ENCODER_SERIALIZER_PREFIX_LEN:]
         return value
 
-    def decode(self, value: Union[str, bytes], schema_map: Optional[Dict[str, str]] = None, **kwargs) -> ObjectValue:
+    def decode(self, value: Union[str, bytes], schema_map: Optional[Dict[str, str]] = None, raise_errors: Optional[bool] = None, **kwargs) -> ObjectValue:
         """
         Decodes the value
         """
@@ -154,12 +154,12 @@ class JsonSerializer(BaseSerializer):
             if decompressed_value is not None:
                 value = decompressed_value
         except Exception as e:
-            if self.raise_errors: raise DataError(f"[{self.name}] Error in Decompression: {str(value)[:100]}") from e
+            if raise_errors or self.raise_errors: raise DataError(f"[{self.name}] Error in Decompression: {str(value)[:100]}") from e
             # return self.decode_value(value, **kwargs)
-        return self.decode_value(value, **kwargs)
+        return self.decode_value(value, schema_map = schema_map, raise_errors = raise_errors, **kwargs)
     
     
-    def decode_value(self, value: str, schema_map: Optional[Dict[str, str]] = None, **kwargs) -> Union[SchemaType, Dict, Any]:
+    def decode_value(self, value: str, schema_map: Optional[Dict[str, str]] = None, raise_errors: Optional[bool] = None, **kwargs) -> Union[SchemaType, Dict, Any]:
         """
         Decode the value with the JSON Library
         """
@@ -171,22 +171,22 @@ class JsonSerializer(BaseSerializer):
             if not self.is_encoder: 
                 logger.info(f'Error JSON Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
                 # logger.trace(f'Error JSON Decoding Value: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
-            if self.raise_errors: raise e
+            if raise_errors or self.raise_errors: raise e
         try:
             return deserialize_object(value, schema_map = schema_map)
         except Exception as e:
             if not self.is_encoder: 
                 # logger.trace(f'Error Deserializing Object: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
                 logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
-            if self.raise_errors: raise e
+            if raise_errors or self.raise_errors: raise e
         return None
 
 
-    async def adecode(self, value: Union[str, bytes], schema_map: Optional[Dict[str, str]] = None,  **kwargs) -> ObjectValue:
+    async def adecode(self, value: Union[str, bytes], schema_map: Optional[Dict[str, str]] = None, raise_errors: Optional[bool] = None, **kwargs) -> ObjectValue:
         """
         Decodes the value asynchronously
         """
-        return await Pooler.arun(self.decode, value, schema_map = schema_map,**kwargs)
+        return await Pooler.arun(self.decode, value, schema_map = schema_map, raise_errors = raise_errors, **kwargs)
 
         
     

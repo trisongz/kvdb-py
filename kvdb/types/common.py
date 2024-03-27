@@ -73,6 +73,16 @@ class AppEnv(str, Enum):
             return cls.LOCAL
         raise ValueError(f"Invalid app environment: {env_value} ({type(env_value)})")
     
+    @classmethod
+    def from_hostname(cls, hostname: str) -> "AppEnv":
+        """
+        Get the app environment from the hostname
+        """
+        hostname = hostname.lower()
+        if "dev" in hostname: return cls.DEVELOPMENT
+        if "staging" in hostname: return cls.STAGING
+        return cls.LOCAL if "local" in hostname else cls.PRODUCTION
+    
     def __eq__(self, other: Any) -> bool:
         """
         Equality operator

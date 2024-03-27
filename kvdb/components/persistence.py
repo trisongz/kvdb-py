@@ -1147,7 +1147,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         if self.serializer.name != 'json': 
             raise ValueError(f'Cannot migrate schema for {self.serializer.name} serializer')
-        logger.info(f'Migrating schema for {self.name} using {schema_map}')
+        # logger.info(f'Migrating schema for {self.name} using {schema_map}')
+        from lazyops.utils import Timer
+        t = Timer()
         results = {}
         if self.hset_enabled:
             self._run_expiration_check()
@@ -1155,11 +1157,11 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         else:
             keys = self._fetch_set_keys(decode = False)
             data = self.cache.mget(keys)
-
+        logger.info(f'Migrating schema for {self.name} using {schema_map} with {len(data)} results')
         for key, value in data.items():
             if isinstance(key, bytes): key = key.decode()
             try:
-                value = self.serializer.decode(value, schema_map = schema_map)
+                value = self.serializer.decode(value, schema_map = schema_map, raise_errors = True)
             except Exception as e:
                 logger.trace(f'Error Decoding Value: ({type(value)}) {str(value)[:1000]}', e)
                 raise e
@@ -1167,7 +1169,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         
         if self.hset_enabled: self.cache.hmset(self.base_key, mapping = results)
         else: self.cache.mset(results)
-        logger.info(f'Completed Migration for {self.name} with {len(results)} results')
+        logger.info(f'Completed Migration for {self.name} with {len(results)} results in {t.total_s}')
         return results
 
     async def amigrate_schema(self, schema_map: Dict[str, str], overwrite: Optional[bool] = False, **kwargs) -> None:
@@ -1175,19 +1177,20 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Migrates the schema of the current object to the new schema
         """
         if self.serializer.name != 'json': raise ValueError(f'Cannot migrate schema for {self.serializer.name} serializer')
-        logger.info(f'Migrating schema for {self.name} using {schema_map}')
+        from lazyops.utils import Timer
+        t = Timer()
         results = {}
         if self.hset_enabled:
-            self._run_expiration_check()
+            await self._arun_expiration_check()
             data = await self.cache.ahgetall(self.base_key)
         else:
             keys = await self._afetch_set_keys(decode = False)
             data = await self.cache.amget(keys)
-
+        logger.info(f'Migrating schema for {self.name} using {schema_map} with {len(data)} results')
         for key, value in data.items():
             if isinstance(key, bytes): key = key.decode()
             try:
-                value = await self.serializer.adecode(value, schema_map = schema_map)
+                value = await self.serializer.adecode(value, schema_map = schema_map, raise_errors = True)
             except Exception as e:
                 logger.trace(f'Error Decoding Value: ({type(value)}) {str(value)[:1000]}', e)
                 raise e
@@ -1195,7 +1198,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         
         if self.hset_enabled: await self.cache.ahmset(self.base_key, mapping = results)
         else: await self.cache.amset(results)
-        logger.info(f'Completed Migration for {self.name} with {len(results)} results')
+        logger.info(f'Completed Migration for {self.name} with {len(results)} results in {t.total_s}')
         return results
 
 

@@ -744,6 +744,7 @@ class Cachify(KVDBCachifyConfig):
         """
         Safely wraps the function
         """
+        
         if self.is_async and self.has_async_loop:
             with anyio.move_on_after(self.timeout):
                 yield
@@ -1619,7 +1620,11 @@ class Cachify(KVDBCachifyConfig):
         """
         Performs the decorator
         """
-        if not self.is_enabled: return function
+        try:
+            if not self.is_enabled: return function
+        except Exception as e:
+            logger.error(f'Error in Cachify Function {function.__name__}: {e}')
+            return function
         if self.verbosity and self.verbosity > 4:
             logger.info(f'[{self.cache_field}] Cachifying Function: {get_function_name(function)} ({is_coro_func(function)}), {self.model_dump()}')
         if is_coro_func(function):

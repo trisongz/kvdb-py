@@ -6,6 +6,7 @@ import uuid
 import inspect
 import signal
 import xxhash
+import threading
 import functools
 from lazyops.libs.pooler import ensure_coro, is_coro_func
 from lazyops.utils.lazy import (
@@ -184,6 +185,12 @@ def patch_parent_class_obj(
         setattr(child, '__bases__', new_bases)
         globals()[child.__class__.__name__] = child
 
+def is_main_thread() -> bool:
+    """
+    Checks if the current thread is the main thread
+    """
+    return threading.current_thread() is threading.main_thread()
+
 
 # https://stackoverflow.com/questions/2281850/timeout-function-if-it-takes-too-long-to-finish
 class timeout:
@@ -208,9 +215,15 @@ class timeout:
             raise TimeoutError(self.error_message)
     
     def __enter__(self):
-        signal.signal(signal.SIGALRM, self.handle_timeout)
-        signal.alarm(self.seconds)
+        if is_main_thread():
+            signal.signal(signal.SIGALRM, self.handle_timeout)
+            signal.alarm(self.seconds)
+        else:
+            from kvdb.utils.logs import logger
+            logger.warning(f'Timeout is not supported in {threading.current_thread().name}')
     
     def __exit__(self, type, value, traceback):
-        signal.alarm(0)
+        if is_main_thread():
+            signal.alarm(0)
+            
 

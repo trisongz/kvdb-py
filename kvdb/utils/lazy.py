@@ -55,8 +55,12 @@ def get_app_env() -> 'AppEnv':
     
     from lazyops.utils.system import is_in_kubernetes, get_host_name
     if is_in_kubernetes():
-        parts = get_host_name().split("-")
-        return AppEnv.from_env(parts[2]) if len(parts) > 3 else AppEnv.PRODUCTION
+        hn = get_host_name()
+        try:
+            parts = hn.split("-")
+            return AppEnv.from_env(parts[2]) if len(parts) > 3 else AppEnv.PRODUCTION
+        except Exception as e:
+            return AppEnv.from_hostname(hn)
     return AppEnv.LOCAL
 
 temp_data: 'TemporaryData' = ProxyObject(obj_getter = get_temp_data)
