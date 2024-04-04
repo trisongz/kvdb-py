@@ -18,9 +18,9 @@ from kvdb.types.base import BaseModel
 from kvdb.types.common import CachePolicy
 from kvdb.types.generic import ENOVAL
 from kvdb.configs.caching import KVDBCachifyConfig
-from kvdb.utils.logs import logger
+from kvdb.utils.logs import logger, null_logger
 from kvdb.utils.lazy import lazy_import
-from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method, get_parent_object_class_names
+from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method, get_parent_object_class_names, get_object_child_class_names
 from kvdb.utils.helpers import create_cache_key_from_kwargs, is_coro_func, ensure_coro, full_name, timeout as timeout_ctx, is_classmethod
 from lazyops.utils import timed_cache
 from lazyops.utils.lazy import get_function_name
@@ -34,6 +34,27 @@ from .base import Cachify, ReturnValue, ReturnValueT, FunctionT, FuncT, FuncP
 if TYPE_CHECKING:
     from kvdb.components.client import ClientT
     from kvdb.components.session import KVDBSession
+    from kvdb.tasks.types import ObjectType
+
+
+
+def create_register_abstract_object_subclass_function(
+    obj: 'ObjectType',
+) -> 'ObjectType':
+    """
+    Adds a function to the abstract object subclass
+    """
+    # @classmethod
+    def __init_cachify_subclass__(cls, **kwargs):
+        cls._cachify_subclasses.append(cls)
+        cls.__init_src_subclass__(**kwargs)
+    
+    if not hasattr(obj, '_cachify_subclasses'):
+        setattr(obj, '_cachify_subclasses', [])
+        setattr(obj, '__init_src_subclass__', obj.__init_subclass__)
+        setattr(obj, '__init_subclass__', __init_cachify_subclass__)
+    return obj
+
 
 class CachifyContext(abc.ABC):
     """
@@ -69,6 +90,7 @@ class CachifyContext(abc.ABC):
         self.config.update_config(**cache_config)
         self.configure_classes(cachify_class = cachify_class, is_init = True)
         self.registered_cachify_object: Dict[str, Dict[str, Dict]] = {}
+        self.registered_cachify_validation_func: Dict[str, str] = {}
         self.logger = self.settings.logger
         self.autologger = self.settings.autologger
         self.verbose: Optional[bool] = kwargs.get('verbose', self.settings.debug_enabled)
@@ -207,43 +229,90 @@ class CachifyContext(abc.ABC):
             return func
         return decorator
 
-    def register_object(self, **_kwargs) -> ModuleType:
+
+    def register_object(
+        self, 
+        validator_function_name: Optional[str] = None,
+        debug_enabled: Optional[bool] = None,
+        **_kwargs
+    ) -> ModuleType:
         """
         Register the underlying object
         """
         partial_kws = {k:v for k,v in _kwargs.items() if v is not None}
+        validator_function_name = validator_function_name or 'validate_cachify'
+        autologger = logger if debug_enabled else null_logger
 
         def object_decorator(obj: ModuleType) -> ModuleType:
             """
             The decorator that patches the object
             """
             _obj_id = f'{obj.__module__}.{obj.__name__}'
+            autologger.info(f'Registering |g|{_obj_id}|e|', colored = True)
             patch_object_for_kvdb(obj)
-            if _obj_id not in self.registered_cachify_object: self.registered_cachify_object[_obj_id] = {}
-            # parent_obj_names = get_parent_object_class_names(obj)
 
-            if not hasattr(obj, '__cachify_init__'):    
+            # create_register_abstract_object_subclass_function(obj)
+            if _obj_id not in self.registered_cachify_object: self.registered_cachify_object[_obj_id] = {}
+            if _obj_id not in self.registered_cachify_validation_func: self.registered_cachify_validation_func[_obj_id] = validator_function_name
+
+            if not hasattr(obj, '__cachify_init__'):
+
                 def __cachify_init__(_self, obj_id: str, *args, **kwargs):
                     """
                     Initializes the object
                     """
+                    parent_obj_names = get_parent_object_class_names(obj, _obj_id)
+                    __obj_id = f'{_self.__class__.__module__}.{_self.__class__.__name__}'
+                    __obj_bases = [f'{base.__module__}.{base.__name__}' for base in _self.__class__.__bases__]
+                    __obj_bases = [o for o in __obj_bases if o != __obj_id and o not in parent_obj_names]
+
+                    autologger.info(f'Initializing |g|{__obj_id}|e| with bases: {__obj_bases}', colored = True)
+                    autologger.info(f'Parent Objects: {parent_obj_names}, for {_obj_id}, {_self.__cachify_subcls__}', prefix = __obj_id, colored = True)
+                    
                     cachify_functions = {}
-                    # cachify_functions = self.registered_cachify_object[obj_id]
-                    validate_cachify_func = getattr(_self, 'validate_cachify', None)
 
-                    # if parent_obj_names:
-                    #     for parent_obj_name in parent_obj_names:
-                    #         if parent_obj_name in self.registered_cachify_object:
-                    #             logger.info(f'Found parent object {parent_obj_name} for {obj_id}')
-                    #             cachify_functions.update(self.registered_cachify_object[parent_obj_name])
+                    # Register the parent functions first
+                    parent_obj_functions = self.registered_cachify_object[obj_id]
+                    parent_obj_validator_func = getattr(_self, self.registered_cachify_validation_func[obj_id], None)
+                    cachify_validators = {
+                        f: parent_obj_validator_func
+                        for f in parent_obj_functions
+                    }
 
-                    cachify_functions.update(self.registered_cachify_object[obj_id])
+                    cachify_functions.update(parent_obj_functions)
+
+                    # Handle Subclass level objects
+                    for sub_obj_id in _self.__cachify_subcls__:
+                        subcls_functions = self.registered_cachify_object[sub_obj_id]
+                        subcls_validator_func = getattr(_self, self.registered_cachify_validation_func[sub_obj_id], None)
+                        cachify_validators.update({
+                            f: subcls_validator_func
+                            for f in subcls_functions
+                        })
+                        cachify_functions.update(subcls_functions)
+                    
+                    # Handle Base Class level objects
+                    for base_obj_id in __obj_bases:
+                        base_obj_functions = self.registered_cachify_object[base_obj_id]
+                        base_obj_validator_func = getattr(_self, self.registered_cachify_validation_func[base_obj_id], None)
+                        cachify_validators.update({
+                            f: base_obj_validator_func
+                            for f in base_obj_functions
+                        })
+                        cachify_functions.update(base_obj_functions)
+                    
+                    # Now we do the actual patching
                     for func, task_partial_kws in cachify_functions.items():
+                        if not hasattr(_self, func): 
+                            autologger.info(f'Skipping {func} for {__obj_id}')
+                            continue
+                        
+                        autologger.info(f'Patching {func} for {__obj_id}')
                         func_kws = partial_kws.copy()
                         func_kws.update(task_partial_kws)
 
-                        if validate_cachify_func is not None:
-                            func_kws = validate_cachify_func(func, **func_kws)
+                        if cachify_validators[func] is not None:
+                            func_kws = cachify_validators[func](func, **func_kws)
                             if func_kws is None: continue
                         
                         if 'function_name' not in func_kws:
@@ -252,10 +321,18 @@ class CachifyContext(abc.ABC):
                         patched_func = self.register(function = getattr(_self, func), **func_kws)
                         setattr(_self, func, patched_func)
 
+
                 setattr(obj, '__cachify_init__', __cachify_init__)
+                setattr(obj, '__cachify_subcls__', [])
                 obj.__kvdb_initializers__.append('__cachify_init__')
+            else:
+                obj.__cachify_subcls__.append(_obj_id)
+            
             return obj
         return object_decorator
+    
+
+
     
 
     @overload

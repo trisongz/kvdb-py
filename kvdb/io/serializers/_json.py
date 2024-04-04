@@ -164,20 +164,21 @@ class JsonSerializer(BaseSerializer):
         Decode the value with the JSON Library
         """
         if value is None: return None
-        try:
-            # value = self.check_encoded_value(value)
-            value = self.jsonlib.loads(value, **kwargs)
-        except Exception as e:
-            if not self.is_encoder: 
-                logger.info(f'Error JSON Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
-                # logger.trace(f'Error JSON Decoding Value: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
-            if raise_errors or self.raise_errors: raise e
+        if isinstance(value, (str, bytes)):
+            try:
+                # value = self.check_encoded_value(value)
+                value = self.jsonlib.loads(value, **kwargs)
+            except Exception as e:
+                if not self.is_encoder: 
+                    logger.info(f'Error JSON Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+                    # logger.trace(f'Error JSON Decoding Value: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
+                if raise_errors or self.raise_errors: raise e
         try:
             return deserialize_object(value, schema_map = schema_map)
         except Exception as e:
             if not self.is_encoder: 
-                # logger.trace(f'Error Deserializing Object: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
-                logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+                logger.trace(f'Error Deserializing Object: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
+                # logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if raise_errors or self.raise_errors: raise e
         return None
 
@@ -186,7 +187,12 @@ class JsonSerializer(BaseSerializer):
         """
         Decodes the value asynchronously
         """
+        # try:
         return await Pooler.arun(self.decode, value, schema_map = schema_map, raise_errors = raise_errors, **kwargs)
+        # except Exception as e:
+        #     if 'unhashable type' in str(e):
+        #         return self.decode(value, schema_map = schema_map, raise_errors = raise_errors, **kwargs)
+        #     raise e
 
         
     
