@@ -283,6 +283,7 @@ class CachifyContext(abc.ABC):
 
                     # Handle Subclass level objects
                     for sub_obj_id in _self.__cachify_subcls__:
+                        if sub_obj_id not in self.registered_cachify_object: continue
                         subcls_functions = self.registered_cachify_object[sub_obj_id]
                         subcls_validator_func = getattr(_self, self.registered_cachify_validation_func[sub_obj_id], None)
                         cachify_validators.update({
@@ -293,6 +294,7 @@ class CachifyContext(abc.ABC):
                     
                     # Handle Base Class level objects
                     for base_obj_id in __obj_bases:
+                        if base_obj_id not in self.registered_cachify_object: continue
                         base_obj_functions = self.registered_cachify_object[base_obj_id]
                         base_obj_validator_func = getattr(_self, self.registered_cachify_validation_func[base_obj_id], None)
                         cachify_validators.update({
