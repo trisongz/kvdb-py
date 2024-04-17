@@ -147,6 +147,7 @@ class KVDBSessionManager(abc.ABC, Singleton):
         name: str,
         url: Optional[Union[str, 'KVDBUrl']] = None,
         serializer_config: Optional[Dict[str, Any]] = None,
+        disable_store: Optional[bool] = None,
         **kwargs,
     ) -> SessionPools:
         """
@@ -195,7 +196,7 @@ class KVDBSessionManager(abc.ABC, Singleton):
                 url, max_connections = apool_max_connections, **pool_config,
             ),
         )
-        self.pools[url.key] = pool
+        if not disable_store: self.pools[url.key] = pool
         return pool
 
     """
@@ -207,6 +208,7 @@ class KVDBSessionManager(abc.ABC, Singleton):
         name: Optional[str] = 'default',
         url: Optional[Union[str, 'KVDBUrl']] = None,
         db_id: Optional[int] = None,
+        disable_store: Optional[bool] = None,
         **kwargs,
     ) -> 'KVDBSession':
         """
@@ -234,7 +236,7 @@ class KVDBSessionManager(abc.ABC, Singleton):
         kwargs = {k : v for k, v in kwargs.items() if k not in client_config}
 
         # Get the pool
-        pool = self.get_pool(name, url, serializer_config = serializer_config, **kwargs)
+        pool = self.get_pool(name, url, serializer_config = serializer_config, disable_store = disable_store, **kwargs)
         if serializer_config: client_config.update(serializer_config)
         # self.autologger.info(f'Creating new KVDB Session with name {name} and url {url}, with client config {client_config} and kwargs {kwargs}')
         return self.session_class(
@@ -804,6 +806,10 @@ class KVDBSessionManager(abc.ABC, Singleton):
         with self.with_session(session_ctx) as session:
             return getattr(session, _function)(*args, **kwargs)
     
+    """
+    Copy / Clone Methods
+    """
+
     
 
 

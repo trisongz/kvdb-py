@@ -170,14 +170,18 @@ class JsonSerializer(BaseSerializer):
                 value = self.jsonlib.loads(value, **kwargs)
             except Exception as e:
                 if not self.is_encoder: 
-                    logger.info(f'Error JSON Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
+                    str_value = str(value)
+                    if not schema_map: str_value = str_value[:1000]
+                    logger.info(f'Error JSON Decoding Value: |r|({type(value)}) {e}|e| {str_value}', colored = True, prefix = self.jsonlib_name)
                     # logger.trace(f'Error JSON Decoding Value: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
                 if raise_errors or self.raise_errors: raise e
         try:
             return deserialize_object(value, schema_map = schema_map)
         except Exception as e:
             if not self.is_encoder: 
-                logger.trace(f'Error Deserializing Object: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
+                str_value = str(value)
+                if not schema_map: str_value = str_value[:1000]
+                logger.trace(f'Error Deserializing Object: ({type(value)}) {str_value}', e, prefix = self.jsonlib_name)
                 # logger.info(f'Error Decoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
             if raise_errors or self.raise_errors: raise e
         return None

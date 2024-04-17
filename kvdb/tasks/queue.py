@@ -39,6 +39,7 @@ from kvdb.utils.helpers import (
     seconds, 
     ensure_coro,
 )
+from .debug import get_autologger
 from typing import (
     Dict, 
     Any, 
@@ -66,6 +67,7 @@ if TYPE_CHECKING:
     from .worker import TaskWorker
 
 
+autologger = get_autologger('queue')
 
 class TaskQueue(abc.ABC):
 
@@ -1313,7 +1315,10 @@ class TaskQueue(abc.ABC):
         """
         Returns the worker ids
         """
-        return await self.data.aget_keys('heartbeats:*', exclude_base_key = True)
+        ids: List[str] = await self.data.aget_keys('heartbeats:*', exclude_base_key = True)
+        return [k.rsplit(':', 1)[-1] for k in ids] if ids else []
+        # self.queue_settings.logger.info(f'IDS: {ids}')
+        # return ids
     
     async def get_worker_names(self) -> List[str]:
         """

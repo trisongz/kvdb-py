@@ -22,6 +22,7 @@ from .types import (
 )
 
 from .utils import AttributeMatchType, get_func_name
+from .debug import get_autologger
 from . import wraps
 
 if TYPE_CHECKING:
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
 
 
 JobResultT = TypeVar('JobResultT')
+
+autologger = get_autologger('tasks')
 
 class QueueTasks(abc.ABC):
     """
@@ -129,6 +132,7 @@ class QueueTasks(abc.ABC):
             func.configure_cronjob(self.cronjob_class, cron_schedules = cron_schedules, queue_name = self.queue_name, **kwargs)
             if log_next_run and not self.task_settings.temp_data.has_logged(f'cron:{func.function_name}'):
                 func.cronjob.get_next_cron_run_data(verbose = True)
+                autologger.info(f'[{self.queue_name}] [CRON] {func.name} - {func.function_name}')
             cronjobs.append(func)
         return cronjobs
     

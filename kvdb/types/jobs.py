@@ -783,6 +783,28 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
                 )
         )
     
+    def is_stuck(
+        self, 
+        timeout: Optional[int] = None,
+        statuses: Optional[Union[JobStatus, List[JobStatus]]] = None,
+        **kwargs,
+    ) -> bool:
+        """
+        Checks if an active job is past the timeout
+        """
+        timeout = timeout or self.max_stuck_duration
+        if not statuses: statuses = [JobStatus.ACTIVE]
+        else:
+            if not isinstance(statuses, list): statuses = [statuses]
+            statuses = [s if isinstance(s, JobStatus) else JobStatus(s) for s in statuses]
+        current = now()
+        return (self.status in statuses) and (
+                seconds(current - self.started) > timeout
+            or (
+                self.heartbeat and seconds(current - self.touched) > self.heartbeat
+            )
+        )
+
 
     
     @property

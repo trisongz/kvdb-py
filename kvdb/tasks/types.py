@@ -15,6 +15,7 @@ from lazyops.libs.pooler import ThreadPooler
 from lazyops.libs.abcs.utils.helpers import update_dict
 from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, TypeAlias, List, Type, Tuple, Literal, TYPE_CHECKING, overload
 from .utils import AttributeMatchType, determine_match_from_attributes, get_func_name
+from .debug import get_autologger
 
 if TYPE_CHECKING:
     from kvdb.components.session import KVDBSession
@@ -42,6 +43,8 @@ FunctionT = TypeVar('FunctionT', bound = Callable[..., ReturnValueT])
 TaskResult = TypeVar('TaskResult', 'Job', Any, Awaitable[Any])
 TaskPhase = Literal['context', 'dependency', 'startup', 'shutdown']
 
+
+autologger = get_autologger('types')
 
 class TaskFunction(BaseModel):
     """

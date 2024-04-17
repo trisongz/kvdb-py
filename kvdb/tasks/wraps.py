@@ -5,7 +5,7 @@ Wrapper Functions
 """
 import makefun
 import functools
-from kvdb.utils.logs import logger
+from kvdb.utils.logs import logger, null_logger
 from kvdb.utils.helpers import lazy_import, create_cache_key_from_kwargs
 from kvdb.utils.patching import (
     patch_object_for_kvdb, 
@@ -31,6 +31,7 @@ from .types import (
     ObjectType,
 )
 from .utils import AttributeMatchType, get_func_name
+from .debug import get_autologger
 
 if TYPE_CHECKING:
     from kvdb.types.jobs import Job, CronJob
@@ -45,6 +46,8 @@ TaskManager Wrappers
 
 RT = TypeVar('RT')
 P = ParamSpec("P")
+
+autologger = get_autologger('wraps')
 
 def create_unset_task_init_wrapper(
     manager: 'QueueTaskManager',
@@ -88,14 +91,14 @@ def create_unset_task_init_wrapper(
                             _queue_name = _queue_name()
 
                     except Exception as e:
-                        logger.error(f'Error getting queue name {queue_name} {e}')
+                        autologger.error(f'Error getting queue name {queue_name} {e}')
                         _queue_name = manager.default_queue_name
             elif callable(queue_name):
                 _queue_name = queue_name()
             else:
-                logger.error(f'Invalid queue name {queue_name} {type(queue_name)}')
+                autologger.error(f'Invalid queue name {queue_name} {type(queue_name)}')
             
-            logger.info(f'Initializing unset object {_obj_name} {obj_id} {_queue_name} {partial_kws}')
+            autologger.info(f'Initializing unset object {_obj_name} {obj_id} {_queue_name} {partial_kws}')
 
             if isinstance(partial_kws, str):
                 if hasattr(_self, partial_kws):
@@ -114,7 +117,7 @@ def create_unset_task_init_wrapper(
             unset_func_methods: List[Callable] = manager._unset_registered_functions.get(_obj_name, [])
             if unset_func_methods:
                 for src_func in unset_func_methods:
-                    logger.warning(f'Patching unset function {src_func.__name__} {src_func}')
+                    autologger.warning(f'Patching unset function {src_func.__name__} {src_func}')
                     patched_func = queue.register_object_function_method(src_func)
                     setattr(_self, src_func.__name__, patched_func)
 
@@ -188,12 +191,12 @@ def create_task_init_function(
         task_functions = queue_task.registered_task_object[obj_id]
         child_obj_names = get_object_child_class_names(type(_queue_task), obj_id)
         parent_obj_names = get_parent_object_class_names(type(_queue_task), obj_id)
-        # logger.warning(f'[{queue_task.queue_name}] [INIT] {obj_id} {parent_obj_names} {child_obj_names}')
+        autologger.warning(f'[{queue_task.queue_name}] [INIT] {obj_id} {parent_obj_names} {child_obj_names}')
 
         if parent_obj_names:
             queue_task.has_child_objects = True
             for parent_obj_name in parent_obj_names:
-                # logger.info(f'[{queue_task.queue_name}] [PARENT] `{obj_id}` {parent_obj_name} {queue_task.registered_task_object.get(parent_obj_name)}')
+                autologger.info(f'[{queue_task.queue_name}] [PARENT] `{obj_id}` {parent_obj_name} {queue_task.registered_task_object.get(parent_obj_name)}')
                 if parent_obj_name not in queue_task.registered_task_object: 
                     queue_task.registered_task_object[parent_obj_name] = {}
                     continue
@@ -202,11 +205,11 @@ def create_task_init_function(
                 # task_functions.update(queue_task.registered_task_object[parent_obj_name])
         if child_obj_names:
             for child_obj_name in child_obj_names:
-                # logger.info(f'[{queue_task.queue_name}] [CHILD] `{obj_id}` {child_obj_name} {queue_task.registered_task_object.get(child_obj_name)}')
+                # autologger.info(f'[{queue_task.queue_name}] [CHILD] `{obj_id}` {child_obj_name} {queue_task.registered_task_object.get(child_obj_name)}')
                 if child_obj_name not in queue_task.registered_task_object: 
                     queue_task.registered_task_object[child_obj_name] = {}
                     continue
-                # logger.info(f'[{queue_task.queue_name}] [CHILD] `{obj_id}` {child_obj_name} {queue_task.registered_task_object[child_obj_name]}')
+                # autologger.info(f'[{queue_task.queue_name}] [CHILD] `{obj_id}` {child_obj_name} {queue_task.registered_task_object[child_obj_name]}')
                 task_functions.update({k:v for k,v in queue_task.registered_task_object[child_obj_name].items() if k not in task_functions})
                 # task_functions.update(queue_task.registered_task_object[child_obj_name])
 
@@ -225,7 +228,7 @@ def create_task_init_function(
         for func, task_partial_kws in task_functions.items():
             func_kws = partial_kws.copy()
             func_kws.update(task_partial_kws)
-            logger.warning(f'[{queue_task.queue_name}] [TASK] {obj_id} {func} {func_kws}')
+            autologger.warning(f'[{queue_task.queue_name}] [TASK] {obj_id} {func} {func_kws}')
 
             if worker_attributes is not None:
                 func_kws['worker_attributes'] = worker_attributes
@@ -238,6 +241,8 @@ def create_task_init_function(
                     func_kws = validate_cronjob_func(func, **func_kws)
                     if not func_kws: continue
                 if cron_name_func: func_kws['name'] = cron_name_func(src_func)
+                elif function_name_func: func_kws['name'] = function_name_func(src_func)
+                # autologger.warning(f'[{queue_task.queue_name}] [CRON] {obj_id} {func} {func_kws}')
             else:
                 if validate_function_func is not None:
                     func_kws = validate_function_func(func, **func_kws)
@@ -253,7 +258,7 @@ def create_task_init_function(
                     queue_task.child_object_mapping[_src_func_name] = _func_name
 
             
-            logger.error(f'[{queue_task.queue_name}] [SET] {obj_id} {func} {func_kws}')
+            autologger.error(f'[{queue_task.queue_name}] [SET] {obj_id} {func} {func_kws}')
             out_func = queue_task.register(function = src_func, **func_kws)
             if not func_kws.get('disable_patch'):
                 setattr(_queue_task, func, out_func)
@@ -279,6 +284,7 @@ def create_register_object_wrapper(
         _obj_id = f'{obj.__module__}.{obj.__name__}'
         patch_object_for_kvdb(obj)
         if _obj_id not in queue_task.registered_task_object: queue_task.registered_task_object[_obj_id] = {}
+        autologger.info(f'[{queue_task.queue_name}] [REGISTER] {_obj_id}')
 
         # if hasattr(obj, '__kvdb_task_init__'): return obj
         if '__kvdb_task_init__' in obj.__kvdb_initializers__: return obj
@@ -341,7 +347,7 @@ def create_patch_registered_function_wrapper(
     """
     async def patched_function(*args: P.args, blocking: Optional[bool] = True, defer_duration: Optional[float] = None, **kwargs: P.kwargs) -> Union[RT, Job]:
         if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
-            logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
+            autologger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
             if blocking: 
                 # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
                 return await task_function({}, *args, **kwargs)
@@ -349,7 +355,7 @@ def create_patch_registered_function_wrapper(
         kwargs = task_function.update_function_kwargs(**kwargs)
         # if task_function.default_kwargs: 
         #     kwargs = update_dict(kwargs, task_function.default_kwargs)
-        #     logger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
+        #     autologger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
         if defer_duration is not None:
             method_func = queue_task.queue.defer
             kwargs['wait_time'] = defer_duration
@@ -362,7 +368,7 @@ def create_patch_registered_function_wrapper(
             async def patched_function(_self, *args: P.args, blocking: Optional[bool] = True, defer_duration: Optional[float] = None, **kwargs: P.kwargs) -> Union[RT, Job]:
                 
                 if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
-                    logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
+                    autologger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
                     if blocking: 
                         # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
                         return await task_function({}, *args, **kwargs)
@@ -371,7 +377,7 @@ def create_patch_registered_function_wrapper(
                 kwargs = task_function.update_function_kwargs(**kwargs)
                 # if task_function.default_kwargs: 
                 #     kwargs = update_dict(kwargs, task_function.default_kwargs)
-                #     logger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
+                #     autologger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
                     
                 if defer_duration is not None:
                     method_func = queue_task.queue.defer
@@ -383,7 +389,7 @@ def create_patch_registered_function_wrapper(
         elif task_function.function_parent_type == 'class':
             async def patched_function(_cls, *args: P.args, blocking: Optional[bool] = True, defer_duration: Optional[float] = None, **kwargs: P.kwargs) -> Union[RT, Job]:
                 if task_function.fallback_enabled and not await queue_task.queue.has_active_workers():
-                    logger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
+                    autologger.warning(f'No active workers for {task_function.name}', prefix = queue_task.queue_name)
                     if blocking: 
                         # return await queue_task.tpool.asyncish(task_function, {}, *args, **kwargs)
                         return await task_function({}, *args, **kwargs)
@@ -391,7 +397,7 @@ def create_patch_registered_function_wrapper(
                 kwargs = task_function.update_function_kwargs(**kwargs)
                 # if task_function.default_kwargs: 
                 #     kwargs = update_dict(kwargs, task_function.default_kwargs)
-                #     logger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
+                #     autologger.warning(f'Patching function with default kwargs {task_function.default_kwargs} -> {kwargs}')
                 if defer_duration is not None:
                     method_func = queue_task.queue.defer
                     kwargs['wait_time'] = defer_duration

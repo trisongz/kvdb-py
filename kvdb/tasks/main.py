@@ -37,6 +37,7 @@ from .types import (
 )
 from .tasks import QueueTasks
 from . import wraps
+from .debug import get_autologger
 
 if TYPE_CHECKING:
     from kvdb.types.jobs import Job, CronJob
@@ -45,9 +46,7 @@ if TYPE_CHECKING:
     from .abstract import TaskABC
 
 
-
-_DEBUG_MODE_ENABLED = False
-autologger = logger if _DEBUG_MODE_ENABLED else null_logger
+autologger = get_autologger('main')
 
 class QueueTaskManager(abc.ABC, LockedSingleton):
     """

@@ -27,6 +27,7 @@ from lazyops.utils.times import Timer
 from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from .static import ColorMap
 from .utils import get_exc_error, get_func_name
+from .debug import get_autologger
 
 from kvdb.utils.helpers import (
     now, 
@@ -60,7 +61,7 @@ if TYPE_CHECKING:
     from .queue import TaskQueue
     from .tasks import TaskFunction, Ctx
 
-
+autologger = get_autologger('worker')
 
 class TaskWorker(abc.ABC):
 
@@ -455,7 +456,7 @@ class TaskWorker(abc.ABC):
         """
         # sourcery skip: low-code-quality
         # pylint: disable=too-many-branches
-        job, context = None, None
+        job, context, function = None, None, None
         queue = self.queue_dict[queue_name]
         
         try:
@@ -523,9 +524,16 @@ class TaskWorker(abc.ABC):
         except asyncio.CancelledError:
             if job and not self.job_task_contexts.get(job, {}).get("aborted"):
                 await job.retry("cancelled")
+        
         except Exception:
             error = get_exc_error(job = job)
-            self.autologger.error(f"Error in `process_queue` for job [status={job.status}, duration={job.duration_secs}, function={job.function}] {job}: {error}")
+            err_msg = 'Error in `process_queue` for job '
+            if job is not None:
+                err_msg += f'[status={job.status}, duration={job.duration_secs}, function={job.function}, id={job.id}] {job}'
+            else:
+                err_msg += f'[queue={self.queue_name}] {function}'
+            err_msg += f': {error}'
+            self.autologger.error(err_msg)
 
             if job:
                 if job.attempts > job.retries: 
@@ -540,7 +548,14 @@ class TaskWorker(abc.ABC):
                 try: await self.after_process(context)
                 except (Exception, asyncio.CancelledError) as e: 
                     error = get_exc_error(job = job)
-                    self.autologger.error(f"Error in `after_process` for job [status={job.status}, duration={job.duration_secs}] {job}: {error}")
+                    err_msg = 'Error in `after_process` for job '
+                    if job is not None:
+                        err_msg += f'[status={job.status}, duration={job.duration_secs}, function={job.function}, id={job.id}] {job}'
+                    else:
+                        err_msg += f'[queue={self.queue_name}] {function}'
+                    err_msg += f': {error}'
+                    self.autologger.error(err_msg)
+                    # self.autologger.error(f"Error in `after_process` for job [status={job.status}, duration={job.duration_secs}] {job}: {error}")
 
     async def process(self, broadcast: Optional[bool] = False, concurrency_id: Optional[int] = None):
         """
@@ -809,6 +824,8 @@ class TaskWorker(abc.ABC):
             #                 _msg += f"\n   - {stage}: {silenced_functions}"
             #     if self.queue.function_tracker_enabled:
             #         _msg += f'\n- {ColorMap.cyan}[Function Tracker Enabled]{ColorMap.reset}: {self.queue.function_tracker_enabled}'
+        else:
+            _msg += f'\n- {ColorMap.cyan}[Queue]{ColorMap.reset}: {ColorMap.bold}{self.queues[0].queue_name} @ {self.queues[0].ctx.url.safe_url} [S: {self.queues[0].serializer.name if self.queues[0].serializer else None}]{ColorMap.reset}'
         return _msg
         
     """

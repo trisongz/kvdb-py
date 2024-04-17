@@ -73,6 +73,13 @@ class AppEnv(str, Enum):
             return cls.LOCAL
         raise ValueError(f"Invalid app environment: {env_value} ({type(env_value)})")
     
+
+    def set_app_env(self, env: str):
+        """
+        Configures the app env
+        """
+        self = self.from_env(env)
+    
     @classmethod
     def from_hostname(cls, hostname: str) -> "AppEnv":
         """

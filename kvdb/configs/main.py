@@ -340,6 +340,7 @@ class KVDBSettings(BaseSettings):
             return True
         return False
 
+
     model_config = SettingsConfigDict(
         env_prefix = 'KVDB_',
         case_sensitive = False,

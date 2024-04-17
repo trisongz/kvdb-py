@@ -841,3 +841,17 @@ def create_persistence(
     """
     session = get_session(name = session_name, url = url)
     return session.create_persistence(name = name, base_key = base_key, expiration = expiration, hset_disabled = hset_disabled, keyjoin = keyjoin, async_enabled = async_enabled, serializer = serializer, serializer_kwargs = serializer_kwargs, **kwargs)
+
+
+def is_available(
+    name: Optional[str] = 'default',
+    url: Optional[Union[str, KVDBUrl]] = None,
+) -> bool:
+    """
+    Checks if the KVDB is available
+    """
+    s = KVDBClient.create_session(name = name, url = url, disable_store = True)
+    try:
+        return s.ping()
+    except Exception as e:
+        return False

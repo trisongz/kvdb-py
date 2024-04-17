@@ -13,11 +13,12 @@ from kvdb.types.base import supported_schemas, KVDBUrl
 from lazyops.libs.persistence.backends.base import BaseStatefulBackend, SchemaType
 from lazyops.libs.persistence import PersistentDict
 
-from typing import Any, Dict, Optional, Union, Iterable, List, Type, Set, TYPE_CHECKING
+from typing import Any, Dict, Optional, Union, Iterable, List, Type, Set, Callable, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
     from .session import KVDBSession
+    from .lock import Lock, AsyncLock
     from lazyops.types.models import BaseSettings
     from lazyops.libs.persistence.serializers.base import ObjectValue
 
@@ -50,6 +51,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         serializer_kwargs: Optional[Dict[str, Any]] = None,
         session_serialization_enabled: Optional[bool] = None, # Defer serialization to the session
         session: Optional['KVDBSession'] = None,
+        context_timeout: Optional[float] = 60.0,
         **kwargs,
     ):
         """
@@ -98,7 +100,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
                 name = self.name if self.name != 'kvdb' else 'persistence',
                 url = url, **client_kwargs,
             )
-        
+        self._lock: Optional[Lock] = None
+        self._alock: Optional[AsyncLock] = None
+        self.context_timeout = context_timeout
         self.hset_enabled = (not hset_disabled and self.base_key is not None)
         if keyjoin is not None: self.keyjoin = keyjoin
         self._kwargs = kwargs
@@ -112,6 +116,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         self._kwargs['expiration'] = expiration
         self._kwargs['name'] = name
         self._kwargs['keyjoin'] = keyjoin
+        self._kwargs['context_timeout'] = context_timeout
         if kvdb_settings.debug:
             logger.info(f'[{self.base_key}] Initialized KVDBStatefulBackend with {self._kwargs}')
 
@@ -542,7 +547,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
                 logger.warning(f'Unable to decode value for {key}')
                 self.delete(key)
         if exclude_base_key:
-            results = {k.replace(f'{self.base_key}.', ''): v for k, v in results.items()}
+            results = {k.replace(f'{self.base_key}{self.keyjoin}', ''): v for k, v in results.items()}
         return results
     
     def get_keys(self, pattern: str, exclude_base_key: Optional[str] = False, **kwargs) -> List[str]:
@@ -557,9 +562,10 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             keys = self._fetch_hset_keys(decode = True)
             keys = [key for key in keys if re.match(base_pattern, key)]
         else:
-            keys: List[str] = self.cache.client.keys(base_pattern)        
+            keys: List[str] = self.cache.client.keys(base_pattern)
+            keys = [k.decode() if isinstance(k, bytes) else k for k in keys]
         if exclude_base_key:
-            keys = [key.replace(f'{self.base_key}.', '') for key in keys]
+            keys = [key.replace(f'{self.base_key}{self.keyjoin}', '') for key in keys]
         return keys
 
     def get_all_keys(self, exclude_base_key: Optional[bool] = False, **kwargs) -> List[str]:
@@ -573,7 +579,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             return self._fetch_hset_keys(decode = True)
         keys = self._fetch_set_keys(decode = True)
         if exclude_base_key:
-            keys = [key.replace(f'{self.base_key}.', '') for key in keys]
+            keys = [key.replace(f'{self.base_key}{self.keyjoin}', '') for key in keys]
         return keys
     
     def get_all_values(self, _raw: Optional[bool] = None, **kwargs) -> List[Any]:
@@ -632,22 +638,23 @@ class KVDBStatefulBackend(BaseStatefulBackend):
                 logger.warning(f'Unable to decode value for {key}: {e}')
                 await self.adelete(key)
         if exclude_base_key:
-            results = {k.replace(f'{self.base_key}.', ''): v for k, v in results.items()}
+            results = {k.replace(f'{self.base_key}{self.keyjoin}', ''): v for k, v in results.items()}
         return results
     
     async def aget_keys(self, pattern: str, exclude_base_key: Optional[str] = False, **kwargs) -> List[str]:
         """
         Returns the keys that match the pattern
         """
-        base_pattern = pattern if self.hset_enabled else f'{self.base_key}{pattern}'
+        base_pattern = pattern if self.hset_enabled else f'{self.base_key}{self.keyjoin}{pattern}'
         if self.hset_enabled: 
             self._run_expiration_check()
             keys = await self._afetch_hset_keys(decode = True)
             keys = [key for key in keys if re.match(base_pattern, key)]
         else:
-            keys: List[str] = await self.cache.aclient.keys(base_pattern)
+            keys: List[bytes] = await self.cache.aclient.keys(base_pattern)
+            keys = [key.decode() if isinstance(key, bytes) else key for key in keys]
         if exclude_base_key:
-            keys = [key.replace(f'{self.base_key}.', '') for key in keys]
+            keys = [key.replace(f'{self.base_key}{self.keyjoin}', '') for key in keys]
         return keys
 
     
@@ -662,7 +669,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             return await self._afetch_hset_keys(decode = True)
         keys = await self._afetch_set_keys(decode = True)
         if exclude_base_key:
-            keys = [key.replace(f'{self.base_key}.', '') for key in keys]
+            keys = [key.replace(f'{self.base_key}{self.keyjoin}', '') for key in keys]
         return keys
     
     async def aget_all_values(self, _raw: Optional[bool] = None, **kwargs) -> List[Any]:
@@ -1200,6 +1207,355 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         else: await self.cache.amset(results)
         logger.info(f'Completed Migration for {self.name} with {len(results)} results in {t.total_s}')
         return results
+
+    """
+    Cloning Methods    
+    """
+        
+    
+    def clone(
+        self, 
+        target: Optional[str], 
+        target_base_key: Optional[str] = None,
+        target_db_id: Optional[int] = None,
+        schema_map: Optional[Dict[str, str]] = None,
+        overwrite: Optional[bool] = False, 
+        **kwargs
+    ):
+        """
+        Clones the data from the current PersistentDict to a new PersistentDict
+
+            The target should be a URL
+            Schema Map is only supported for the JSON Serializer
+        """
+        pass
+    
+    async def _aclone(
+        self,
+        from_session: KVDBSession,
+        from_base_key: str,
+        from_keys: List[str],
+        to_session: KVDBSession,
+        to_base_key: str,
+        schema_map: Optional[Dict[str, str]] = None,
+        excluded: Optional[List[str]] = None,
+        filter_function: Optional[Callable[[str], bool]] = None,
+        hset_key_function: Optional[Callable[[str], str]] = None,
+        raise_errors: Optional[bool] = True,
+        verbose: Optional[bool] = True,
+        overwrite: Optional[bool] = None,
+        **kwargs
+    ) -> Dict[str, Union[List[str], int, float]]:  # sourcery skip: low-code-quality
+        """
+        Runs the Clone Operation
+        """
+        from lazyops.utils import Timer
+        t = Timer()
+        from_keys = [k.decode() if isinstance(k, bytes) else k for k in from_keys]
+
+        existing_keys: List[str] = []
+        if overwrite is False:
+            existing_keys = await to_session.akeys(f'{to_base_key}*')
+            if (exp_keys := (await to_session.akeys(f'_exp_:{to_base_key}*'))): existing_keys.extend(exp_keys)
+            existing_keys = [k.decode() if isinstance(k, bytes) else k for k in existing_keys]
+
+        is_diff_key = from_base_key != to_base_key
+        can_migrate_schema = schema_map is not None and self.serializer.name == 'json'
+        excluded = excluded or []
+        completed, errors, skipped = 0, 0, 0
+        completed_keys = []
+        completed_hkeys, skipped_hkeys = [], []
+        for key in from_keys:
+            key_type = await from_session.atype(key)
+            key_type = key_type.decode() if isinstance(key_type, bytes) else key_type
+            if (key in excluded) or (filter_function and filter_function(key, key_type = key_type)): 
+                skipped += 1
+                continue
+            to_key = key.replace(from_base_key, to_base_key) if is_diff_key else key
+            if (to_key in excluded) or (filter_function and filter_function(to_key, key_type = key_type)): 
+                skipped += 1
+                continue
+            if verbose: logger.info(f'Copying Key: {key} -> |g|{to_key}|e|', prefix = from_base_key, colored = True)
+            try:
+                if verbose: logger.info(f'Key Type: |g|{key} = {key_type}|e|', prefix = from_base_key, colored = True)
+                # These are our two primary types
+                if key_type == 'string':
+                    if to_key in existing_keys: 
+                        skipped += 1
+                        continue
+                    if '_exp_:' not in key and can_migrate_schema:
+                        value = await from_session.aget(key)
+                        try:
+                            value = await self.serializer.adecode(value, schema_map = schema_map, raise_errors = True)
+                        except Exception as e:
+                            logger.trace(f'Error Decoding Value for Key {from_base_key}: ({type(value)}) {str(value)[:1000]}', e)
+                            if raise_errors: raise e
+                            errors += 1
+                            continue
+                        value = await self.serializer.aencode(value)
+                        await to_session.aset(to_key, value)
+                    else: await to_session.aset(to_key, await from_session.aget(key))
+                elif key_type == 'hash':
+                    existing_hkeys: List[str] = []
+                    if overwrite is False:
+                        existing_hkeys = await to_session.ahkeys(to_key)
+                        existing_hkeys = [k.decode() if isinstance(k, bytes) else k for k in existing_hkeys]
+                        if verbose: logger.info(f'Existing Hash Keys: {existing_hkeys}', prefix = to_key, colored = True)
+                    
+                    data = await from_session.ahgetall(key)
+                    if '_exp_:' not in key and can_migrate_schema:
+                        # data = await from_session.ahgetall(key)
+                        results = {}
+                        for k,v in data.items():
+                            k = k.decode() if isinstance(k, bytes) else k
+                            if (k in excluded) or (filter_function and filter_function(k, key_type = 'hash_item')) or (k in existing_hkeys):
+                                skipped_hkeys.append(f'{to_key}:{k}')
+                                continue
+                            if hset_key_function: k = hset_key_function(k)
+                            if verbose: logger.info(f'Copying HKey: {key}:{k} -> |g|{to_key}:{k}|e|', prefix = from_base_key, colored = True)
+                            try:
+                                v = await self.serializer.adecode(v, schema_map = schema_map, raise_errors = True)
+                            except Exception as e:
+                                logger.trace(f'Error Decoding Value for HKey {key}:{k}: ({type(v)}) {str(v)[:1000]}', e)
+                                if raise_errors: raise e
+                                errors += 1
+                                continue
+                            results[k] = await self.serializer.aencode(v)
+                            completed_hkeys.append(f'{to_key}:{k}')
+                        if results: await to_session.ahmset(to_key, mapping = results)
+                    
+                    elif existing_hkeys:
+                        # data = await from_session.ahgetall(key)
+                        results = {}
+                        for k,v in data.items():
+                            k = k.decode() if isinstance(k, bytes) else k
+                            if (k in excluded) or (filter_function and filter_function(k, key_type = 'hash_item')) or (k in existing_hkeys):
+                                skipped_hkeys.append(f'{to_key}:{k}')
+                                continue
+                            if hset_key_function: k = hset_key_function(k)
+                            if verbose: logger.info(f'Copying HKey: {key}:{k} -> |g|{to_key}:{k}|e|', prefix = from_base_key, colored = True)
+                            results[k] = v
+                            completed_hkeys.append(f'{to_key}:{k}')
+                        if results: await to_session.ahmset(to_key, mapping = results)
+                    elif filter_function or hset_key_function:
+                        results = {}
+                        for k,v in data.items():
+                            k = k.decode() if isinstance(k, bytes) else k
+                            if (k in excluded) or (filter_function and filter_function(k, key_type = 'hash_item')):
+                                skipped_hkeys.append(f'{to_key}:{k}')
+                                continue
+                            if hset_key_function: k = hset_key_function(k)
+                            results[k] = v
+                            completed_hkeys.append(f'{to_key}:{k}')
+                        if results: await to_session.ahmset(to_key, mapping = results)
+                    else:
+                        await to_session.ahmset(to_key, data)
+                        _hkeys = [k.decode() if isinstance(k, bytes) else k for k in data.keys()]
+                        _hkeys = [f'{to_key}:{k}' for k in _hkeys]
+                        completed_hkeys.extend(_hkeys)
+                
+                elif key_type == 'set': 
+                    if key in existing_keys: 
+                        skipped += 1
+                        continue
+                    await to_session.asadd(to_key, await from_session.asmembers(key))
+                elif key_type == 'list': 
+                    if key in existing_keys: 
+                        skipped += 1
+                        continue
+                    await to_session.arpush(to_key, await from_session.alrange(key, 0, -1))
+                elif key_type == 'zset':
+                    if key in existing_keys: 
+                        skipped += 1
+                        continue
+                    for k,v in await from_session.azrange(key, 0, -1, withscores=True):
+                        await to_session.azadd(to_key, k, v)
+                completed += 1
+                completed_keys.append(key)
+                if verbose: logger.info(f'Completed Cloning Key: |g|{to_key}|e|', prefix = from_base_key, colored = True)
+            except Exception as e:
+                logger.error(f'Error Cloning Key: {key} - {e}')
+                if raise_errors: raise e
+                errors += 1
+        logger.info(f'Completed Cloning from |g|{from_session.url}|e| for {from_base_key} -> {to_base_key} (completed: {completed}, errors:  {errors}, skipped: {skipped}, total: {len(from_keys)}) results in {t.total_s}', prefix = from_base_key, colored = True)
+        return {
+            'completed': completed,
+            'errors': errors,
+            'skipped': skipped,
+            'completed_keys': completed_keys,
+            'completed_hkeys': completed_hkeys,
+            'skipped_hkeys': skipped_hkeys,
+            'num_completed_hkeys': len(completed_hkeys),
+            'num_skipped_hkeys': len(skipped_hkeys),
+            'duration': t.total,
+        }
+
+    
+    async def aclone(
+        self,
+        target: str, 
+        target_base_key: Optional[str] = None,
+        target_db_id: Optional[int] = None,
+        source_url: Optional[Union[str, KVDBUrl]] = None,
+        source_base_key: Optional[str] = None,
+        schema_map: Optional[Dict[str, str]] = None,
+        overwrite: Optional[bool] = None, 
+        excluded: Optional[Union[str, List[str]]] = None,
+        filter_function: Optional[Callable[[str], bool]] = None,
+        hset_key_function: Optional[Callable[[str], str]] = None,
+        raise_errors: Optional[bool] = True,
+        verbose: Optional[bool] = True,
+        **kwargs
+    ) -> Dict[str, Union[List[str], int, float]]:  # sourcery skip: low-code-quality
+        """
+        Clones the data from the current PersistentDict to a new PersistentDict
+                
+            The target should be a URL
+            Schema Map is only supported for the JSON Serializer
+        """
+        source_url = self.cache.url if source_url is None else KVDBUrl(source_url)
+        target_url = KVDBUrl(target)
+        if target_db_id: target_url = target_url.with_db_id(target_db_id)
+        target_base_key = target_base_key or self.base_key
+        source_base_key = source_base_key or self.base_key
+        logger.info(f'Cloning |g|{source_url}|e| to |y|{target_url}|e|: [{source_base_key} > |g|{target_base_key}|e|]', colored = True, prefix = self.name)
+        from kvdb.client import KVDBClient
+        src_session = KVDBClient.create_session(name = f'{self.cache.name}-source', url = source_url, serializer = None, disable_store = True)
+        target_session = KVDBClient.create_session(name = f'{self.cache.name}-target', url = target_url, serializer = None, disable_store = True)
+        excluded = excluded or []
+        if isinstance(excluded, str): excluded = [excluded]
+        
+        source_keys: List[str] = await src_session.akeys(f'{source_base_key}*')
+        if not source_keys: 
+            logger.info(f'No keys found in {source_url}', prefix = self.name)
+            return
+        logger.info(f'Found {len(source_keys)} keys in {source_url}', prefix = self.name, colored = True)
+        if exp_keys := (await src_session.akeys(f'_exp_:{source_base_key}*')): source_keys.extend(exp_keys)
+        return await self._aclone(
+            from_session = src_session,
+            from_base_key = source_base_key,
+            from_keys = source_keys,
+            to_session = target_session,
+            to_base_key = target_base_key,
+            schema_map = schema_map,
+            excluded = excluded,
+            filter_function = filter_function,
+            hset_key_function = hset_key_function,
+            raise_errors = raise_errors,
+            verbose = verbose,
+            overwrite = overwrite,
+            **kwargs,
+        )
+        
+
+    async def aclone_from(
+        self,
+        target: str, 
+        target_base_key: Optional[str] = None,
+        target_db_id: Optional[int] = None,
+        source_url: Optional[Union[str, KVDBUrl]] = None,
+        source_base_key: Optional[str] = None,
+        schema_map: Optional[Dict[str, str]] = None,
+        overwrite: Optional[bool] = None, 
+        excluded: Optional[Union[str, List[str]]] = None,
+        filter_function: Optional[Callable[[str], bool]] = None,
+        hset_key_function: Optional[Callable[[str], str]] = None,
+        raise_errors: Optional[bool] = True,
+        verbose: Optional[bool] = True,
+        **kwargs
+    ) -> Dict[str, Union[List[str], int, float]]:    # sourcery skip: low-code-quality
+        """
+        Clones the data from the target PersistentDict to a current PersistentDict
+                
+            The target should be a URL
+            Schema Map is only supported for the JSON Serializer
+        """
+        source_url = self.cache.url if source_url is None else KVDBUrl(source_url)
+        target_url = KVDBUrl(target)
+        if target_db_id: target_url = target_url.with_db_id(target_db_id)
+        target_base_key = target_base_key or self.base_key
+        source_base_key = source_base_key or self.base_key
+        logger.info(f'Cloning |g|{target_url}|e| to |y|{source_url}|e|: [{target_base_key} > |g|{source_base_key}|e|]', colored = True, prefix = self.name)
+        from kvdb.client import KVDBClient
+        src_session = KVDBClient.create_session(name = f'{self.cache.name}-source', url = source_url, serializer = None, disable_store = True)
+        target_session = KVDBClient.create_session(name = f'{self.cache.name}-target', url = target_url, serializer = None, disable_store = True)
+        excluded = excluded or []
+        if isinstance(excluded, str): excluded = [excluded]
+        target_keys: List[str] = await target_session.akeys(f'{target_base_key}*')
+        if not target_keys: 
+            logger.info(f'No keys found in {target_url}', prefix = self.name)
+            return
+        logger.info(f'Found {len(target_keys)} keys in {target_url}', prefix = self.name, colored = True)
+        if exp_keys := (await target_session.akeys(f'_exp_:{target_base_key}*')): target_keys.extend(exp_keys)
+        return await self._aclone(
+            from_session=target_session,
+            from_base_key=target_base_key,
+            from_keys=target_keys,
+            to_session=src_session,
+            to_base_key=source_base_key,
+            schema_map=schema_map,
+            excluded=excluded,
+            overwrite=overwrite,
+            filter_function=filter_function,
+            hset_key_function=hset_key_function,
+            raise_errors=raise_errors,
+            verbose=verbose,
+            **kwargs,
+        )
+
+    """
+    Context Locks    
+    """
+        
+
+    def acquire_lock(self, timeout: Optional[float] = None, blocking: Optional[bool] = True, **kwargs) -> bool:
+        """
+        Acquires the lock
+        """
+        if self._lock is None: self._lock = self.cache.lock(name = self.get_key('ctxlock'), thread_local = False)
+        if timeout is None: timeout = self.context_timeout
+        try:
+            return self._lock.acquire(blocking_timeout = timeout, blocking = blocking)
+        except Exception as e:
+            logger.error(f'Error acquiring lock: {e}')
+            return False
+    
+    def release_lock(self):
+        """
+        Releases the lock
+        """
+        if self._lock is not None:
+            try:
+                self._lock.release()
+            except Exception as e:
+                logger.error(f'Error releasing lock: {e}')
+                self.cache.delete(self.get_key('ctxlock'))
+
+    async def acquire_alock(self, timeout: Optional[float] = None, blocking: Optional[bool] = True, **kwargs) -> bool:
+        """
+        Acquires the lock
+        """
+        if self._alock is None: self._alock = self.cache.alock(name = self.get_key('ctxlock'), thread_local = False)
+        if timeout is None: timeout = self.context_timeout
+        try:
+            return await self._alock.acquire(blocking = blocking, blocking_timeout = timeout)
+        except Exception as e:
+            logger.error(f'Error acquiring async lock: {e} - {self._alock}')
+            return False
+        
+    async def release_alock(self):
+        """
+        Releases the lock
+        """
+        if self._alock is not None:
+            try:
+                await self._alock.release()
+            except Exception as e:
+                logger.error(f'Error releasing lock: {e}')
+                await self.cache.delete(self.get_key('ctxlock'))
+
+
+
 
 
 
