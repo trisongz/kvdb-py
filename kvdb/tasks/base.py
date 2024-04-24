@@ -6,7 +6,7 @@ for convenience and readily subclassible
 """
 
 from .abstract import TaskABC, logger
-from typing import Callable, List, Optional, Type, Any, Dict, Union, TypeVar, Iterable, Awaitable, Set, Tuple, TYPE_CHECKING
+from typing import Callable, List, Optional, Type, Any, Dict, Union, TypeVar, Iterable, Awaitable, Set, overload, Tuple, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
@@ -480,6 +480,29 @@ class BaseTaskWorker(TaskABC):
         if cron is None:
             raise ValueError(f'No Cron Schedule found for |g|{func_name}|e|')
         return cron.get_next_cron_run_data(**kwargs)
+    
+    @overload
+    def __call__(
+        self, 
+        func: Union[str, Callable[..., RT]],
+        blocking: Optional[bool] = False,
+        key: Optional[str] = None,
+        timeout: Optional[int] = None,
+        retries: Optional[int] = None,
+        ttl: Optional[int] = None,
+        retry_delay: Optional[int] = None,
+        retry_backoff: Optional[int] = None,
+        worker_id: Optional[str] = None,
+        worker_name: Optional[str] = None,
+        job_callback: Optional[Callable] = None,
+        job_callback_kwargs: Optional[Dict] = None,
+        return_existing_job: bool = False,
+        **kwargs
+    ) -> Union[JobResultT, Job]:
+        """
+        Calls the function
+        """
+        ...
         
     
     def __call__(
@@ -499,6 +522,31 @@ class BaseTaskWorker(TaskABC):
             **kwargs,
         )
     
+    @overload
+    async def enqueue(
+        self, 
+        func: Union[str, Callable[..., RT]],
+        key: Optional[str] = None,
+        timeout: Optional[int] = None,
+        retries: Optional[int] = None,
+        ttl: Optional[int] = None,
+        retry_delay: Optional[int] = None,
+        retry_backoff: Optional[int] = None,
+        worker_id: Optional[str] = None,
+        worker_name: Optional[str] = None,
+        job_callback: Optional[Callable] = None,
+        job_callback_kwargs: Optional[Dict] = None,
+        return_existing_job: bool = False,
+        **kwargs
+    ) -> Awaitable['Job']:
+        """
+        Enqueue a job by instance or string.
+
+        Kwargs can be arguments of the function or properties of the job.
+        If a job instance is passed in, it's properties are overriden.
+        """
+        ...
+    
     def enqueue(
         self,
         func: Union[str, Callable[..., RT]],
@@ -514,6 +562,38 @@ class BaseTaskWorker(TaskABC):
             **kwargs,
         )
     
+    @overload
+    def apply(
+        self, 
+        func: Union[str, Callable[..., RT]],
+        key: Optional[str] = None,
+        timeout: Optional[int] = None,
+        retries: Optional[int] = None,
+        ttl: Optional[int] = None,
+        retry_delay: Optional[int] = None,
+        retry_backoff: Optional[int] = None,
+        worker_id: Optional[str] = None,
+        worker_name: Optional[str] = None,
+        job_callback: Optional[Callable] = None,
+        job_callback_kwargs: Optional[Dict] = None,
+        
+        broadcast: Optional[bool] = None,
+        worker_names: Optional[List[str]] = None,
+        worker_selector: Optional[Callable] = None,
+        worker_selector_args: Optional[List] = None,
+        worker_selector_kwargs: Optional[Dict] = None,
+        workers_selected: Optional[List[Dict[str, str]]] = None,
+        return_all_results: Optional[bool] = False,
+        **kwargs
+    ) -> Awaitable[RT]:
+        """
+        Enqueue a task and wait for its result.
+
+        If the job is successful, this returns its result.
+        If the job is unsuccessful, this raises a JobError.
+        """
+        ...
+
     def apply(
         self,
         func: Union[str, Callable[..., RT]],

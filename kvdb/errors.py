@@ -4,7 +4,7 @@ Exceptions raised by the Redis client.
 
 import functools
 from redis.exceptions import RedisError
-from typing import Optional, Union, Callable, TypeVar, TYPE_CHECKING
+from typing import Optional, Union, Callable, TypeVar, Any, TYPE_CHECKING
 from .utils.logs import logger
 from .utils.helpers import is_coro_func
 
@@ -21,13 +21,13 @@ class KVDBException(Exception):
 
     def __init__(
         self,
+        *args,
         msg: Optional[str] = None,
         fatal: Optional[bool] = None,
         verbose: Optional[bool] = None,
         level: Optional[str] = None,
         traceback_depth: Optional[int] = None,
         source_error: Optional[RedisError] = None,
-        *args,
         **kwargs,
     ):
         
@@ -143,7 +143,7 @@ class LockNotOwnedError(KVDBException):
     traceback_depth = 2
     verbose = False
 
-class JobError(KVDBException):
+class JobErrorV1(KVDBException):
     """
     Raised when a job fails
     """
@@ -162,8 +162,39 @@ class JobError(KVDBException):
         msg = msg or ""
         msg += f"Job {job.id} {job.status}\n\nThe above job failed with the following error:\n\n{job.error}"
         super().__init__(*args, msg = msg, **kwargs)
-        self.job = job
+        # self.job = job
+        self.job_error = job.error
 
+
+class JobError(KVDBException):
+    """
+    Raised when a job fails
+    """
+    level = 'ERROR'
+    traceback_depth = 2
+    verbose = True
+
+    def __init__(
+        self,
+        *args,
+        job_id: Optional[str] = None,
+        job_status: Optional[Any] = None,
+        job_error: Optional[Any] = None,
+        msg: Optional[str] = None,
+        verbose: Optional[bool] = None,
+        **kwargs,
+    ):
+        
+        msg = msg or ""
+        msg += f"Job {job_id} {job_status}\n\nThe above job failed with the following error:\n\n{job_error}"
+        self.job_id = job_id
+        self.job_status = job_status
+        self.job_error = job_error
+        verbose = job_error is not None
+        super().__init__(*args, msg = msg, verbose = verbose, **kwargs)
+        
+        
+        
 
 def transpose_error(
     exc: Union[RedisError, KVDBException, Exception],

@@ -10,7 +10,7 @@ from inspect import signature, Parameter, Signature
 from kvdb.utils.logs import logger
 from kvdb.utils.helpers import is_coro_func, lazy_import
 from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method, get_parent_object_class_names, get_object_child_class_names
-from typing import Optional, Dict, Any, Union, Callable, Type, List, Tuple, TypeVar, AsyncGenerator, Iterable, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Union, Callable, Type, List, Set, Tuple, TypeVar, AsyncGenerator, Iterable, TYPE_CHECKING, overload
 from types import ModuleType, FunctionType
 from .types import (
     Ctx,
@@ -276,6 +276,7 @@ class QueueTasks(abc.ABC):
         attribute_match_type: Optional[AttributeMatchType] = None,
         fallback_enabled: Optional[bool] = None,
         on_failure_callback: Optional[Union[Callable, str]] = None,
+        exclude_retry_exceptions: Optional[Union[bool, List[Exception], Set[Exception]]] = None,
         **kwargs
     ) -> TaskFunction:
         """
@@ -295,6 +296,7 @@ class QueueTasks(abc.ABC):
             fallback_enabled = fallback_enabled,
             on_failure_callback = on_failure_callback,
             queue_name = self.queue_name,
+            exclude_retry_exceptions = exclude_retry_exceptions,
             kwargs = kwargs,
         )
         if task_function.name not in self.functions:
@@ -364,6 +366,7 @@ class QueueTasks(abc.ABC):
         attribute_match_type: Optional[AttributeMatchType] = None,
         fallback_enabled: Optional[bool] = None,
         on_failure_callback: Optional[Union[Callable, str]] = None,
+        exclude_retry_exceptions: Optional[Union[bool, List[Exception], Set[Exception]]] = None,
         subclass_name: Optional[str] = None,
         **function_kwargs,
     ) -> Callable[[FunctionT], FunctionT]:
@@ -386,6 +389,7 @@ class QueueTasks(abc.ABC):
                     attribute_match_type = attribute_match_type,
                     fallback_enabled = fallback_enabled,
                     on_failure_callback = on_failure_callback,
+                    exclude_retry_exceptions = exclude_retry_exceptions,
                     **function_kwargs,
                 )(function)
             task_function = self.add_function(
@@ -402,6 +406,7 @@ class QueueTasks(abc.ABC):
                 attribute_match_type = attribute_match_type,
                 fallback_enabled = fallback_enabled,
                 on_failure_callback = on_failure_callback,
+                exclude_retry_exceptions = exclude_retry_exceptions,
                 **function_kwargs,
             )
             if task_function.disable_patch: return function
@@ -428,6 +433,7 @@ class QueueTasks(abc.ABC):
                     attribute_match_type = attribute_match_type,
                     fallback_enabled = fallback_enabled,
                     on_failure_callback = on_failure_callback,
+                    exclude_retry_exceptions = exclude_retry_exceptions,
                     **function_kwargs,
                 )(func)
             # logger.info(f'Registering Task Function: POST-INIT {self.queue_name}', prefix = func.__qualname__, colored = True)
@@ -444,6 +450,7 @@ class QueueTasks(abc.ABC):
                 worker_attributes = worker_attributes,
                 attribute_match_type = attribute_match_type,
                 fallback_enabled = fallback_enabled,
+                exclude_retry_exceptions = exclude_retry_exceptions,
                 **function_kwargs,
             )
             if task_function.disable_patch: return func

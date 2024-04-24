@@ -4,6 +4,7 @@ from __future__ import annotations
 Base Task Types
 """
 import abc
+import copy
 import collections.abc
 from inspect import signature, Signature
 from pydantic import Field, model_validator
@@ -13,7 +14,7 @@ from kvdb.utils.helpers import is_coro_func, lazy_import, ensure_coro
 from lazyops.libs.proxyobj import ProxyObject
 from lazyops.libs.pooler import ThreadPooler
 from lazyops.libs.abcs.utils.helpers import update_dict
-from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, TypeAlias, List, Type, Tuple, Literal, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, TypeAlias, List, Type, Set, Tuple, Literal, TYPE_CHECKING, overload
 from .utils import AttributeMatchType, determine_match_from_attributes, get_func_name
 from .debug import get_autologger
 
@@ -84,6 +85,9 @@ class TaskFunction(BaseModel):
     function_parent_type: Optional[Literal['class', 'instance']] = Field(None, exclude=True)
 
     fallback_enabled: Optional[bool] = None
+
+    exclude_retry_exceptions: Optional[Union[bool, List[Type[Exception]], Set[Type[Exception]]]] = None
+    # default_job_
 
     if TYPE_CHECKING:
         cronjob: Optional[Union[CronJob, bool, str]] = None
@@ -182,9 +186,18 @@ class TaskFunction(BaseModel):
         Configures the cronjob
         """
         if self.cronjob is not None: return
-        _kwargs = self.kwargs.copy()
+        _kwargs = copy.deepcopy(self.kwargs)
         _kwargs.update(kwargs)
         _kwargs = {k: v for k, v in _kwargs.items() if k in cronjob_class.model_fields}
+
+        _default_kwargs = copy.deepcopy(self.default_kwargs)
+
+        # Pass any cronjob specific default kwarsg to the cronjob
+        if _default_kwargs:
+            for k in list(_default_kwargs.keys()):
+                if k in cronjob_class.model_fields:
+                    _kwargs[k] = _default_kwargs.pop(k)
+            
         cron_schedules = cron_schedules or {}
         if 'cron' in _kwargs:
             cron = _kwargs.pop('cron')
@@ -194,7 +207,7 @@ class TaskFunction(BaseModel):
             function = self.func,
             cron_name = self.name,
             cron = cron,
-            default_kwargs = self.default_kwargs,
+            default_kwargs = _default_kwargs,
             **_kwargs,
         )
     
@@ -285,6 +298,19 @@ class TaskFunction(BaseModel):
             except Exception as e:
                 return self.func(*args, **kwargs)
         return self.func()
+    
+    def should_retry_on_error(self, error: Exception) -> bool:
+        """
+        Checks if the error should be retried
+        """
+        # logger.warning(f'[{self.name}] Checking whether should_retry_on_error: {error}', prefix = self.name)
+        if self.exclude_retry_exceptions is None: return True
+        if isinstance(self.exclude_retry_exceptions, bool): return not self.exclude_retry_exceptions
+        if isinstance(self.exclude_retry_exceptions, list): 
+            return not isinstance(error, tuple(self.exclude_retry_exceptions))
+        if isinstance(self.exclude_retry_exceptions, set):
+            return not isinstance(error, self.exclude_retry_exceptions)
+        return True
     
     async def run_on_failure_callback(self, job: 'Job'):
         """

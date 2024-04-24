@@ -613,7 +613,7 @@ class Job(BaseJobProperties, JobProperties, JobQueueMixin, BaseModel):
             mode = 'json', 
             round_trip = True, 
             exclude_none = True, 
-            exclude_defaults = True,
+            # exclude_defaults = True,
             exclude = {"args", "kwargs", "result", "error", "queue", "metadata"} if self.queue.serializer is not None else None,
         )
         data['queue'] = self.queue_name or self.queue.queue_name

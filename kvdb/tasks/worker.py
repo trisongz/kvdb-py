@@ -520,27 +520,59 @@ class TaskWorker(abc.ABC):
             await job.finish(JobStatus.COMPLETE, result=result)
             if function.is_cronjob and not queue.queue_tasks.is_function_silenced(job.function, stage = "finish"):
                 function.cronjob.get_next_cron_run_data(verbose = True)
-
-        except asyncio.CancelledError:
-            if job and not self.job_task_contexts.get(job, {}).get("aborted"):
-                await job.retry("cancelled")
         
-        except Exception:
+        except errors.JobError as job_e:
             error = get_exc_error(job = job)
-            err_msg = 'Error in `process_queue` for job '
+            err_msg = 'JobError in `process_queue` for job '
             if job is not None:
-                err_msg += f'[status={job.status}, duration={job.duration_secs}, function={job.function}, id={job.id}] {job}'
+                err_msg += f'[status={job.status}, duration={job.duration_secs}, function={job.function}, id={job.id}]'
             else:
                 err_msg += f'[queue={self.queue_name}] {function}'
             err_msg += f': {error}'
             self.autologger.error(err_msg)
-
-            if job:
+            if job is not None:
                 if job.attempts > job.retries: 
                     await job.finish(JobStatus.FAILED, error=error)
                     await function.run_on_failure_callback(job)
+                elif function.should_retry_on_error(job.error or job_e):
+                    # self.autologger.info(f'Retrying job {job.id} with error: {job.error or job_e}', prefix = function.name)
+                    await job.retry(error)
+                else:
+                    # self.autologger.warning(f'Skipping job {job.id} with error: {job.error or job_e}', prefix = function.name)
+                    job.retries = 0
+                    await job.update()
+                    await job.finish(JobStatus.FAILED, error=job_e)
+                    await function.run_on_failure_callback(job)
 
-                else: await job.retry(error)
+        except asyncio.CancelledError as job_e:
+            if job and not job.is_complete and not self.job_task_contexts.get(job, {}).get("aborted") and function.should_retry_on_error(job.error or job_e):
+                # self.autologger.info(f'Cancelled job {job.id}', prefix = function.name)
+                await job.retry("cancelled")
+        
+
+        except Exception as job_e:
+            error = get_exc_error(job = job)
+            err_msg = 'Unknown Error in `process_queue` for job '
+            if job is not None:
+                err_msg += f'[status={job.status}, duration={job.duration_secs}, function={job.function}, id={job.id}]'
+            else:
+                err_msg += f'[queue={self.queue_name}] {function}'
+            err_msg += f': {error}'
+            self.autologger.error(err_msg)
+            if job is not None:
+                if job.attempts > job.retries: 
+                    await job.finish(JobStatus.FAILED, error=error)
+                    await function.run_on_failure_callback(job)
+                elif function.should_retry_on_error(job_e):
+                    # self.autologger.info(f'Retrying job {job.id} with error: {job.error or job_e}', prefix = function.name)
+                    await job.retry(error)
+                else:
+                    # self.autologger.warning(f'Skipping job {job.id} with error: {job.error or job_e}', prefix = function.name)
+                    job.retries = 0
+                    await job.finish(JobStatus.FAILED, error=job_e)
+                    await function.run_on_failure_callback(job)
+                # else: await job.retry(error)
+        
         finally:
             self.tasks_idx -= 1
             if context:
@@ -550,7 +582,7 @@ class TaskWorker(abc.ABC):
                     error = get_exc_error(job = job)
                     err_msg = 'Error in `after_process` for job '
                     if job is not None:
-                        err_msg += f'[status={job.status}, duration={job.duration_secs}, function={job.function}, id={job.id}] {job}'
+                        err_msg += f'[status={job.status}, duration={job.duration_secs}, function={job.function}, id={job.id}]'
                     else:
                         err_msg += f'[queue={self.queue_name}] {function}'
                     err_msg += f': {error}'

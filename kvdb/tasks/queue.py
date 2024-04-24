@@ -22,6 +22,7 @@ from pydantic import Field, model_validator, validator
 from kvdb.configs import settings
 from kvdb.configs.tasks import KVDBTaskQueueConfig
 import kvdb.errors as errors
+from redis import exceptions as rerrors
 from lazyops.utils.times import Timer
 from lazyops.utils.helpers import timed_cache
 from kvdb.types.base import BaseModel, KVDBUrl
@@ -49,6 +50,7 @@ from typing import (
     Union, 
     Callable, 
     List, 
+    Set,
     Tuple,
     Mapping, 
     TypeVar,
@@ -66,6 +68,7 @@ if TYPE_CHECKING:
     from .types import PushQueue, TaskResult
     from .worker import TaskWorker
 
+DEQUEUE_ERR_OBJ = object()
 
 autologger = get_autologger('queue')
 
@@ -240,6 +243,35 @@ class TaskQueue(abc.ABC):
         return swept
 
 
+    async def sweep_job(
+        self,
+        job_id: str,
+        **kwargs
+    ) -> None:
+        """
+        Sweeps a job
+        """
+        try:
+            job = await self.get_job_by_id(job_id)
+            if job.status not in INCOMPLETE_JOB_STATUSES or job.stuck:
+                await job.finish(JobStatus.ABORTED, error="swept")
+                if self.queue_tasks.is_function_silenced(job.function, stage = 'sweep'): pass
+                elif self.logging_max_length:
+                    job_result = job.get_truncated_result(self.logging_max_length)
+                    self.log(job=job, kind = "sweep").info(f"☇ duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}, result={job_result}")
+                else:
+                    self.log(job=job, kind = "sweep").info(f"☇ duration={job.get_duration('total')}ms, node={self.node_name}, func={job.function}")
+            
+            async with self.pipeline(transaction = True) as pipe:
+                pipe.lrem(self.active_key, 0, job_id).zrem(self.incomplete_key, job_id)
+                pipe = await self.push_queue.remove(job_id = job_id, pipeline = pipe)
+                await pipe.execute()
+            
+        except Exception as e:
+            self.log(kind = "sweep").warning(f"Unable to deserialize job {job_id}: {e}")
+            return
+        
+        
     async def abort(self, job: Job, error: Any, ttl: int = 5):
         """
         Abort a job.
@@ -291,6 +323,68 @@ class TaskQueue(abc.ABC):
             if not self.queue_tasks.is_function_silenced(job.function, stage = 'retry'):
                 self.log(job=job, kind = "retry").info(f"↻ duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}, error={job.error}")
 
+    async def _reschedule(
+        self,
+        job: Job,
+        wait_time: float = 10.0,
+        error: Optional[Any] = None,
+        **kwargs
+    ):
+        """
+        Reschedule a job after a certain amount of time
+        """
+        job_id = job.id
+        await self.finish(job, JobStatus.RESCHEDULED, error = error)
+        job.reset(status = JobStatus.QUEUED, error = error)
+
+        async with self.pipeline(transaction = True, retryable = True) as pipe:
+            pipe = pipe.lrem(job.active_key, 1, job_id)
+            pipe = pipe.lrem(job.queued_key, 1, job_id)
+            scheduled = time.time() + wait_time
+            pipe = pipe.zadd(job.incomplete_key, {job_id: scheduled})
+            
+            await self.push_queue.push(job_id = job_id, pipeline = pipe)
+            await pipe.set(job_id, await self.serialize(job)).execute()
+
+            await self.notify(job)
+            if not self.queue_tasks.is_function_silenced(job.function, stage = 'reschedule'):
+                self.log(job=job, kind = "reschedule").info(f"↻ duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}, kwargs={job.get_truncated_kwargs(self.logging_max_length)}")
+
+
+    async def _reschedule_v1(
+        self,
+        job: Job,
+        wait_time: float = 10.0,
+        error: Optional[Any] = None,
+        **kwargs
+    ):
+        """
+        Reschedule a job after a certain amount of time
+        """
+        await self.finish(job, JobStatus.RESCHEDULED, error = error)
+        job.scheduled = now() + wait_time
+        async with self.pipeline(transaction = True, retryable = True) as pipe:
+            pipe = pipe.lrem(job.active_key, 1, job.id).zrem(job.incomplete_key, job.id)
+            pipe = pipe.zadd(job.incomplete_key, {job.id: job.scheduled})
+            pipe = pipe.rpush(job.queued_key, job.id)
+            await self.push_queue.push(job_id = job.id, pipeline = pipe)
+            await pipe.set(job.id, await self.serialize(job)).execute()
+        await self.notify(job)
+        if not self.queue_tasks.is_function_silenced(job.function, stage = 'reschedule'):
+            self.log(job=job, kind = "reschedule").info(f"↻ duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}, kwargs={job.get_truncated_kwargs(self.logging_max_length)}")
+
+    async def reschedule(
+        self, 
+        job: Job,
+        wait_time: float = 10.0, 
+        error: Optional[Any] = None,
+        **kwargs
+    ):
+        """
+        Reschedule a job after a certain amount of time
+        """
+        asyncio.create_task(self._reschedule(job, wait_time = wait_time, error = error, **kwargs))
+
 
     async def finish(
         self, 
@@ -335,40 +429,6 @@ class TaskQueue(abc.ABC):
                     if job.status in UNSUCCESSFUL_TERMINAL_JOB_STATUSES:
                         job_msg += f", kwargs={job.get_truncated_kwargs(self.logging_max_length)}, error={job.error}"
                     self.log(job=job, kind = "finish").info(job_msg)
-
-    async def _reschedule(
-        self,
-        job: Job,
-        wait_time: float = 10.0,
-        error: Optional[Any] = None,
-        **kwargs
-    ):
-        """
-        Reschedule a job after a certain amount of time
-        """
-        await self.finish(job, JobStatus.RESCHEDULED, error = error)
-        job.scheduled = now() + wait_time
-        async with self.pipeline(transaction = True, retryable = True) as pipe:
-            pipe = pipe.lrem(job.active_key, 1, job.id).zrem(job.incomplete_key, job.id)
-            pipe = pipe.zadd(job.incomplete_key, {job.id: job.scheduled})
-            pipe = pipe.rpush(job.queued_key, job.id)
-            await self.push_queue.push(job_id = job.id, pipeline = pipe)
-            await pipe.set(job.id, await self.serialize(job)).execute()
-        await self.notify(job)
-        if not self.queue_tasks.is_function_silenced(job.function, stage = 'reschedule'):
-            self.log(job=job, kind = "reschedule").info(f"↻ duration={job.get_duration('running')}ms, node={self.node_name}, func={job.function}, kwargs={job.get_truncated_kwargs(self.logging_max_length)}")
-
-    async def reschedule(
-        self, 
-        job: Job,
-        wait_time: float = 10.0, 
-        error: Optional[Any] = None,
-        **kwargs
-    ):
-        """
-        Reschedule a job after a certain amount of time
-        """
-        asyncio.create_task(self._reschedule(job, wait_time = wait_time, error = error, **kwargs))
 
 
     async def defer(
@@ -478,12 +538,12 @@ class TaskQueue(abc.ABC):
         elif self.logging_max_length:
             job_kwargs = job.get_truncated_kwargs(self.logging_max_length)
             self.log(job=job, kind="enqueue").info(
-                f"→ duration={now() - job.queued}ms, node={self.node_name}, func={job.function}, timeout={job.timeout}, kwargs={job_kwargs}"
+                f"→ duration={now() - job.queued}ms, node={self.node_name}, func={job.function}, timeout={job.timeout}, ttl={job.ttl}, kwargs={job_kwargs}"
             )
         
         else:
             self.log(job=job, kind="enqueue").info(
-                f"→ duration={now() - job.queued}ms, node={self.node_name}, func={job.function}, timeout={job.timeout}"
+                f"→ duration={now() - job.queued}ms, node={self.node_name}, func={job.function}, timeout={job.timeout}, ttl={job.ttl}"
             )
         return job
 
@@ -764,7 +824,12 @@ class TaskQueue(abc.ABC):
                 if not return_exceptions: raise ValueError(f"Job {job_key} not found")
                 results.append(None)
             elif job.status in UNSUCCESSFUL_TERMINAL_JOB_STATUSES:
-                exc = errors.JobError(job)
+                # exc = errors.JobError(job)
+                exc = errors.JobError(
+                    job_id = job.id,
+                    job_status = job.status,
+                    job_error = job.error,
+                )
                 if not return_exceptions: raise exc
                 results.append(exc)
             else: results.append(job.result)
@@ -841,6 +906,27 @@ class TaskQueue(abc.ABC):
         return await self.ctx.aexists(job_id)
 
 
+
+    async def wait_until_connection_restored(self):
+        """
+        Waits until the connection is restored in the event of a connection error
+        """
+        attempts = 0
+        t = Timer()
+        while attempts < 5:
+            try:
+                if await self.ctx.aping():
+                    self.autologger.info(f"Connection restored in {t.total_s} after |y|{attempts}|e| attempts", colored = True, prefix = self.worker_log_name)
+                    return True
+            except (rerrors.ConnectionError, errors.ConnectionError, ConnectionError) as e:
+                self.autologger.error(f"[{self.worker_log_name}] Connection Error: {e}")
+                await asyncio.sleep(10.0)
+            except Exception as e:
+                self.autologger.error(f"[{self.worker_log_name}] Unknown Error: [{type(e)}] {e}")
+                await asyncio.sleep(10.0)
+            attempts += 1
+        return False
+            
     async def dequeue_job_id(
         self,
         timeout: int = 0,
@@ -853,24 +939,17 @@ class TaskQueue(abc.ABC):
         if postfix:
             queued_key = f'{self.queued_key}:{postfix}'
             active_key = f'{self.active_key}:{postfix}'
-        
-        
-        # if self.version < (6, 2, 0):
-        #     return await self.ctx.abrpoplpush(
-        #         queued_key, 
-        #         active_key, 
-        #         timeout
-        #     )
-        # return await self.ctx.ablmove(
-        #     queued_key, 
-        #     active_key, 
-        #     timeout,
-        #     "RIGHT", 
-        #     "LEFT", 
-        # )
-        return await self.dequeue_func_method(
-            queued_key,  active_key,  timeout
-        )
+        try:
+            return await self.dequeue_func_method(queued_key, active_key, timeout)
+        except (RetryError, rerrors.ConnectionError, errors.ConnectionError, ConnectionError) as e:
+            # if await self.wait_until_connection_restored():
+            #     # handle the case where the connection is closed by the server
+            #     try:
+            #         return await self.dequeue_func_method(queued_key,  active_key,  timeout)
+            #     except RetryError as e:
+            #         self.autologger.warning(f'[{self.worker_log_name}] Connection Error: {e}')
+            return DEQUEUE_ERR_OBJ
+
     
 
     async def dequeue(
@@ -891,6 +970,7 @@ class TaskQueue(abc.ABC):
         if job_id is None and worker_name:
             job_id = await self.dequeue_job_id(timeout, worker_name)
         
+        if job_id is DEQUEUE_ERR_OBJ: return None
         if job_id is not None:
             # logger.info(f'Fetched job id {job_id}: {queued_key}: {active_key}')
             # self.autologger.info(f'Fetched job id {job_id}')
@@ -941,17 +1021,22 @@ class TaskQueue(abc.ABC):
         t = Timer()
         while True:
             try: await job.refresh()
-            except RuntimeError: await job.enqueue()
+            except RuntimeError: 
+                self.autologger.error(f'Unable to refresh job {job}')
+                await job.enqueue()
             except AttributeError as e:
-                if verbose: self.autologger.error(f'Unable to refresh job {job}')
+                # if verbose: self.autologger.error(f'Unable to refresh job {job}')
+                self.autologger.error(f'Unable to refresh job {job}')
                 if raise_exceptions: raise e
                 break
             
             if job.status == JobStatus.COMPLETE:
                 if source_job: source_job += 1
                 break
-            elif job.status == JobStatus.FAILED:
-                if verbose: self.autologger.error(f'Job {job.id} failed: {job.error}')
+            # elif job.status == JobStatus.FAILED:
+            elif job.has_failed:
+                # if verbose: self.autologger.error(f'Job {job.id} failed: {job.error}')
+                self.autologger.error(f'Job {job.id} failed: {job.error}')
                 if raise_exceptions: raise job.error
                 break
             await asyncio.sleep(refresh_interval)
@@ -979,9 +1064,12 @@ class TaskQueue(abc.ABC):
         while jobs:
             for job in jobs:
                 try: await job.refresh()
-                except RuntimeError: await job.enqueue()
+                except RuntimeError as e:
+                    if verbose: self.autologger.error(f'Unable to refresh job {job}: {e}')
+                    await job.enqueue()
                 except AttributeError as e:
-                    if verbose: self.autologger.error(f'Unable to refresh job {job}')
+                    if verbose: self.autologger.error(f'Unable to refresh job {job}: {e}')
+                    # self.autologger.error(f'Unable to refresh job {job}: {e}')
                     if raise_exceptions: raise e
                     jobs.remove(job)
                 
@@ -989,8 +1077,10 @@ class TaskQueue(abc.ABC):
                     results.append(job.result)
                     if source_job: source_job += 1
                     jobs.remove(job)
-                elif job.status == JobStatus.FAILED:
+                elif job.has_failed:
+                    # elif job.status == JobStatus.FAILED:
                     if verbose: self.autologger.error(f'Job {job.id} failed: {job.error}')
+                    # self.autologger.error(f'Job {job.id} failed: {job.error}')
                     if raise_exceptions: raise job.error
                     jobs.remove(job)
                 if not jobs: break
@@ -1012,6 +1102,8 @@ class TaskQueue(abc.ABC):
         refresh_interval: Optional[float] = 0.5,
         return_results: Optional[bool] = True,
         cancel_func: Optional[Callable] = None,
+        max_wait_duration: Optional[float] = None,
+        cancel_on_expiration: Optional[bool] = False,
         **kwargs,
     ) -> typing.AsyncGenerator[JobResultT, None]:
         # sourcery skip: low-code-quality
@@ -1029,23 +1121,36 @@ class TaskQueue(abc.ABC):
                     if raise_exceptions: raise e
                     jobs.remove(job)
                 
-                if job.status == JobStatus.COMPLETE:
+                if job.is_complete:
+                    # if verbose: self.autologger.info(f'Completed job {job.id} in {t.total_s}')
                     yield job.result if return_results else job
                     num_results += 1
                     if source_job: source_job += 1
                     jobs.remove(job)
                 
-                elif job.status == JobStatus.FAILED:
+                elif job.has_failed:
+                # elif job.status == JobStatus.FAILED:
                     if verbose: self.autologger.error(f'Job {job.id} failed: {job.error}')
                     if raise_exceptions: raise job.error
                     jobs.remove(job)
                 
                 if not jobs: break
+            
+
             if cancel_func and await cancel_func():
                 if verbose: self.autologger.info(f'Cancelled {len(jobs)} jobs')
                 await asyncio.gather(*[self.abort(job, "cancelled") for job in jobs])
                 break
+
+            if max_wait_duration and t.total > max_wait_duration: 
+                if verbose: self.autologger.info(f'Max wait duration reached: {t.total_s}', prefix = self.queue_name)
+                break
+
             await asyncio.sleep(refresh_interval)
+        
+        if jobs and cancel_on_expiration:
+            if verbose: self.autologger.info(f'Cancelled {len(jobs)} jobs')
+            await asyncio.gather(*[self.abort(job, "cancelled") for job in jobs])
         
         if verbose: 
             if source_job: self.autologger.info(f'Completed {source_job.id} w/ {num_results}/{num_jobs} in {t.total_s}')
@@ -1281,6 +1386,14 @@ class TaskQueue(abc.ABC):
                 )
         return self._dequeue_func_method
     
+        
+    @property
+    def logger(self) -> 'Logger':
+        """
+        Returns the logger
+        """
+        return self.queue_settings.logger
+            
     @property
     def autologger(self) -> 'Logger':
         """
@@ -1532,4 +1645,24 @@ class TaskQueue(abc.ABC):
             self.data._save_mutation_objects()
         except Exception as e:
             self.autologger.error(f'Unable to deregister worker {worker_id}: {e}')
+
+
+    async def retrieve_all_job_ids(
+        self,
+        include_active: Optional[bool] = True,
+        include_incomplete: Optional[bool] = True,
+        **kwargs,
+    ) -> List[str]:
+        """
+        Retrieves all job ids
+        """
+        all_job_ids: Set[str] = set()
+        if include_active: 
+            active_keys = await self.ctx.alrange(self.active_key, 0, -1)
+            if active_keys: all_job_ids.update([k.decode() if isinstance(k, bytes) else k for k in active_keys])
+        if include_incomplete:
+            incomplete_keys = await self.ctx.azrangebyscore(self.incomplete_key, '-inf', '+inf')
+            if incomplete_keys: all_job_ids.update([k.decode() if isinstance(k, bytes) else k for k in incomplete_keys])
+        return list(all_job_ids)
+
 

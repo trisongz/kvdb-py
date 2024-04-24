@@ -1297,10 +1297,10 @@ class KVDBStatefulBackend(BaseStatefulBackend):
                     else: await to_session.aset(to_key, await from_session.aget(key))
                 elif key_type == 'hash':
                     existing_hkeys: List[str] = []
-                    if overwrite is False:
+                    if not overwrite:
                         existing_hkeys = await to_session.ahkeys(to_key)
                         existing_hkeys = [k.decode() if isinstance(k, bytes) else k for k in existing_hkeys]
-                        if verbose: logger.info(f'Existing Hash Keys: {existing_hkeys}', prefix = to_key, colored = True)
+                        if verbose: logger.info(f'Existing Hash Keys: {len(existing_hkeys)}', prefix = to_key, colored = True)
                     
                     data = await from_session.ahgetall(key)
                     if '_exp_:' not in key and can_migrate_schema:
@@ -1377,7 +1377,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
                 logger.error(f'Error Cloning Key: {key} - {e}')
                 if raise_errors: raise e
                 errors += 1
-        logger.info(f'Completed Cloning from |g|{from_session.url}|e| for {from_base_key} -> {to_base_key} (completed: {completed}, errors:  {errors}, skipped: {skipped}, total: {len(from_keys)}) results in {t.total_s}', prefix = from_base_key, colored = True)
+        logger.info(f'Completed Cloning from |g|{from_session.url}|e| for {from_base_key} -> {to_base_key} (completed: {completed}, errors:  {errors}, skipped: {skipped}, total: {len(from_keys)}, hkeys_set: {len(completed_hkeys)}, hkeys_skipped: {len(skipped_hkeys)}) results in {t.total_s}', prefix = from_base_key, colored = True)
         return {
             'completed': completed,
             'errors': errors,

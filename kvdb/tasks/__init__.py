@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .abstract import TaskABC
-from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, TypeVar, ParamSpec, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, Set, TypeVar, ParamSpec, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
 
 RT = TypeVar('RT')
 P = ParamSpec("P")
@@ -187,6 +187,8 @@ def register_abc(
         fallback_enabled: Whether or not to enable the fallback for the function
         
         on_failure_callback: The callback to use for the function's on_failure
+    
+        exclude_retry_exceptions: The exceptions to exclude from retrying
     """
     ...
     # def wrapper(*args: P.args, blocking: Optional[bool] = False, **kwargs: P.kwargs) -> RT:
@@ -210,6 +212,7 @@ def register_abc(
     attribute_match_type: Optional[AttributeMatchType] = None,
     fallback_enabled: Optional[bool] = None,
     on_failure_callback: Optional[Union[Callable, str]] = None,
+    exclude_retry_exceptions: Optional[Union[bool, List[Type[Exception]], Set[Type[Exception]]]] = None,
     **kwargs
 ) -> Callable[..., 'ReturnValue']:
     """
@@ -243,6 +246,8 @@ def register_abc(
         fallback_enabled: Whether or not to enable the fallback for the function
         
         on_failure_callback: The callback to use for the function's on_failure
+    
+        exclude_retry_exceptions: The exceptions to exclude from retrying
     """
     ...
 
@@ -262,6 +267,7 @@ def register_abc(
     attribute_match_type: Optional[AttributeMatchType] = None,
     fallback_enabled: Optional[bool] = None,
     on_failure_callback: Optional[Union[Callable, str]] = None,
+    exclude_retry_exceptions: Optional[Union[bool, List[Exception], Set[Exception]]] = None,
     **kwargs
 ) -> Callable[['Job'], 'Job']:
     """
@@ -295,6 +301,8 @@ def register_abc(
         fallback_enabled: Whether or not to enable the fallback for the function
         
         on_failure_callback: The callback to use for the function's on_failure
+    
+        exclude_retry_exceptions: The exceptions to exclude from retrying
     """
     ...
 
@@ -315,6 +323,7 @@ def register_abc(
     attribute_match_type: Optional[AttributeMatchType] = None,
     fallback_enabled: Optional[bool] = None,
     on_failure_callback: Optional[Union[Callable, str]] = None,
+    exclude_retry_exceptions: Optional[Union[bool, List[Type[Exception]], Set[Type[Exception]]]] = None,
     **kwargs
 ) -> Callable[..., 'ReturnValue']:
     """
@@ -348,6 +357,8 @@ def register_abc(
         fallback_enabled: Whether or not to enable the fallback for the function
         
         on_failure_callback: The callback to use for the function's on_failure
+    
+        exclude_retry_exceptions: The exceptions to exclude from retrying
     """
     ...
 
@@ -365,6 +376,7 @@ def register_abc(
     attribute_match_type: Optional[AttributeMatchType] = None,
     fallback_enabled: Optional[bool] = None,
     on_failure_callback: Optional[Union[Callable, str]] = None,
+    exclude_retry_exceptions: Optional[Union[bool, List[Type[Exception]], Set[Type[Exception]]]] = None,
     **kwargs
 ) -> Callable[['RT'], 'RT']:
     """
@@ -398,6 +410,8 @@ def register_abc(
         fallback_enabled: Whether or not to enable the fallback for the function
         
         on_failure_callback: The callback to use for the function's on_failure
+    
+        exclude_retry_exceptions: The exceptions to exclude from retrying
     """
     ...
 

@@ -249,6 +249,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         attribute_match_type: Optional[AttributeMatchType] = None,
         fallback_enabled: Optional[bool] = None,
         on_failure_callback: Optional[Union[Callable, str]] = None,
+        exclude_retry_exceptions: Optional[Union[bool, List[Type[Exception]], Set[Type[Exception]]]] = None,
         task_abc: Optional[bool] = None,
         **kwargs
     ) -> Callable[[FunctionT], FunctionT]:
@@ -554,6 +555,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         worker_attributes: Optional[Dict[str, Any]] = None,
         attribute_match_type: Optional[AttributeMatchType] = None,
         fallback_enabled: Optional[bool] = None,
+        exclude_retry_exceptions: Optional[Union[bool, List[Type[Exception]], Set[Type[Exception]]]] = None,
         **kwargs
     ) -> Callable[[Union[Type['TaskABC'], FunctionT, 'ReturnValue', 'ReturnValueT']], Union[Type['TaskABC'], FunctionT, 'ReturnValue', 'ReturnValueT']]:
         """
