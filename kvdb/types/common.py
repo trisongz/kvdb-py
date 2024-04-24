@@ -54,6 +54,7 @@ class AppEnv(str, Enum):
     STAGING = "staging"
     PRODUCTION = "production"
     LOCAL = "local"
+    TEST = "test"
 
     @classmethod
     def from_env(cls, env_value: str) -> "AppEnv":
@@ -71,6 +72,8 @@ class AppEnv(str, Enum):
             return cls.STAGING
         if "local" in env_value:
             return cls.LOCAL
+        if "test" in env_value:
+            return cls.TEST
         raise ValueError(f"Invalid app environment: {env_value} ({type(env_value)})")
     
 
@@ -88,6 +91,7 @@ class AppEnv(str, Enum):
         hostname = hostname.lower()
         if "dev" in hostname: return cls.DEVELOPMENT
         if "staging" in hostname: return cls.STAGING
+        if "test" in hostname: return cls.TEST
         return cls.LOCAL if "local" in hostname else cls.PRODUCTION
     
     def __eq__(self, other: Any) -> bool:
@@ -106,7 +110,9 @@ class AppEnv(str, Enum):
         return self in [
             AppEnv.LOCAL,
             AppEnv.CICD,
-            AppEnv.DEVELOPMENT
+            AppEnv.DEVELOPMENT,
+            AppEnv.STAGING,
+            AppEnv.TEST
         ]
 
     @property
