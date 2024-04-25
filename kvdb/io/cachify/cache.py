@@ -377,6 +377,8 @@ class CachifyContext(abc.ABC):
         exclude_keys: Optional[List[str]] = None,
         exclude_null: Optional[bool] = True,
         exclude_exceptions: Optional[Union[bool, List[Exception]]] = True,
+        exclude_if: Optional[Callable] = None,
+        
         prefix: Optional[str] = '_kvc_',
 
         exclude_null_values_in_hash: Optional[bool] = None,

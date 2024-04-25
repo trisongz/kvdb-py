@@ -103,6 +103,7 @@ class KVDBCachifyConfig(SerializerConfig, BaseModel):
     is_class_method: Optional[bool] = None
     has_ran_post_init_hook: Optional[bool] = None
     is_async: Optional[bool] = None
+    disable_background_tasks: Optional[bool] = None
 
     hset_enabled: Optional[bool] = True
 

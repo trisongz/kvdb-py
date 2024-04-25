@@ -28,6 +28,7 @@ def register(
 
     exclude_null_values_in_hash: Optional[bool] = None,
     exclude_default_values_in_hash: Optional[bool] = None,
+    exclude_if: Optional[Callable] = None,
 
     disabled: Optional[Union[bool, Callable]] = None,
     disabled_kws: Optional[List[str]] = ['cache_disable'], # If present and True, disable the cache

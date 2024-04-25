@@ -1047,6 +1047,7 @@ class Cachify(KVDBCachifyConfig):
         Runs the cache policies
         """
         await self.aadd_hit()
+        await self.aexpire_cache_expired_keys()
         if not self.hset_enabled or self.cache_max_size is None: return
         await self.aadd_key_timestamp(key)
         await self.aadd_key_hit(key)
@@ -1111,7 +1112,10 @@ class Cachify(KVDBCachifyConfig):
             if self.verbosity: logger.trace(f'[{self.cache_field}:{key}] Retrieve Exception', error = e)
             return ENOVAL
         
-        ThreadPooler.background_task(self.avalidate_cache_policies, key, *args, cache_kwargs = cache_kwargs, **kwargs)
+        if not self.disable_background_tasks:
+            ThreadPooler.background_task(self.avalidate_cache_policies, key, *args, cache_kwargs = cache_kwargs, **kwargs)
+        else:
+            await self.avalidate_cache_policies(key, *args, cache_kwargs = cache_kwargs, **kwargs)
         try:
             result = self.decode_hit(value, *args, **kwargs)
             if result is not None: return result
@@ -1192,6 +1196,24 @@ class Cachify(KVDBCachifyConfig):
         if not self.has_post_call_hook: return
         if self.super_verbose and not self.is_silenced('post_call'): logger.info(f'[{self.cache_field}] Running Post Call Hook')
         ThreadPooler.background_task(self.post_call_hook, result, *args, is_hit = is_hit, **kwargs)
+    
+
+    async def _arun_cache_operation(self, cache_key: str, value: Any, *args, cachify_kwargs: Dict[str, Any] = None, **kwargs) -> None:
+        """
+        Runs the cache operation
+        """
+        if await self.ashould_cache_value(value, *args, cache_kwargs = cachify_kwargs, **kwargs):
+            if self.super_verbose and not self.is_silenced('cache_value', 'cache'): logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+            await self.aset(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
+        await self.arun_post_call_hook(value, *args, is_hit = False, **kwargs)
+
+    async def arun_cache_operation(self, cache_key: str, value: Any, *args, cachify_kwargs: Dict[str, Any] = None, **kwargs) -> None:
+        """
+        Runs the cache operation
+        """
+        if self.disable_background_tasks:
+            return await self._arun_cache_operation(cache_key, value, *args, cachify_kwargs = cachify_kwargs, **kwargs)
+        ThreadPooler.background_task(self._arun_cache_operation, cache_key, value, *args, cachify_kwargs = cachify_kwargs, **kwargs)
 
 
     # def create_sync_decorator(self, func: FunctionT) -> Callable[..., ReturnValueT]:
@@ -1470,10 +1492,11 @@ class Cachify(KVDBCachifyConfig):
                 if self.super_verbose and not self.is_silenced('cache_miss', 'cache'): logger.info('Cache Miss', prefix = f'{self.cache_field}:{cache_key}', colored = True)
                 try:
                     value = await func(*args, **kwargs)
-                    if await self.ashould_cache_value(value, *args, cache_kwargs = cachify_kwargs, **kwargs):
-                        if self.super_verbose and not self.is_silenced('cache_value', 'cache'): logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
-                        await self.aset(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
-                    await self.arun_post_call_hook(value, *args, is_hit = False, **kwargs)
+                    await self.arun_cache_operation(cache_key, value, *args, cachify_kwargs = cachify_kwargs, **kwargs)
+                    # if await self.ashould_cache_value(value, *args, cache_kwargs = cachify_kwargs, **kwargs):
+                    #     if self.super_verbose and not self.is_silenced('cache_value', 'cache'): logger.info('Caching Value', prefix = f'{self.cache_field}:{cache_key}', colored = True)
+                    #     await self.aset(cache_key, value, *args, cache_kwargs = cachify_kwargs, **kwargs)
+                    # await self.arun_post_call_hook(value, *args, is_hit = False, **kwargs)
                     return value
                 
                 except Exception as e:
