@@ -248,7 +248,7 @@ class TaskWorker(abc.ABC):
         """
         Sync Function to run the worker
         """
-        self.main_task = self.loop.create_task(self.run(**kwargs))
+        self.main_task = self.loop.create_task(self.start(**kwargs))
         try:
             self.loop.run_until_complete(self.main_task)
         except asyncio.CancelledError:  # pragma: no cover
