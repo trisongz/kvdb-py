@@ -267,6 +267,7 @@ class KVDBUrl(Url):
     """
     _key: Optional[str] = None
 
+
     @property
     def backend(self) -> str:
         """
@@ -362,7 +363,9 @@ class KVDBUrl(Url):
         """
         Returns a new KVDBUrl with the specified database ID
         """
-        new_path = self.path.replace(f"{self.db_id}", f"{db_id}").lstrip("/")
+        
+        new_path = self.path.replace(f"{self.db_id}", f"{db_id}").lstrip("/") if \
+            self.path and self.db_id else f"{db_id}"
         return self.build(
             scheme = self.scheme,
             username = self.username,

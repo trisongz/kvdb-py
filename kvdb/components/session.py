@@ -223,6 +223,14 @@ class KVDBSession(abc.ABC):
     """
     Properties
     """
+    
+    @property
+    def db_id(self) -> int:
+        """
+        Returns the database ID
+        """
+        return self.url.db_id
+
     @property
     def client(self) -> KVDB:
         """

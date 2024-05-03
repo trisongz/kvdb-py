@@ -628,7 +628,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         Attempts to Reestablish connection to the host
         """
         duration = 0.0
-        err = None
+        err, sock = None, None
         while duration < self.auto_pause_max_delay:
             try:
                 sock = socket.create_connection((connection.host, connection.port), timeout = 0.5)
@@ -638,6 +638,13 @@ class AsyncConnectionPool(_AsyncConnectionPool):
             except ConnectionRefusedError as err:
                 await asyncio.sleep(self.auto_pause_interval)
                 duration += self.auto_pause_interval
+            finally:
+                if sock: 
+                    with contextlib.suppress(Exception):
+                        sock.close() 
+        if sock:
+            with contextlib.suppress(Exception):
+                sock.close()
         return False
     
     @contextlib.asynccontextmanager
@@ -676,8 +683,13 @@ class AsyncConnectionPool(_AsyncConnectionPool):
             # leak it
             await self.release(connection)
             raise
-        
-        yield connection
+
+        try:
+            yield connection
+        except Exception as e:
+            logger.error(f"Error in connection pool: {e}")
+            await self.release(connection)
+            raise e
 
 
     async def get_connection(self, command_name, *keys, **options):

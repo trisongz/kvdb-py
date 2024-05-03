@@ -39,3 +39,4 @@ site/**
 kvdb/backends/**
 tests/devel**
 /tests/replicate
+tests/tasks/test_task_handling.py
