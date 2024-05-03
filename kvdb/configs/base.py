@@ -181,6 +181,8 @@ class TaskQueueConfig(SerializerConfig, BaseModel):
     socket_keepalive: Optional[bool] = True
     heartbeat_interval: Optional[float] = 15.0
 
+    # stuck_max_iterations: Optional[int] = 10
+
 
     @model_validator(mode = 'after')
     def validate_task_queue(self):

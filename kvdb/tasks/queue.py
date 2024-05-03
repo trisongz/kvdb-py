@@ -1022,6 +1022,7 @@ class TaskQueue(abc.ABC):
             # Since this runs every 60 seconds
             # if the job hasn't changed, we'll assume it's stuck
             # and reschedule it.
+            # await self.raw_ctx.aclient.zadd()
             job_exists = await self.raw_ctx.aclient.sadd(self.stuck_key, job_id)
             job_exists = int(job_exists.decode() if isinstance(job_exists, bytes) else job_exists) == 0
             if not job_exists: continue
@@ -1039,7 +1040,7 @@ class TaskQueue(abc.ABC):
                 await self.raw_ctx.aclient.srem(self.stuck_key, job_id)
             rescheduled_job_ids.append(job_id)
         if rescheduled_job_ids: 
-            self.logger.info(f'Requeued {len(rescheduled_job_ids)} Stuck Jobs {rescheduled_job_ids}')
+            self.logger.info(f'Requeued |y|{len(rescheduled_job_ids)}|e| Stuck Jobs {rescheduled_job_ids}', colored = True, prefix = self.queue_name)
 
 
     """
@@ -1391,13 +1392,16 @@ class TaskQueue(abc.ABC):
                 name = f'tasks:{self.queue_name}:raw',
                 url = self._kwargs.get('url', None),
                 db_id = self._kwargs.get('db_id', self.config.queue_db_id),
-                pool_max_connections = self.max_concurrency * 10,
-                apool_max_connections = self.max_concurrency ** 2,
+                # pool_max_connections = self.max_concurrency * 10,
+                # apool_max_connections = self.max_concurrency ** 2,
+                pool_max_connections = 10, # Keep this intentionally low 
+                apool_max_connections = 10, # Keep this intentionally low
                 socket_keepalive = self.config.socket_keepalive,
                 socket_timeout = self.config.socket_timeout,
                 socket_connect_timeout = self.config.socket_connect_timeout,
                 health_check_interval = self.config.heartbeat_interval,
                 serializer = None,
+                # decode_responses = True,
                 set_as_ctx = False,
             )
         return self._ctx

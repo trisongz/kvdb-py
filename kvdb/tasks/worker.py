@@ -355,7 +355,7 @@ class TaskWorker(abc.ABC):
         for queue in self.queues:
             await queue.check_stuck_jobs()
 
-    async def upkeep(self):
+    async def upkeep(self) -> List[asyncio.Task]:
         """
         Start various upkeep tasks async.
         """
@@ -369,18 +369,33 @@ class TaskWorker(abc.ABC):
                     if self.event.is_set(): return
                     self.autologger.trace(f"Error in upkeep task {func.__name__}", e)
                 await asyncio.sleep(sleep)
-        return [
+        
+        tasks = [
             self.loop.create_task(poll(self.abort, self.timers.abort)),
             self.loop.create_task(poll(self.schedule, self.timers.schedule)),
             self.loop.create_task(poll(self.sweep, self.timers.sweep)),
-            self.loop.create_task(poll(self.check_stuck_jobs, self.timers.stuck)),
-            # asyncio.create_task(
-            #     poll(self.queue.stats, self.timers.stats, self.timers.stats + 1)
-            # ),
             self.loop.create_task(
                 poll(self.heartbeat, self.timers.heartbeat, self.heartbeat_ttl)
             ),
         ]
+        # Only schedule this on the leader process
+        if self.is_leader_process:
+            tasks.append(self.loop.create_task(poll(self.check_stuck_jobs, self.timers.stuck)))
+        
+        return tasks
+
+        # return [
+        #     self.loop.create_task(poll(self.abort, self.timers.abort)),
+        #     self.loop.create_task(poll(self.schedule, self.timers.schedule)),
+        #     self.loop.create_task(poll(self.sweep, self.timers.sweep)),
+        #     self.loop.create_task(poll(self.check_stuck_jobs, self.timers.stuck)),
+        #     # asyncio.create_task(
+        #     #     poll(self.queue.stats, self.timers.stats, self.timers.stats + 1)
+        #     # ),
+        #     self.loop.create_task(
+        #         poll(self.heartbeat, self.timers.heartbeat, self.heartbeat_ttl)
+        #     ),
+        # ]
     
     async def sort_jobs(self, jobs: List['Job']) -> Dict[str, List['Job']]:
         """
