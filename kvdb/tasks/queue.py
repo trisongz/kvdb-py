@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from kvdb.components import AsyncScript
     from kvdb.components.session import KVDBSession
     from kvdb.components.persistence import PersistentDict
+    from kvdb.configs import KVDBSettings
     from kvdb.utils.logs import Logger
     from .types import PushQueue, TaskResult
     from .worker import TaskWorker
@@ -109,12 +110,13 @@ class TaskQueue(abc.ABC):
         push_to_queue_enabled: Optional[bool] = None,
         push_to_queue_key: Optional[str] = None,
         push_to_queue_ttl: Optional[int] = None,
+        queue_settings: Optional['KVDBSettings'] = None,
         **kwargs
     ):
         """
         Initializes the Task Queue
         """
-        self.queue_settings = settings.model_copy()
+        self.queue_settings = queue_settings if queue_settings is not None else settings.model_copy()
         if isinstance(kwargs.get('config'), KVDBTaskQueueConfig):
             self.config = kwargs.pop('config')
         else:
@@ -181,7 +183,21 @@ class TaskQueue(abc.ABC):
     #     if self._ctx:
     #         await self._ctx.aclose()
     #         self._ctx = None
+
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        """
+        Dump the queue config
+        """
+        return {
+            'config': self.config.model_copy(),
+            'uuid': self.uuid,
+            'queue_name': self.queue_name,
+            'queue_settings': self.queue_settings.model_copy(),
+            **self._kwargs,
+            **self.push_queue_kwargs,
+        }
     
+
     """
     Primary Methods
     """
@@ -1016,7 +1032,8 @@ class TaskQueue(abc.ABC):
             try:
                 job = await self.get_job_by_id(job_id)
             except Exception as e:
-                self.logger.error(f'Error getting job {job_id}. {e}')
+                self.log(kind = "stuck", job_id = job_id).error(f'Error getting job: {e}')
+                # self.logger.error(f'Error getting job {job_id}. {e}')
                 continue
             if job.scheduled > 0 or 'cronjob' in job.id or job.status == JobStatus.ACTIVE: continue
             # Since this runs every 60 seconds
@@ -1040,7 +1057,8 @@ class TaskQueue(abc.ABC):
                 await self.raw_ctx.aclient.srem(self.stuck_key, job_id)
             rescheduled_job_ids.append(job_id)
         if rescheduled_job_ids: 
-            self.logger.info(f'Requeued |y|{len(rescheduled_job_ids)}|e| Stuck Jobs {rescheduled_job_ids}', colored = True, prefix = self.queue_name)
+            self.log(kind = "stuck").info(f'Rescheduled |y|{len(rescheduled_job_ids)}|e| Stuck Jobs {rescheduled_job_ids}', colored = True)
+            # self.logger.info(f'Requeued |y|{len(rescheduled_job_ids)}|e| Stuck Jobs {rescheduled_job_ids}', colored = True, prefix = self.queue_name)
 
 
     """
@@ -1589,7 +1607,7 @@ class TaskQueue(abc.ABC):
         # Configure Misc Variables
         from lazyops.utils.system import get_host_name
         self.node_name = get_host_name()
-        self.is_primary_process = self.queue_settings.temp_data.has_logged(f'primary_process.queue:{self.queue_name}')
+        self.is_primary_process = not self.queue_settings.temp_data.has_logged(f'primary_process.queue:{self.queue_name}')
         
         if self.queue_settings.in_k8s:
             self.is_leader_process = self.node_name[-1].isdigit() and int(self.node_name[-1]) == 0 and self.is_primary_process

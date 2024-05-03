@@ -126,6 +126,8 @@ class TaskWorker(abc.ABC):
             self.timers.update_config(timers)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self.main_task: Optional[asyncio.Task] = None
+        self._is_primary_process: Optional[bool] = None
+        self._is_leader_process: Optional[bool] = None
         self.cls_preinit(**kwargs)
         self.init_queues(queues = queues, task_queue_class = task_queue_class, **kwargs)
         self.cls_init(**kwargs)
@@ -141,6 +143,31 @@ class TaskWorker(abc.ABC):
         Checks if the worker is the primary worker
         """
         return self.worker_attributes.get('is_primary_index')
+    
+    @property
+    def is_primary_process(self) -> bool:
+        """
+        Checks if the worker is the primary process
+        """
+        if self._is_primary_process is None:
+            # self.autologger.info('Checking if Primary Process', prefix = self.name, colored = True)
+            self._is_primary_process = not self.worker_settings.temp_data.has_logged(f'primary_process.worker:{self.name}')
+            # self.worker_attributes['is_primary_process'] = self._is_primary_process
+        return self._is_primary_process
+    
+    @property
+    def is_leader_process(self) -> bool:
+        """
+        Checks if the worker is the leader process
+        """
+        if self._is_leader_process is None:
+            # self.autologger.info('Checking if Leader Process', prefix = self.name, colored = True)
+            if self.worker_settings.in_k8s:
+                self._is_leader_process = self.node_name[-1].isdigit() and int(self.node_name[-1]) == 0 and self.is_primary_process
+            else:
+                self._is_leader_process = self.is_primary_process
+            # self.worker_attributes['is_leader_process'] = self._is_leader_process
+        return self._is_leader_process
 
     @classmethod
     def build_function_name(cls, func: Callable) -> str:
@@ -196,6 +223,7 @@ class TaskWorker(abc.ABC):
         Start processing jobs and upkeep tasks.
         """
         if not self.should_run_worker(**kwargs): return
+        await self.aworker_prestart_init(**kwargs)
         if not self.queue_eager_init:
             for queue in self.queues:
                 await queue.aregister_worker(self)
@@ -380,23 +408,10 @@ class TaskWorker(abc.ABC):
         ]
         # Only schedule this on the leader process
         if self.is_leader_process:
+            # self.log(kind = "stuck").info('Adding Stuck Job Checker')
             self.logger.info('Adding Stuck Job Checker', prefix = self.worker_name, colored = True)
             tasks.append(self.loop.create_task(poll(self.check_stuck_jobs, self.timers.stuck)))
-        
         return tasks
-
-        # return [
-        #     self.loop.create_task(poll(self.abort, self.timers.abort)),
-        #     self.loop.create_task(poll(self.schedule, self.timers.schedule)),
-        #     self.loop.create_task(poll(self.sweep, self.timers.sweep)),
-        #     self.loop.create_task(poll(self.check_stuck_jobs, self.timers.stuck)),
-        #     # asyncio.create_task(
-        #     #     poll(self.queue.stats, self.timers.stats, self.timers.stats + 1)
-        #     # ),
-        #     self.loop.create_task(
-        #         poll(self.heartbeat, self.timers.heartbeat, self.heartbeat_ttl)
-        #     ),
-        # ]
     
     async def sort_jobs(self, jobs: List['Job']) -> Dict[str, List['Job']]:
         """
@@ -707,11 +722,6 @@ class TaskWorker(abc.ABC):
         self.node_name = get_host_name()
         self.name = kwargs.get('name', kwargs.get('worker_name')) or self.node_name
         self.worker_name = self.name
-        self.is_primary_process = self.worker_settings.temp_data.has_logged(f'primary_process.worker:{self.name}')
-        if self.worker_settings.in_k8s:
-            self.is_leader_process = self.node_name[-1].isdigit() and int(self.node_name[-1]) == 0 and self.is_primary_process
-        else:
-            self.is_leader_process = self.is_primary_process
         self.worker_identity = f"{self.name}:{self.worker_pid}"
         self.worker_attributes.update({
             'worker_id': self.worker_id,
@@ -848,8 +858,16 @@ class TaskWorker(abc.ABC):
         # _msg = f'{self._worker_identity}: {self.worker_host}.{self.name} v{self.worker_settings.version}'
         _msg = f'{self.worker_identity}: v{self.worker_settings.version}'
         _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset} {ColorMap.cyan}[Worker Name]{ColorMap.reset}: {ColorMap.bold}{self.name}{ColorMap.reset} {ColorMap.cyan}[Node Name]{ColorMap.reset}: {ColorMap.bold}{self.node_name} {ColorMap.cyan}'
+        
+        if self.is_leader_process:
+            _msg += '[Leader]'
+        elif self.is_primary_process:
+            _msg += '[Primary]'
+        else:
+            _msg += '[Follower]'
         if self.is_primary_worker:
             _msg += '[Primary Worker]'
+
         # _msg += f'\n- {ColorMap.cyan}[Worker ID]{ColorMap.reset}: {ColorMap.bold}{self.worker_id}{ColorMap.reset}'
         if self.config.debug_enabled:
             _msg += f'\n- {ColorMap.cyan}[Concurrency]{ColorMap.reset}: {ColorMap.bold}{self.max_concurrency}/jobs, {self.max_broadcast_concurrency}/broadcasts{ColorMap.reset}'
@@ -868,20 +886,6 @@ class TaskWorker(abc.ABC):
                     _msg += f'\n      \t[Functions]: `{[f.function_name for f in queue_funcs]}`'
                     if self.cronjobs:
                         _msg += f'\n      \t[Cron Jobs]: `{[f.function_name for f in self.cronjobs.values() if f.queue_name == queue.queue_name]}`'
-            # if self.verbose_startup:
-            #     _msg += f'\n- {ColorMap.cyan}[Worker Attributes]{ColorMap.reset}: {self.worker_attributes}'
-            #     if self._is_ctx_retryable:
-            #         _msg += f'\n- {ColorMap.cyan}[Retryable]{ColorMap.reset}: {self._is_ctx_retryable}'
-            #     _msg += f'\n- {ColorMap.cyan}[Functions]{ColorMap.reset}:'
-            #     for function_name in self.functions:
-            #         _msg += f'\n   - {ColorMap.bold}{function_name}{ColorMap.reset}'
-            #     if self.worker_settings.worker.has_silenced_functions:
-            #         _msg += f"\n - {ColorMap.cyan}[Silenced Functions]{ColorMap.reset}:"
-            #         for stage, silenced_functions in self.worker_settings.worker.silenced_function_dict.items():
-            #             if silenced_functions:
-            #                 _msg += f"\n   - {stage}: {silenced_functions}"
-            #     if self.queue.function_tracker_enabled:
-            #         _msg += f'\n- {ColorMap.cyan}[Function Tracker Enabled]{ColorMap.reset}: {self.queue.function_tracker_enabled}'
         else:
             _msg += f'\n- {ColorMap.cyan}[Queue]{ColorMap.reset}: {ColorMap.bold}{self.queues[0].queue_name} @ {self.queues[0].ctx.url.safe_url} [S: {self.queues[0].serializer.name if self.queues[0].serializer else None}]{ColorMap.reset}'
         return _msg
@@ -889,6 +893,13 @@ class TaskWorker(abc.ABC):
     """
     Overrideable Methods
     """
+
+    async def aworker_prestart_init(self, **kwargs):
+        """
+        Async startup worker init
+        """
+        pass
+
 
     async def aworker_onstart_pre_init(self, **kwargs):
         """
