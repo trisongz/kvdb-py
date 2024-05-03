@@ -407,8 +407,7 @@ class TaskWorker(abc.ABC):
             ),
         ]
         # Only schedule this on the leader process
-        if self.is_leader_process:
-            # self.log(kind = "stuck").info('Adding Stuck Job Checker')
+        if self.is_leader_process and self.is_primary_worker:
             self.logger.info('Adding Stuck Job Checker', prefix = self.worker_name, colored = True)
             tasks.append(self.loop.create_task(poll(self.check_stuck_jobs, self.timers.stuck)))
         return tasks
