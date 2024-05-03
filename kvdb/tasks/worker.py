@@ -275,6 +275,8 @@ class TaskWorker(abc.ABC):
             if not task.done():
                 task.cancel()
         if self.main_task: self.main_task.cancel()
+        for queue in self.queues:
+            await queue.close_connections()
         await asyncio.gather(*all_tasks, return_exceptions=True)
 
 
@@ -345,6 +347,13 @@ class TaskWorker(abc.ABC):
         """
         for queue in self.queues:
             await queue.sweep(lock = lock)
+    
+    async def check_stuck_jobs(self, *args, **kwargs):
+        """
+        Checks for stuck jobs that are queued but have may be stuck waiting in the queue
+        """
+        for queue in self.queues:
+            await queue.check_stuck_jobs()
 
     async def upkeep(self):
         """
@@ -364,6 +373,7 @@ class TaskWorker(abc.ABC):
             self.loop.create_task(poll(self.abort, self.timers.abort)),
             self.loop.create_task(poll(self.schedule, self.timers.schedule)),
             self.loop.create_task(poll(self.sweep, self.timers.sweep)),
+            self.loop.create_task(poll(self.check_stuck_jobs, self.timers.stuck)),
             # asyncio.create_task(
             #     poll(self.queue.stats, self.timers.stats, self.timers.stats + 1)
             # ),

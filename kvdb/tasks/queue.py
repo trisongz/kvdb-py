@@ -169,6 +169,9 @@ class TaskQueue(abc.ABC):
         if self._ctx:
             self._ctx.close()
             self._ctx = None
+        if self._raw_ctx:
+            self._raw_ctx.close()
+            self._raw_ctx = None
     
     # async def aclose(self):
     #     """
@@ -992,6 +995,51 @@ class TaskQueue(abc.ABC):
         return await self.enqueue(job_or_func, **kwargs)
     
 
+    async def check_stuck_jobs(
+        self,
+        **kwargs,
+    ):
+        """
+        Checks for stuck jobs that are queued but have may be stuck waiting in the queue
+        """
+        job_ids = await self.raw_ctx.akeys(f'{self.job_id_prefix}*')
+        job_ids = [k.decode() if isinstance(k, bytes) else k for k in job_ids]
+        rescheduled_job_ids = []
+
+        for job_id in job_ids:
+            key_type = await self.raw_ctx.atype(job_id)
+            key_type = key_type.decode() if isinstance(key_type, bytes) else key_type
+            if key_type != 'string': continue
+            # This means the job is completed or has a TTL
+            if await self.raw_ctx.attl(job_id) > 0: continue
+            # This means the job is stuck
+            try:
+                job = await self.get_job_by_id(job_id)
+            except Exception as e:
+                self.logger.error(f'Error getting job {job_id}. {e}')
+                continue
+            if job.scheduled > 0 or 'cronjob' in job.id or job.status == JobStatus.ACTIVE: continue
+            # Since this runs every 60 seconds
+            # if the job hasn't changed, we'll assume it's stuck
+            # and reschedule it.
+            job_exists = await self.raw_ctx.aclient.sadd(self.stuck_key, job_id)
+            job_exists = int(job_exists.decode() if isinstance(job_exists, bytes) else job_exists) == 0
+            if not job_exists: continue
+            async with self.pipeline(transaction = True, retryable=True) as pipe:
+                pipe = pipe.lrem(
+                    job.active_key, 1, job_id
+                ).lpush(
+                    job.queued_key, job_id
+                ).zrem(
+                    job.incomplete_key, job.id
+                ).zadd(
+                    job.incomplete_key, {job.id: job.scheduled}
+                )
+                await pipe.execute()
+                await self.raw_ctx.aclient.srem(self.stuck_key, job_id)
+            rescheduled_job_ids.append(job_id)
+        if rescheduled_job_ids: 
+            self.logger.info(f'Requeued {len(rescheduled_job_ids)} Stuck Jobs {rescheduled_job_ids}')
 
 
     """
@@ -1330,6 +1378,29 @@ class TaskQueue(abc.ABC):
                 set_as_ctx = False,
             )
         return self._ctx
+            
+    
+    @property
+    def raw_ctx(self) -> 'KVDBSession':
+        """
+        Returns the KVDB Session with No Serialization
+        """
+        if self._ctx is None:
+            from kvdb.client import KVDBClient
+            self._ctx = KVDBClient.get_session(
+                name = f'tasks:{self.queue_name}:raw',
+                url = self._kwargs.get('url', None),
+                db_id = self._kwargs.get('db_id', self.config.queue_db_id),
+                pool_max_connections = self.max_concurrency * 10,
+                apool_max_connections = self.max_concurrency ** 2,
+                socket_keepalive = self.config.socket_keepalive,
+                socket_timeout = self.config.socket_timeout,
+                socket_connect_timeout = self.config.socket_connect_timeout,
+                health_check_interval = self.config.heartbeat_interval,
+                serializer = None,
+                set_as_ctx = False,
+            )
+        return self._ctx
     
 
     @property
@@ -1536,8 +1607,11 @@ class TaskQueue(abc.ABC):
         self.queue_info_key = self.create_namespace('queue_info')
         self.queue_job_ids_key = self.create_namespace('jobids')
         self.worker_map_key = self.create_namespace('worker_map')
+        self.stuck_key = self.create_namespace('stuck')
+
         self.lock = anyio.Lock()
         self._ctx: Optional['KVDBSession'] = None
+        self._raw_ctx: Optional['KVDBSession'] = None
         self._push_queue: Optional[PushQueue] = None
         self._before_enqueues = {}
         self._version: Optional[Tuple[int, int, int]] = None
@@ -1666,3 +1740,15 @@ class TaskQueue(abc.ABC):
         return list(all_job_ids)
 
 
+    async def close_connections(self):
+        """
+        Closes all connections
+        """
+        if self._ctx is not None:
+            with contextlib.suppress(Exception):
+                await self._ctx.aclose()
+            self._ctx = None
+        if self._raw_ctx is not None:
+            with contextlib.suppress(Exception):
+                await self._raw_ctx.aclose()
+            self._raw_ctx = None

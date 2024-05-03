@@ -144,6 +144,7 @@ class WorkerTimerConfig(BaseModel):
     abort: Optional[int] = Field(1, description = 'The recurring interval for the abort timer in seconds')
     heartbeat: Optional[int] = Field(5, description = 'The recurring interval for the heartbeat timer in seconds')
     broadcast: Optional[int] = Field(10, description = 'The recurring interval for the broadcast timer in seconds')
+    stuck: Optional[int] = Field(60, description = 'The recurring interval for the stuck timer in seconds')
 
 
 class TaskQueueConfig(SerializerConfig, BaseModel):
