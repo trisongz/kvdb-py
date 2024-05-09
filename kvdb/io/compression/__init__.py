@@ -1,4 +1,5 @@
 from .base import BaseCompression
+from ._brotli import BrotliCompression
 from ._gzip import GzipCompression
 from ._lz4 import Lz4Compression, _lz4_available
 from ._zlib import ZlibCompression
@@ -24,6 +25,8 @@ def get_compression(
             compression_type = "lz4"
         else:
             compression_type = "gzip"
+    if compression_type == "brotli":
+        return BrotliCompression(compression_level = compression_level, **kwargs)
     if compression_type == "gzip":
         return GzipCompression(compression_level = compression_level, **kwargs)
     if compression_type == "lz4":

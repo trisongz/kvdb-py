@@ -1104,7 +1104,10 @@ class TaskQueue(abc.ABC):
             elif job.has_failed:
                 # if verbose: self.autologger.error(f'Job {job.id} failed: {job.error}')
                 self.autologger.error(f'Job {job.id} failed: {job.error}')
-                if raise_exceptions: raise job.error
+                if raise_exceptions: 
+                    if isinstance(job.error, Exception):
+                        raise job.error
+                    raise errors.JobError(job_id = job.id, job_status = job.status, job_error = job.error)
                 break
             await asyncio.sleep(refresh_interval)
         
@@ -1148,7 +1151,10 @@ class TaskQueue(abc.ABC):
                     # elif job.status == JobStatus.FAILED:
                     if verbose: self.autologger.error(f'Job {job.id} failed: {job.error}')
                     # self.autologger.error(f'Job {job.id} failed: {job.error}')
-                    if raise_exceptions: raise job.error
+                    if raise_exceptions: 
+                        if isinstance(job.error, Exception):
+                            raise job.error
+                        raise errors.JobError(job_id = job.id, job_status = job.status, job_error = job.error)
                     jobs.remove(job)
                 if not jobs: break
             await asyncio.sleep(refresh_interval)
@@ -1198,7 +1204,10 @@ class TaskQueue(abc.ABC):
                 elif job.has_failed:
                 # elif job.status == JobStatus.FAILED:
                     if verbose: self.autologger.error(f'Job {job.id} failed: {job.error}')
-                    if raise_exceptions: raise job.error
+                    if raise_exceptions: 
+                        if isinstance(job.error, Exception):
+                            raise job.error
+                        raise errors.JobError(job_id = job.id, job_status = job.status, job_error = job.error)
                     jobs.remove(job)
                 
                 if not jobs: break
