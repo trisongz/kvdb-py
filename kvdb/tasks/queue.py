@@ -41,6 +41,7 @@ from kvdb.utils.helpers import (
     ensure_coro,
 )
 from .debug import get_autologger
+from .static import ColorMap
 from typing import (
     Dict, 
     Any, 
@@ -1057,7 +1058,7 @@ class TaskQueue(abc.ABC):
                 await self.raw_ctx.aclient.srem(self.stuck_key, job_id)
             rescheduled_job_ids.append(job_id)
         if rescheduled_job_ids: 
-            self.log(kind = "stuck").info(f'Rescheduled |y|{len(rescheduled_job_ids)}|e| Stuck Jobs {rescheduled_job_ids}', colored = True)
+            self.log(kind = "stuck").info(f'Rescheduled {ColorMap.cyan}{len(rescheduled_job_ids)}{ColorMap.reset} Stuck Jobs {rescheduled_job_ids}')
             # self.logger.info(f'Requeued |y|{len(rescheduled_job_ids)}|e| Stuck Jobs {rescheduled_job_ids}', colored = True, prefix = self.queue_name)
 
 
