@@ -45,7 +45,7 @@ class Cachify(KVDBCachifyConfig):
     """
     function_name: Optional[str] = Field(None, description = 'The name of the function')
     kwarg_override_prefix: Optional[str] = Field(None, description = 'The prefix for the kwargs that override the default config')
-    has_async_loop: Optional[bool] = Field(None, description = 'Whether or not the async loop is running', exclude = True)
+    # has_async_loop: Optional[bool] = Field(None, description = 'Whether or not the async loop is running', exclude = True)
     session_available: Optional[bool] = Field(None, description = 'Whether or not the session is available', exclude = True)
     silenced_stages: Optional[List[str]] = Field(default_factory=list, description = 'The stages to silence')
 
@@ -145,9 +145,27 @@ class Cachify(KVDBCachifyConfig):
             if self.exclude_kws: self.exclude_kws = [f'{self.kwarg_override_prefix}{kw}' for kw in self.exclude_kws]
         from kvdb.configs import settings
         self.settings = settings
-        self.has_async_loop = self.settings.is_in_async_loop()
+        # self.has_async_loop = self.settings.is_in_async_loop()
         return self
     
+    @timed_cache(secs = 60, cache_if_result = True)
+    def _has_async_loop(self) -> bool:
+        """
+        Checks if the current process is running in an async loop
+        """
+        return self.settings.is_in_async_loop()
+
+    @property
+    def has_async_loop(self) -> bool:
+        """
+        Checks if the current process is running in an async loop
+        """
+        return self._has_async_loop()
+        # if self._has_async_loop is None:
+        #     self._has_async_loop = self._has_async_loop()
+        # return self._has_async_loop
+
+        
     def extract_cache_kwargs(self, **kwargs) -> Tuple[Dict[str, Union[bool, int, float, Any]], Dict[str, Any]]:
         """
         Extracts the cache kwargs from the kwargs
