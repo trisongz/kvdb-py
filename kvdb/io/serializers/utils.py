@@ -90,6 +90,25 @@ def serialize_object(
             "__class__": obj_class_name,
             "value": obj_value,
         }
+    
+    # Move this to the top before primitives
+    if np is not None:
+        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
+            obj_class_name = register_object_class(obj)
+            return {
+                "__type__": "numpy",
+                "__class__": obj_class_name,
+                "value": int(obj),
+            }
+
+        if isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+            obj_class_name = register_object_class(obj)
+            return {
+                "__type__": "numpy",
+                "__class__": obj_class_name,
+                "value": float(obj),
+            }
+
 
     if is_primitive(obj, exclude_bytes = True):
         return obj
@@ -175,23 +194,6 @@ def serialize_object(
             "__type__": "tensor",
             "value": obj.tolist(),
         }
-
-    if np is not None:
-        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
-            obj_class_name = register_object_class(obj)
-            return {
-                "__type__": "numpy",
-                "__class__": obj_class_name,
-                "value": int(obj),
-            }
-
-        if isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
-            obj_class_name = register_object_class(obj)
-            return {
-                "__type__": "numpy",
-                "__class__": obj_class_name,
-                "value": float(obj),
-            }
 
     # Try one shot encoding objects
     # with contextlib.suppress(Exception):
