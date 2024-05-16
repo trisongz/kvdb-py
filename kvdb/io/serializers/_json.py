@@ -41,7 +41,7 @@ except ImportError:
 if _cysimdjson_available:
     default_json = _cysimdjson
 
-if _simdjson_available:
+elif _simdjson_available:
     # default_json = simdjson
     default_json = _simdjson
 
