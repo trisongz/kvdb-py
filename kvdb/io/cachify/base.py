@@ -321,7 +321,7 @@ class Cachify(KVDBCachifyConfig):
         if self.invalidate_kws and cache_kwargs.get('invalidate') is True: return True
         if self.invalidate_after is not None: 
             if isinstance(self.invalidate_after, int):
-                return _hits >= self.invalidate_after
+                return _hits is not None and _hits >= self.invalidate_after
             # if _hits and isinstance(self.invalidate_after, int):
             #     return _hits >= self.invalidate_after
             return self.invalidate_after(*args, _hits = _hits, **kwargs)
@@ -336,7 +336,7 @@ class Cachify(KVDBCachifyConfig):
         if self.invalidate_after is not None: 
             _hits = await self.anum_hits
             if isinstance(self.invalidate_after, int):
-                return _hits >= self.invalidate_after
+                return _hits is not None and _hits >= self.invalidate_after
             # if _hits and isinstance(self.invalidate_after, int):
             #     return _hits >= self.invalidate_after
             return await ThreadPooler.asyncish(self.invalidate_after, *args, _hits = _hits, **kwargs)
