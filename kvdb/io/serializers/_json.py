@@ -20,9 +20,17 @@ except ImportError:
 
 try:
     import simdjson
+    from .bindings import _simdjson
     _simdjson_available = True
 except ImportError:
     _simdjson_available = False
+
+try:
+    import cysimdjson
+    from .bindings import _cysimdjson
+    _cysimdjson_available = True
+except ImportError:
+    _cysimdjson_available = False
 
 try:
     import ujson
@@ -30,9 +38,12 @@ try:
 except ImportError:
     _ujson_available = False
 
+if _cysimdjson_available:
+    default_json = _cysimdjson
 
 if _simdjson_available:
-    default_json = simdjson
+    # default_json = simdjson
+    default_json = _simdjson
 
 elif _orjson_available:
     default_json = orjson
@@ -51,6 +62,7 @@ class JsonSerializer(BaseSerializer):
     encoding: Optional[str] = "utf-8"
     jsonlib: JsonLibT = default_json
     disable_object_serialization: Optional[bool] = False
+    allow_failed_import: Optional[bool] = False
 
     def __init__(
         self, 
@@ -176,7 +188,7 @@ class JsonSerializer(BaseSerializer):
                     # logger.trace(f'Error JSON Decoding Value: ({type(value)}) {str(value)[:1000]}', e, prefix = self.jsonlib_name)
                 if raise_errors or self.raise_errors: raise e
         try:
-            return deserialize_object(value, schema_map = schema_map)
+            return deserialize_object(value, schema_map = schema_map, allow_failed_import = self.allow_failed_import)
         except Exception as e:
             if not self.is_encoder: 
                 str_value = str(value)

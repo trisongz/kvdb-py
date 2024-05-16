@@ -24,6 +24,7 @@ from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method, get_par
 from kvdb.utils.helpers import create_cache_key_from_kwargs, is_coro_func, ensure_coro, full_name, timeout as timeout_ctx, is_classmethod
 from lazyops.utils import timed_cache
 from lazyops.utils.lazy import get_function_name
+from lazyops.utils.helpers import is_in_async_loop
 from lazyops.libs.pooler import ThreadPooler
 from lazyops.libs.proxyobj import ProxyObject
 from types import ModuleType
@@ -94,7 +95,7 @@ class CachifyContext(abc.ABC):
         self.logger = self.settings.logger
         self.autologger = self.settings.autologger
         self.verbose: Optional[bool] = kwargs.get('verbose', self.settings.debug_enabled)
-        self.has_async_loop = self.settings.is_in_async_loop()
+        # self.has_async_loop = self.settings.is_in_async_loop()
         self._kwargs = kwargs
     
     def configure_classes(
@@ -132,6 +133,13 @@ class CachifyContext(abc.ABC):
             elif f'session_{field}' in self._kwargs:
                 config[field] = self._kwargs[f'session_{field}']
         return config
+    
+    @property
+    def has_async_loop(self) -> bool:
+        """
+        Checks if the current process is running in an async loop
+        """
+        return is_in_async_loop()
 
     @property
     def session(self) -> 'KVDBSession':

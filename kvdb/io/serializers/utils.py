@@ -210,8 +210,8 @@ def serialize_object(
     raise TypeError(f"Cannot serialize object of type {type(obj)}")
 
 
-def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any], schema_map: Optional[Dict[str, str]] = None) -> SerializableObject:
-    # sourcery skip: extract-duplicate-method
+def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any], schema_map: Optional[Dict[str, str]] = None, allow_failed_import: Optional[bool] = False) -> SerializableObject:
+    # sourcery skip: extract-duplicate-method, low-code-quality
     """
     Deserialize an object
 
@@ -234,12 +234,16 @@ def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any], sc
 
         if obj_type == "pydantic":
             obj_class_type = obj["__class__"]
-            
-            obj_class = get_object_class(obj_class_type)
-            # for k,v in obj_value.items():
-            #     if not is_primitive(v):
-            #         obj_value[k] = deserialize_object(v)
-            return obj_class(**obj_value)
+            try:
+                obj_class = get_object_class(obj_class_type)
+                # for k,v in obj_value.items():
+                #     if not is_primitive(v):
+                #         obj_value[k] = deserialize_object(v)
+                return obj_class(**obj_value)
+            except ImportError as e:
+                if allow_failed_import:
+                    return deserialize_object(obj_value, schema_map = schema_map, allow_failed_import = allow_failed_import)
+                raise e
         
         if obj_type == "pickle":
             try:
@@ -258,6 +262,7 @@ def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any], sc
             obj_class_type = obj["__class__"]
             # if schema_map is not None and obj_class_type in schema_map:
             #     obj_class_type = schema_map[obj_class_type]
+            
             obj_class = get_object_class(obj_class_type)
             return obj_class(**obj_value)
         

@@ -23,6 +23,7 @@ from kvdb.utils.logs import logger
 from kvdb.utils.lazy import lazy_import
 from kvdb.utils.helpers import create_cache_key_from_kwargs, is_coro_func, ensure_coro, full_name, timeout, is_classmethod
 from lazyops.utils import timed_cache
+from lazyops.utils.helpers import is_in_async_loop
 from lazyops.utils.lazy import get_function_name
 from lazyops.libs.persistence import PersistentDict
 from lazyops.libs.pooler import ThreadPooler
@@ -148,19 +149,19 @@ class Cachify(KVDBCachifyConfig):
         # self.has_async_loop = self.settings.is_in_async_loop()
         return self
     
-    @timed_cache(secs = 60, cache_if_result = True)
-    def _has_async_loop(self) -> bool:
-        """
-        Checks if the current process is running in an async loop
-        """
-        return self.settings.is_in_async_loop()
+    # @timed_cache(secs = 60, cache_if_result = True)
+    # def _has_async_loop(self) -> bool:
+    #     """
+    #     Checks if the current process is running in an async loop
+    #     """
+    #     return self.settings.is_in_async_loop()
 
     @property
     def has_async_loop(self) -> bool:
         """
         Checks if the current process is running in an async loop
         """
-        return self._has_async_loop()
+        return is_in_async_loop()
         # if self._has_async_loop is None:
         #     self._has_async_loop = self._has_async_loop()
         # return self._has_async_loop
