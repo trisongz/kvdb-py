@@ -63,6 +63,7 @@ class JsonSerializer(BaseSerializer):
     jsonlib: JsonLibT = default_json
     disable_object_serialization: Optional[bool] = False
     allow_failed_import: Optional[bool] = False
+    ensure_string_value: Optional[bool] = False
 
     def __init__(
         self, 
@@ -108,11 +109,18 @@ class JsonSerializer(BaseSerializer):
         try:
             value_dict = serialize_object(value, **self.serialization_obj_kwargs)
             # logger.info(f'Value Dict: {value_dict}')
-            return self.jsonlib.dumps(value_dict, **kwargs)
+            encoded = self.jsonlib.dumps(value_dict, **kwargs)
+            if self.ensure_string_value and isinstance(encoded, bytes):
+                encoded = encoded.decode(self.encoding)
+            return encoded
+
         except Exception as e:
             if not self.is_encoder: logger.trace(f'Error Encoding Value: |r|({type(value)})|e| {str(value)[:1000]}', e, colored = True)
         try:
-            return self.jsonlib.dumps(value, **kwargs)
+            encoded = self.jsonlib.dumps(value, **kwargs)
+            if self.ensure_string_value and isinstance(encoded, bytes):
+                encoded = encoded.decode(self.encoding)
+            return encoded
         except Exception as e:
             if not self.is_encoder: 
                 logger.info(f'Error Encoding Value: |r|({type(value)}) {e}|e| {str(value)[:1000]}', colored = True, prefix = self.jsonlib_name)
