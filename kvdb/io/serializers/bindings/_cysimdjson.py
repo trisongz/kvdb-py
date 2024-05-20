@@ -54,7 +54,7 @@ def loads(s: Union[str, bytes], *, cls=None, object_hook=None, parse_float=None,
         - cls is ignored.
     """
     parser = get_parser()
-    return parser.parse(s) if isinstance(s, bytes) else parser.parse_string(s)
+    return (parser.parse(s) if isinstance(s, bytes) else parser.parse_string(s)).export()
 
 dumps = json.dumps
 dump = json.dump
