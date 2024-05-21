@@ -247,6 +247,11 @@ def deserialize_object(obj: Union[Dict[str, Any], List[Dict[str, Any]], Any], sc
                     return deserialize_object(obj_value, schema_map = schema_map, allow_failed_import = allow_failed_import)
                 raise e
         
+        if obj_type == "numpy" and np is not None:
+            dtype = obj.get("__class__")
+            if dtype: dtype = dtype.replace("numpy.", "")
+            return np.array(obj_value, dtype = dtype)
+        
         if obj_type == "pickle":
             try:
                 obj_value = bytes.fromhex(obj_value)
