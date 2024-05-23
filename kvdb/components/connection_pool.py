@@ -688,7 +688,8 @@ class AsyncConnectionPool(_AsyncConnectionPool):
             yield connection
         except Exception as e:
             logger.error(f"Error in connection pool: {e}")
-            await self.release(connection)
+            with contextlib.suppress(Exception):
+                await self.release(connection)
             raise e
 
 
