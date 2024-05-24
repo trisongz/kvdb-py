@@ -56,6 +56,9 @@ from kvdb.io.encoder import Encoder
 from kvdb.types.base import supported_schemas, KVDBUrl
 from kvdb.utils.logs import logger
 from kvdb.version import VERSION
+from .parser import _AsyncHiredisParser, HIREDIS_AVAILABLE
+if HIREDIS_AVAILABLE:
+    AsyncDefaultParser = _AsyncHiredisParser
 
 from typing import Union, Optional, Any, Dict, List, Iterable, Tuple, Type, Set, TypeVar, Callable, Awaitable, TYPE_CHECKING
 
@@ -72,7 +75,7 @@ if sys.version_info >= (3, 11, 3):
 else:
     from async_timeout import timeout as async_timeout
 
-
+# from redis._parsers import hiredis
 if TYPE_CHECKING:
     from kvdb.configs import KVDBSettings
     from kvdb.io.serializers import SerializerT
