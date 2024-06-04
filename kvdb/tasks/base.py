@@ -4,14 +4,14 @@ from __future__ import annotations
 A Base Task Worker with Common Methods
 for convenience and readily subclassible
 """
-
+import time
 from .abstract import TaskABC, logger
 from typing import Callable, List, Optional, Type, Any, Dict, Union, TypeVar, Iterable, Awaitable, Set, overload, Tuple, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
     
-    from kvdb.types.jobs import CronJob, Job
+    from kvdb.types.jobs import CronJob, Job, JobResultT
     from kvdb.components.session import KVDBSession
     from .tasks import TaskFunction, Ctx
     from .worker import TaskWorker
@@ -114,6 +114,7 @@ class BaseTaskWorker(TaskABC):
         """
         from lazyops.libs.pooler import ThreadPooler
         self._kdb: Optional['KVDBSession'] = None
+        self._rkdb: Optional['KVDBSession'] = None
 
         self.pooler = ThreadPooler
         self.excluded_tasks: List[str] = []
@@ -445,6 +446,16 @@ class BaseTaskWorker(TaskABC):
             self._kdb = kvdb.KVDBClient.get_session(name = self.name, serializer = 'json')
         return self._kdb
 
+    @property
+    def rkdb(self) -> 'KVDBSession':
+        """
+        Gets the KVDB Session with No Serialization and Decoding Enabled
+        """
+        if self._rkdb is None:
+            import kvdb
+            self._rkdb = kvdb.KVDBClient.get_session(name = f'{self.name}_raw', serializer = None, decode_responses = True)
+        return self._rkdb
+
 
     def get_function_name(self, func: Union[str, Callable]) -> str:
         """
@@ -498,7 +509,7 @@ class BaseTaskWorker(TaskABC):
         job_callback_kwargs: Optional[Dict] = None,
         return_existing_job: bool = False,
         **kwargs
-    ) -> Union[JobResultT, Job]:
+    ) -> Union['JobResultT', Job]:
         """
         Calls the function
         """
@@ -626,7 +637,24 @@ class BaseTaskWorker(TaskABC):
             **kwargs,
         )
     
-    
+    def schedule(
+        self,
+        func: Union[str, Callable[..., RT]],
+        *args,
+        interval: Optional[float] = 180.0,
+        **kwargs,
+    ) -> Awaitable['Job']:
+        """
+        Schedules the function
+
+        This will schedule the function to run after the given interval
+        """
+        return self.queue.enqueue(
+            self.get_function_name(func),
+            *args,
+            scheduled = int(time.time() + interval),
+            **kwargs,
+        )
 
     async def retrieve_job(
         self,
