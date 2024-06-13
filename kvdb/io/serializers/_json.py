@@ -38,6 +38,7 @@ try:
 except ImportError:
     _ujson_available = False
 
+
 if _cysimdjson_available:
     default_json = _cysimdjson
 
@@ -189,6 +190,8 @@ class JsonSerializer(BaseSerializer):
                 # value = self.check_encoded_value(value)
                 value = self.jsonlib.loads(value, **kwargs)
             except Exception as e:
+                if isinstance(value, str) and 'Exception' in value or 'Traceback (most recent call last):' in value:
+                    return value
                 if not self.is_encoder: 
                     str_value = str(value)
                     if not schema_map: str_value = str_value[:1000]
