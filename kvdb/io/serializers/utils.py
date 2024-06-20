@@ -15,6 +15,12 @@ from typing import Optional, Union, Any, Dict, List, Tuple, Callable, Type, Mapp
 
 try:
     import numpy as np
+    np_version = np.__version__
+    if np_version.startswith("2."):
+        np_float_types = (np.float16, np.float32, np.float64)
+    else:
+        np_float_types = (np.float_, np.float16, np.float32, np.float64)
+    np_int_types = (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)
     
 except ImportError:
     np = None
@@ -93,7 +99,8 @@ def serialize_object(
     
     # Move this to the top before primitives
     if np is not None:
-        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
+        # if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
+        if isinstance(obj, np_int_types):
             obj_class_name = register_object_class(obj)
             return {
                 "__type__": "numpy",
@@ -101,7 +108,9 @@ def serialize_object(
                 "value": int(obj),
             }
 
-        if isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        
+        # if isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        if isinstance(obj, np_float_types):
             obj_class_name = register_object_class(obj)
             return {
                 "__type__": "numpy",
