@@ -108,7 +108,7 @@ class ConnectionError(KVDBException):
     """
     level = 'ERROR'
     traceback_depth = 2
-    verbose = True
+    verbose = False
 
 class TimeoutError(KVDBException):
     """
