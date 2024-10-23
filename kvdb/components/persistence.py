@@ -10,8 +10,12 @@ from kvdb.configs import settings as kvdb_settings
 from kvdb.configs.base import SerializerConfig
 from kvdb.utils.logs import logger
 from kvdb.types.base import supported_schemas, KVDBUrl
-from lazyops.libs.persistence.backends.base import BaseStatefulBackend, SchemaType
-from lazyops.libs.persistence import PersistentDict
+try:
+    from lzl.io.persistence.backends.base import BaseStatefulBackend, SchemaType
+    from lzl.io.persistence import PersistentDict
+except ImportError:
+    from lazyops.libs.persistence.backends.base import BaseStatefulBackend, SchemaType
+    from lazyops.libs.persistence import PersistentDict
 
 from typing import Any, Dict, Optional, Union, Iterable, List, Type, Set, Callable, TYPE_CHECKING
 
@@ -19,6 +23,7 @@ from typing import Any, Dict, Optional, Union, Iterable, List, Type, Set, Callab
 if TYPE_CHECKING:
     from .session import KVDBSession
     from .lock import Lock, AsyncLock
+
     from lazyops.types.models import BaseSettings
     from lazyops.libs.persistence.serializers.base import ObjectValue
 
@@ -451,6 +456,7 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             if ex is not None:
                 for key in data:
                     await self.cache.aexpire(key, ex)
+    
     
     async def adelete(self, key: str, **kwargs) -> None:
         """

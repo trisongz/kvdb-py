@@ -11,11 +11,10 @@ from typing import Any, ClassVar, TypeVar, overload
 from typing_extensions import Literal, Self, TypeAlias
 
 if sys.version_info >= (3, 8):
-    from typing import ParamSpec
+    from typing import ParamSpec, Protocol
 else:
-    from typing_extensions import ParamSpec
+    from typing_extensions import ParamSpec, Protocol
 
-from redis.compat import Protocol
 
 if TYPE_CHECKING:
     from kvdb.components.connection_pool import (

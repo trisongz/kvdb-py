@@ -10,6 +10,7 @@ import copy
 import socket
 import weakref
 import asyncio
+import contextlib
 
 # from itertools import chain
 from urllib.parse import parse_qs, unquote
@@ -281,6 +282,12 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
             if p < 2 or p > 3:
                 raise errors.ConnectionError("protocol must be either 2 or 3")
             self.protocol = protocol
+
+        with contextlib.suppress(Exception):
+            from lzo.utils import aioexit
+            aioexit.register(self.disconnect)
+        
+        
 
 
 class AsyncConnection(_AsyncConnection, AsyncAbstractConnection): pass
