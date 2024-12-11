@@ -101,7 +101,11 @@ class Cachify(KVDBCachifyConfig):
             'post_call_hook',
         }:
             if key in values:
-                values[key] = cls.validate_callable(values[key])
+                try:
+                    values[key] = cls.validate_callable(values[key])
+                except Exception as e:
+                    if key in {'name'}: continue
+                    raise e
                 if key in {'encoder', 'decoder'}:
                     if _validated_serializer: continue
                     # if not inspect.isfunction(values[key]):

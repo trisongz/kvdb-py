@@ -213,8 +213,10 @@ except ImportError:
         
         return wrapper
 
-
-from pydantic.networks import Url
+try:
+    from pydantic_core import Url
+except ImportError:
+    from pydantic.networks import Url
 # Add support for LoadBalancing
 # from pydantic.networks import MultiHostUrl
 from typing import Any, Callable, Set, Annotated, Optional, Dict, Union

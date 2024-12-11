@@ -396,6 +396,7 @@ class KVDBSession(abc.ABC):
         blocking: Optional[bool] = True,
         blocking_timeout: Optional[Number] = None,
         thread_local: Optional[bool] = True,
+        force_unlock: Optional[bool] = None,
         **kwargs,
     ) -> Lock:
         """
@@ -435,7 +436,8 @@ class KVDBSession(abc.ABC):
                 sleep = sleep, 
                 blocking = blocking, 
                 blocking_timeout = blocking_timeout, 
-                thread_local = thread_local
+                thread_local = thread_local,
+                force_unlock = force_unlock,
             )
         if self.state.lock is None: self.state.lock = self.state.locks[name]
         return self.state.locks[name]
@@ -448,6 +450,7 @@ class KVDBSession(abc.ABC):
         blocking: bool = True,
         blocking_timeout: Optional[Number] = None,
         thread_local: bool = True,
+        force_unlock: Optional[bool] = None,
         **kwargs,
     ) -> AsyncLock:
         """
@@ -487,7 +490,8 @@ class KVDBSession(abc.ABC):
                 sleep = sleep, 
                 blocking = blocking, 
                 blocking_timeout = blocking_timeout, 
-                thread_local = thread_local
+                thread_local = thread_local,
+                force_unlock = force_unlock,
             )
         if self.state.alock is None: self.state.alock = self.state.alocks[name]
         return self.state.alocks[name]

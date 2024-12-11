@@ -32,6 +32,7 @@ class Lock(_Lock):
         blocking: bool = True,
         blocking_timeout: Optional[float] = None,
         thread_local: bool = True,
+        force_unlock: Optional[bool] = None,
         **kwargs,
     ):
         """
@@ -84,6 +85,7 @@ class Lock(_Lock):
         is that these cases aren't common and as such default to using
         thread local storage.
         """
+        self._force_unlock = force_unlock
         super().__init__(
             db,
             name,
@@ -116,6 +118,7 @@ class Lock(_Lock):
         ``raise_errors`` indicates whether to raise any errors that occur
         during the release process. Defaults to True.
         """
+        if force is None: force = self._force_unlock
         try:
             return super().release()
         except (LockNotOwnedError, LockError) as e:
@@ -140,6 +143,7 @@ class AsyncLock(_AsyncLock):
         blocking: bool = True,
         blocking_timeout: Optional[float] = None,
         thread_local: bool = True,
+        force_unlock: Optional[bool] = None,
         **kwargs,
     ):
         """
@@ -192,6 +196,7 @@ class AsyncLock(_AsyncLock):
         is that these cases aren't common and as such default to using
         thread local storage.
         """
+        self._force_unlock = force_unlock
         super().__init__(
             db,
             name,
@@ -223,6 +228,7 @@ class AsyncLock(_AsyncLock):
         ability to force release the lock even if it's expired or we don't
         currently own it.
         """
+        if force is None: force = self._force_unlock
         if not bool(
             await self.lua_release(
                 keys=[self.name], args=[expected_token], client=self.redis
