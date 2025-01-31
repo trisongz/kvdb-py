@@ -563,6 +563,10 @@ class Cachify(KVDBCachifyConfig):
         """
         Returns whether or not the cache is enabled [session is available]
         """
+        if is_in_ci_env():
+            logger.warning('Currently in CI/CD - Setting as Not Enabled.')
+            return False
+        
         if not self.session_available:
             with self.safely():
                 with contextlib.suppress(Exception):
@@ -781,11 +785,12 @@ class Cachify(KVDBCachifyConfig):
         """
         Safely wraps the function
         """
-        if is_in_ci_env() or not self.settings.is_enabled:
-            logger.warning('Currently in CI/CD - Disabling')
-            yield
+        if is_in_ci_env():
+            logger.warning('Currently in CI/CD - Will Fail Quickly')
+            with anyio.move_on_after(1):
+                yield
         
-        elif self.is_async and self.has_async_loop:
+        if self.is_async and self.has_async_loop:
             with anyio.move_on_after(self.timeout):
                 yield
         else:
