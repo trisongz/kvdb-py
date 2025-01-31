@@ -4,12 +4,13 @@ from __future__ import annotations
 import os
 from .helpers import lazy_import, extract_obj_init_kwargs
 from typing import Dict, Any, Optional, Type, Union, Callable, List, TYPE_CHECKING
-from lazyops.libs.proxyobj import ProxyObject
-
+# from lazyops.libs.proxyobj import ProxyObject
+from lzl.proxied import ProxyObject
 if TYPE_CHECKING:
     from kvdb.configs.main import KVDBSettings
     from kvdb.types.common import AppEnv
-    from lazyops.libs.fastapi_utils.types.persistence import TemporaryData
+    from lzl.io.persistence import TemporaryData
+    # from lazyops.libs.fastapi_utils.types.persistence import TemporaryData
     from kvdb.components.connection import Connection
 
 _temp_data: Optional['TemporaryData'] = None
@@ -34,7 +35,8 @@ def get_temp_data() -> 'TemporaryData':
     """
     global _temp_data
     if _temp_data is None:
-        from lazyops.libs.fastapi_utils.types.persistence import TemporaryData
+        from lzl.io.persistence import TemporaryData
+        # from lazyops.libs.fastapi_utils.types.persistence import TemporaryData
         _temp_data = TemporaryData.from_module('kvdb')
     return _temp_data
 
@@ -53,7 +55,8 @@ def get_app_env() -> 'AppEnv':
         if env_value := os.getenv(key):
             return AppEnv.from_env(env_value)
     
-    from lazyops.utils.system import is_in_kubernetes, get_host_name
+    # from lazyops.utils.system import is_in_kubernetes, get_host_name
+    from lzo.utils.system import is_in_kubernetes, get_host_name
     if is_in_kubernetes():
         hn = get_host_name()
         try:

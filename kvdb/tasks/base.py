@@ -15,7 +15,8 @@ if TYPE_CHECKING:
     from kvdb.components.session import KVDBSession
     from .tasks import TaskFunction, Ctx
     from .worker import TaskWorker
-    from lazyops.utils.logs import Logger
+    from lzl.logging import Logger
+    # from lazyops.utils.logs import Logger
     from lazyops.libs.abcs.configs.base import AppSettings 
 
     TaskWorkerT = TypeVar('TaskWorkerT', bound = 'BaseTaskWorker')
@@ -112,7 +113,8 @@ class BaseTaskWorker(TaskABC):
         """
         Initialize the Worker Component
         """
-        from lazyops.libs.pooler import ThreadPooler
+        from lzl.pool import ThreadPool as ThreadPooler
+        # from lazyops.libs.pooler import ThreadPooler
         self._kdb: Optional['KVDBSession'] = None
         self._rkdb: Optional['KVDBSession'] = None
 

@@ -19,7 +19,8 @@ from tenacity import (
     retry_if_exception
 )
 # from kvdb.utils.helpers import lazy_function_wrapper
-from lazyops.libs.lazyload import lazy_function_wrapper
+# from lazyops.libs.lazyload import lazy_function_wrapper
+from lzl.load import lazy_function_wrapper
 from typing import Optional, Union, Tuple, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:

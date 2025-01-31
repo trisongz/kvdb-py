@@ -22,11 +22,19 @@ from kvdb.configs.caching import KVDBCachifyConfig
 from kvdb.utils.logs import logger
 from kvdb.utils.lazy import lazy_import
 from kvdb.utils.helpers import create_cache_key_from_kwargs, is_coro_func, ensure_coro, full_name, timeout, is_classmethod
-from lazyops.utils import timed_cache
-from lazyops.utils.helpers import is_in_async_loop
-from lazyops.utils.lazy import get_function_name
-from lazyops.libs.persistence import PersistentDict
-from lazyops.libs.pooler import ThreadPooler
+
+from lzo.utils import timed_cache
+from lzo.utils.helpers import is_in_async_loop
+from lzo.utils.helpers.envvars import is_in_ci_env
+from lzl.io.persistence import PersistentDict
+from lzl.pool import ThreadPool as ThreadPooler
+from lzl.load.utils import get_function_name
+
+# from lazyops.utils import timed_cache
+# from lazyops.utils.helpers import is_in_async_loop
+# from lazyops.utils.lazy import get_function_name
+# from lazyops.libs.persistence import PersistentDict
+# from lazyops.libs.pooler import ThreadPooler
 from typing import Optional, Dict, Any, Callable, List, Union, TypeVar, Tuple, Awaitable, Type, overload, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,6 +47,8 @@ ReturnValueT = Union[ReturnValue, Awaitable[ReturnValue]]
 FunctionT = TypeVar('FunctionT', bound = Callable[..., ReturnValueT])
 FuncT = TypeVar('FuncT')
 FuncP = ParamSpec('FuncP')
+
+
 
 class Cachify(KVDBCachifyConfig):
     """
@@ -771,8 +781,11 @@ class Cachify(KVDBCachifyConfig):
         """
         Safely wraps the function
         """
+        if is_in_ci_env() or not self.settings.is_enabled:
+            logger.warning('Currently in CI/CD - Disabling')
+            yield
         
-        if self.is_async and self.has_async_loop:
+        elif self.is_async and self.has_async_loop:
             with anyio.move_on_after(self.timeout):
                 yield
         else:

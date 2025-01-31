@@ -22,11 +22,17 @@ from kvdb.utils.logs import logger, null_logger
 from kvdb.utils.lazy import lazy_import
 from kvdb.utils.patching import patch_object_for_kvdb, is_uninit_method, get_parent_object_class_names, get_object_child_class_names
 from kvdb.utils.helpers import create_cache_key_from_kwargs, is_coro_func, ensure_coro, full_name, timeout as timeout_ctx, is_classmethod
-from lazyops.utils import timed_cache
-from lazyops.utils.lazy import get_function_name
-from lazyops.utils.helpers import is_in_async_loop
-from lazyops.libs.pooler import ThreadPooler
-from lazyops.libs.proxyobj import ProxyObject
+
+from lzl.load.utils import get_function_name
+from lzo.utils.helpers import is_in_async_loop
+from lzl.pool import ThreadPool as ThreadPooler
+from lzl.proxied import ProxyObject
+
+# from lazyops.utils import timed_cache
+# from lazyops.utils.lazy import get_function_name
+# from lazyops.utils.helpers import is_in_async_loop
+# from lazyops.libs.pooler import ThreadPooler
+# from lazyops.libs.proxyobj import ProxyObject
 from types import ModuleType
 from typing import Optional, Dict, Any, Callable, List, Union, TypeVar, Tuple, Awaitable, Type, overload, TYPE_CHECKING
 

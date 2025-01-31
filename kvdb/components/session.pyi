@@ -12,7 +12,8 @@ from kvdb.components.lock import Lock, AsyncLock
 from kvdb.components.pubsub import PubSub, AsyncPubSub, AsyncPubSubT, PubSubT
 from kvdb.components.pipeline import AsyncPipelineT, PipelineT
 from kvdb.components.client import AsyncKVDB, KVDB, ClientT
-from lazyops.libs.persistence import PersistentDict
+# from lazyops.libs.persistence import PersistentDict
+from lzl.io.persistence import PersistentDict
 from redis.commands.core import ResponseT, Script, BitFieldOperation
 from redis.typing import ChannelT, EncodableT, KeysT, GroupT, AbsExpiryT, BitfieldOffsetT, PatternT, AnyKeyT, FieldT, StreamIdT, TimeoutSecT, ZScoreBoundT, ConsumerT, ScriptTextT
 from typing import Any, Mapping, Optional, Union, Iterable, Tuple, Iterator, Dict, Set, Literal, List, Awaitable, Callable, Sequence, AsyncIterator

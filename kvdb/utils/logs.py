@@ -1,6 +1,13 @@
 import os
 
-from lazyops.libs.logging import (
+# from lazyops.libs.logging import (
+#     get_logger, 
+#     null_logger, 
+#     Logger,
+#     NullLogger
+# )
+
+from lzl.logging import (
     get_logger, 
     null_logger, 
     Logger,

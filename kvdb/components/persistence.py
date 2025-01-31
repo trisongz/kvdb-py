@@ -24,8 +24,11 @@ if TYPE_CHECKING:
     from .session import KVDBSession
     from .lock import Lock, AsyncLock
 
-    from lazyops.types.models import BaseSettings
-    from lazyops.libs.persistence.serializers.base import ObjectValue
+    from lzl.types import BaseSettings
+    from lzl.io.ser.base import ObjectValue
+
+    # from lazyops.types.models import BaseSettings
+    # from lazyops.libs.persistence.serializers.base import ObjectValue
 
 
 class KVDBStatefulBackend(BaseStatefulBackend):
@@ -1161,7 +1164,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         if self.serializer.name != 'json': 
             raise ValueError(f'Cannot migrate schema for {self.serializer.name} serializer')
         # logger.info(f'Migrating schema for {self.name} using {schema_map}')
-        from lazyops.utils import Timer
+        # from lazyops.utils import Timer
+        from lzo.utils import Timer
         t = Timer()
         results = {}
         if self.hset_enabled:
@@ -1190,7 +1194,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Migrates the schema of the current object to the new schema
         """
         if self.serializer.name != 'json': raise ValueError(f'Cannot migrate schema for {self.serializer.name} serializer')
-        from lazyops.utils import Timer
+        # from lazyops.utils import Timer
+        from lzo.utils import Timer
         t = Timer()
         results = {}
         if self.hset_enabled:
@@ -1255,7 +1260,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         """
         Runs the Clone Operation
         """
-        from lazyops.utils import Timer
+        # from lazyops.utils import Timer
+        from lzo.utils import Timer
         t = Timer()
         from_keys = [k.decode() if isinstance(k, bytes) else k for k in from_keys]
 
