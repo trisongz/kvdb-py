@@ -8,15 +8,32 @@ import signal
 import xxhash
 import threading
 import functools
-from lazyops.libs.pooler import ensure_coro, is_coro_func
-from lazyops.utils.lazy import (
-    import_string,
-    lazy_import,
-    validate_callable,
-    get_obj_class_name,
-    extract_obj_init_kwargs,
-)
-from lazyops.libs.lazyload import lazy_function_wrapper
+try:
+    from lzl.pool.base import ensure_coro, is_coro_func
+except ImportError:
+    from lazyops.libs.pooler import ensure_coro, is_coro_func
+
+try:
+    from lzl.load.utils import (
+        import_string,
+        lazy_import,
+        validate_callable,
+        get_obj_class_name,
+        extract_obj_init_kwargs,
+    )
+except ImportError:
+    from lazyops.utils.lazy import (
+        import_string,
+        lazy_import,
+        validate_callable,
+        get_obj_class_name,
+        extract_obj_init_kwargs,
+    )
+try:
+    from lzl.load.wrappers import lazy_function_wrapper
+except ImportError:
+    from lazyops.libs.lazyload import lazy_function_wrapper
+
 from typing import Callable, Any, Optional, Union, Type, TypeVar, List, Tuple, Dict, TYPE_CHECKING
 from ..types.generic import ENOVAL
 
