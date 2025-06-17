@@ -9,9 +9,11 @@ import asyncio
 import socket
 import contextlib
 
-from pydantic import Field, model_validator, validator
+from pydantic import Field, model_validator, field_validator, validator
 from pydantic import ImportString, AliasChoices # Not available in v1
+# from pydantic_settings import SettingsConfigDict
 from lzl.proxied import ProxyObject
+# from lzl.types import BaseSettings
 # from lazyops.libs.proxyobj import ProxyObject
 from kvdb.types.base import KVDBUrl, BaseModel, supported_schemas, kv_db_schemas, computed_field
 from .base import temp_data, app_env
@@ -96,7 +98,7 @@ class KVDBSettings(BaseSettings):
 
 
 
-    @validator('url', pre = True)
+    @field_validator('url', mode = 'before')
     def validate_url(cls, v: Union[str, KVDBUrl]) -> KVDBUrl:
         """
         Validate the URL
@@ -261,7 +263,7 @@ class KVDBSettings(BaseSettings):
         else:
             client_config = {
                 field: kwargs.pop(field, None)
-                for field in self.client_config.model_fields
+                for field in self.client_config.__class__.model_fields
                 if field in kwargs
             }
         if client_config: self.client_config.update_config(**client_config)
@@ -271,7 +273,7 @@ class KVDBSettings(BaseSettings):
         else:
             pool_config = {
                 field: kwargs.pop(field, None)
-                for field in self.pool.model_fields
+                for field in self.pool.__class__.model_fields
                 if field in kwargs
             }
         if pool_config: self.pool.update_config(**pool_config)
@@ -281,7 +283,7 @@ class KVDBSettings(BaseSettings):
         else:
             serialization_config = {
                 field: kwargs.pop(field, None)
-                for field in self.serialization.model_fields
+                for field in self.serialization.__class__.model_fields
                 if field in kwargs
             }
         if serialization_config: self.serialization.update_config(**serialization_config)
@@ -291,7 +293,7 @@ class KVDBSettings(BaseSettings):
         else:
             persistence_config = {
                 field: kwargs.pop(f'persistence_{field}', None)
-                for field in self.persistence.model_fields
+                for field in self.persistence.__class__.model_fields
                 if f'persistence_{field}' in kwargs
             }
         if persistence_config: self.persistence.update_config(**persistence_config)
@@ -301,7 +303,7 @@ class KVDBSettings(BaseSettings):
         else:
             retry_config = {
                 field: kwargs.pop(f'retry_{field}', None)
-                for field in self.retry.model_fields
+                for field in self.retry.__class__.model_fields
                 if f'retry_{field}' in kwargs
             }
         if retry_config: self.retry.update_config(**retry_config)
@@ -311,7 +313,7 @@ class KVDBSettings(BaseSettings):
         else:
             cache_config = {
                 field: kwargs.pop(f'cache_{field}', None)
-                for field in self.cache.model_fields
+                for field in self.cache.__class__.model_fields
                 if f'cache_{field}' in kwargs
             }
         if cache_config: self.cache.update_config(**cache_config)
@@ -321,7 +323,7 @@ class KVDBSettings(BaseSettings):
         else:
             task_config = {
                 field: kwargs.pop(f'task_{field}', None)
-                for field in self.tasks.model_fields
+                for field in self.tasks.__class__.model_fields
                 if f'task_{field}' in kwargs
             }
 
