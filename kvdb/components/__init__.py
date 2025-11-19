@@ -21,6 +21,12 @@ from .connection_pool import (
     AsyncBlockingConnectionPool,
 )
 
+# Import multidb support for redis-py 7.x Active-Active features
+from .multidb import (
+    KVDBMultiDBClient,
+    MULTIDB_AVAILABLE,
+)
+
 
 if TYPE_CHECKING:
     from redis.commands.core import Script, AsyncScript

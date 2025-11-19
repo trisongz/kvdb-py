@@ -220,6 +220,7 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         encoder_class: Type[Encoder] = Encoder,
         credential_provider: Optional[CredentialProvider] = None,
         protocol: Optional[int] = 2,
+        event_dispatcher: Optional[Any] = None,
         **kwargs,
     ):  # sourcery skip: low-code-quality
         if (username or password) and credential_provider is not None:
@@ -230,6 +231,13 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
                 "2. 'credential_provider'"
             )
         # logger.info(f"Using Mixin: {args}, {kwargs}, {self.__dict__}", prefix = self.__class__.__name__)
+        # Initialize event dispatcher for redis-py 7.x support
+        if event_dispatcher is None and not DEPRECATED_SUPPORT and EventDispatcher is not None:
+            self._event_dispatcher = EventDispatcher()
+        elif event_dispatcher is not None:
+            self._event_dispatcher = event_dispatcher
+        else:
+            self._event_dispatcher = None
         self.db = db
         self.client_name = client_name
         self.lib_name = lib_name
