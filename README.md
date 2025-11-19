@@ -10,13 +10,14 @@
 
 ## Overview
 
-This library builds upon the experience of my previous library, [aiokeydb-py](https://github.com/trisongz/aiokeydb-py) and the learnings and take-aways from maintaining it and using it in production. While `aiokeydb` supports `redispy` < 5.0, this library only supports `redispy` >= 5.0. 
+This library builds upon the experience of my previous library, [aiokeydb-py](https://github.com/trisongz/aiokeydb-py) and the learnings and take-aways from maintaining it and using it in production. This library supports `redis-py` >= 5.0, with full support for `redis-py` 7.x features including Active-Active multi-database configurations.
 
 Supports:
 
 - [x] Redis
 - [x] KeyDB
 - [x] Dragonfly
+- [x] Redis Enterprise Active-Active (redis-py 7.x)
 - [ ] Memcached
 - [ ] DynamoDB
 - [ ] tikv
@@ -458,6 +459,38 @@ src_model = session.get('John')
 assert src_model == new_model
 ```
 
+---
+### Multi-Database (Active-Active) Support
+
+Starting with redis-py 7.0, kvdb-py supports Active-Active database configurations for Redis Enterprise setups. This provides automatic failover, circuit breakers, health monitoring, and weighted database selection.
+
+```python
+from kvdb.components.multidb import KVDBMultiDBClient
+
+# Create client with multiple databases
+client = KVDBMultiDBClient.from_urls(
+    urls=[
+        "redis://primary.example.com:6379/0",
+        "redis://secondary.example.com:6379/0",
+    ],
+    weights=[1.0, 0.5],  # Primary has higher priority
+)
+
+# Initialize and use
+client.initialize()
+client.set("key", "value")
+value = client.get("key")
+```
+
+Features:
+- **Automatic Failover**: Seamlessly switches to backup databases when active database fails
+- **Circuit Breakers**: Prevents cascading failures
+- **Health Monitoring**: Continuous health checks with configurable policies
+- **Weighted Selection**: Intelligent database prioritization
+- **Command Retries**: Automatic retries with exponential backoff
+- **Auto-Fallback**: Returns to primary database when it recovers
+
+See the [Multi-Database Documentation](./docs/multidb.md) for detailed usage and configuration.
 
 
 
