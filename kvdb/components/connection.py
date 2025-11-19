@@ -45,11 +45,13 @@ from redis.asyncio.connection import (
 )
 
 try:
-    from redis.asyncio.connection import DEFAULT_RESP_VERSION
+    from redis.asyncio.connection import DEFAULT_RESP_VERSION, EventDispatcher
     DEPRECATED_SUPPORT = False
 except ImportError:
     DEFAULT_RESP_VERSION = 2
     DEPRECATED_SUPPORT = True
+    # EventDispatcher not available in older versions
+    EventDispatcher = None
 
 
 import kvdb.errors as errors
@@ -114,6 +116,7 @@ class AbstractConnection(_AbstractConnection):
         redis_connect_func: Optional[Callable[[], None]] = None,
         credential_provider: Optional[CredentialProvider] = None,
         protocol: Optional[int] = 2,
+        event_dispatcher: Optional[Any] = None,
         command_packer: Optional[Callable[[], None]] = None,
         **kwargs,
     ):  # sourcery skip: low-code-quality
