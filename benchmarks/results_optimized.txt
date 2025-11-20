@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/home/runner/work/kvdb-py/kvdb-py/benchmarks/benchmark_optimizations.py", line 21, in <module>
+    from kvdb.components.connection_pool import AsyncConnectionPool
+  File "/home/runner/work/kvdb-py/kvdb-py/kvdb/__init__.py", line 7, in <module>
+    from . import tasks
+  File "/home/runner/work/kvdb-py/kvdb-py/kvdb/tasks/__init__.py", line 3, in <module>
+    from .abstract import TaskABC
+  File "/home/runner/work/kvdb-py/kvdb-py/kvdb/tasks/abstract.py", line 8, in <module>
+    from kvdb.utils.logs import logger
+  File "/home/runner/work/kvdb-py/kvdb-py/kvdb/utils/logs.py", line 10, in <module>
+    from lzl.logging import (
+ModuleNotFoundError: No module named 'lzl'

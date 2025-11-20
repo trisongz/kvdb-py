@@ -1,0 +1,134 @@
+================================================================================
+Redis-py Async Performance Benchmark
+================================================================================
+
+
+================================================================================
+Benchmarking: Redis (6379)
+URL: redis://localhost:6379/0
+================================================================================
+
+✓ Connection established
+
+Running: Single Sequential Operations...
+  Operations: 2000
+  Duration: 0.2022s
+  Throughput: 9891.42 ops/s
+  Avg Latency: 0.20ms
+  P95 Latency: 0.22ms
+  P99 Latency: 0.27ms
+
+Running: Concurrent Operations (10 workers)...
+  Operations: 2000
+  Duration: 0.2026s
+  Throughput: 9871.35 ops/s
+  Avg Latency: 2.02ms
+  P95 Latency: 2.07ms
+  P99 Latency: 2.67ms
+
+Running: Concurrent Operations (50 workers)...
+  Operations: 2000
+  Duration: 0.2152s
+  Throughput: 9291.66 ops/s
+  Avg Latency: 10.57ms
+  P95 Latency: 12.77ms
+  P99 Latency: 13.00ms
+
+Running: Pipeline Operations (batch=50)...
+  Operations: 2000
+  Duration: 0.0243s
+  Throughput: 82190.49 ops/s
+  Avg Latency: 1.22ms
+  P95 Latency: 0.00ms
+  P99 Latency: 0.00ms
+
+Running: Pipeline Operations (batch=100)...
+  Operations: 2000
+  Duration: 0.0223s
+  Throughput: 89645.82 ops/s
+  Avg Latency: 2.23ms
+  P95 Latency: 0.00ms
+  P99 Latency: 0.00ms
+
+
+================================================================================
+Benchmarking: Redis (6380)
+URL: redis://localhost:6380/0
+================================================================================
+
+✓ Connection established
+
+Running: Single Sequential Operations...
+  Operations: 2000
+  Duration: 0.2166s
+  Throughput: 9232.81 ops/s
+  Avg Latency: 0.22ms
+  P95 Latency: 0.28ms
+  P99 Latency: 0.30ms
+
+Running: Concurrent Operations (10 workers)...
+  Operations: 2000
+  Duration: 0.1982s
+  Throughput: 10091.74 ops/s
+  Avg Latency: 1.98ms
+  P95 Latency: 2.01ms
+  P99 Latency: 2.34ms
+
+Running: Concurrent Operations (50 workers)...
+  Operations: 2000
+  Duration: 0.2237s
+  Throughput: 8941.48 ops/s
+  Avg Latency: 11.02ms
+  P95 Latency: 13.60ms
+  P99 Latency: 14.33ms
+
+Running: Pipeline Operations (batch=50)...
+  Operations: 2000
+  Duration: 0.0252s
+  Throughput: 79300.90 ops/s
+  Avg Latency: 1.26ms
+  P95 Latency: 0.00ms
+  P99 Latency: 0.00ms
+
+Running: Pipeline Operations (batch=100)...
+  Operations: 2000
+  Duration: 0.0227s
+  Throughput: 88220.35 ops/s
+  Avg Latency: 2.27ms
+  P95 Latency: 0.00ms
+  P99 Latency: 0.00ms
+
+
+================================================================================
+COMPARISON REPORT
+================================================================================
+
+
+Single Sequential Operations:
+--------------------------------------------------------------------------------
+🥇 Redis (6379)         | Throughput:    9891.42 ops/s | P95:   0.22ms | P99:   0.27ms
+🥈 Redis (6380)         | Throughput:    9232.81 ops/s | P95:   0.28ms | P99:   0.30ms
+
+Concurrent Operations (10 workers):
+--------------------------------------------------------------------------------
+🥇 Redis (6380)         | Throughput:   10091.74 ops/s | P95:   2.01ms | P99:   2.34ms
+🥈 Redis (6379)         | Throughput:    9871.35 ops/s | P95:   2.07ms | P99:   2.67ms
+
+Concurrent Operations (50 workers):
+--------------------------------------------------------------------------------
+🥇 Redis (6379)         | Throughput:    9291.66 ops/s | P95:  12.77ms | P99:  13.00ms
+🥈 Redis (6380)         | Throughput:    8941.48 ops/s | P95:  13.60ms | P99:  14.33ms
+
+Pipeline Operations (batch_size=50):
+--------------------------------------------------------------------------------
+🥇 Redis (6379)         | Throughput:   82190.49 ops/s | P95:   0.00ms | P99:   0.00ms
+🥈 Redis (6380)         | Throughput:   79300.90 ops/s | P95:   0.00ms | P99:   0.00ms
+
+Pipeline Operations (batch_size=100):
+--------------------------------------------------------------------------------
+🥇 Redis (6379)         | Throughput:   89645.82 ops/s | P95:   0.00ms | P99:   0.00ms
+🥈 Redis (6380)         | Throughput:   88220.35 ops/s | P95:   0.00ms | P99:   0.00ms
+
+================================================================================
+Benchmark complete!
+================================================================================
