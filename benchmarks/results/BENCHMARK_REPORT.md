@@ -24,3 +24,17 @@
 | Valkey | SYNC | BlockingConnectionPool | 8558 | 9452 | 8857 | 156023 |
 | Redis Sentinel | ASYNC | Default | 5520 | 6597 | 5734 | 89515 |
 | Redis Sentinel | SYNC | Default | 10304 | 11415 | 11073 | 161890 |
+
+## PersistentDict Benchmarks
+
+| Variant | Set (ops/s) | Get (ops/s) | Del (ops/s) | Iter (ops/s) |
+|---------|-------------|-------------|-------------|--------------|
+| Sync (HSET)          | 4724 | 2318 | 2467 | ~4.0M |
+| Sync (No HSET)       | 4701 | 4985 | 4786 | ~2.9M |
+| Async (HSET)         | 3637 | 1534 | 1732 | ~2.0M |
+| Async (No HSET)      | 2897 | 3339 | 3792 | ~3.5M |
+
+**Conclusion:**
+- **No HSET (Direct Keys)** is significantly faster for **Get/Del** operations (~2x faster) compared to HSET, likely due to avoiding the extra expiration check roundtrip required by the HSET implementation.
+- **Sync** is generally faster than Async for sequential checks.
+- **Iteration** is extremely fast in all cases as it fetches keys in bulk.

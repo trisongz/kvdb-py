@@ -91,7 +91,10 @@ class PersistenceBenchmark:
                 # Let's use get_keys or similar if available, or just iterate keys
                 # The backend 'iterate' is synchronous usually mainly returning keys.
                 # Let's check aget_keys for async.
-                keys = await pdict.base.aget_keys(pattern="*")
+                # HSET mode uses python re.match, No-HSET uses Redis glob.
+                use_regex = not kwargs.get("hset_disabled", False)
+                pattern = ".*" if use_regex else "*"
+                keys = await pdict.base.aget_keys(pattern=pattern)
                 # Just counting fetching all keys as "iteration" op for now, or lightweight loop
                 for k in keys: pass
             else:
