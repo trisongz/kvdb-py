@@ -25,16 +25,18 @@
 | Redis Sentinel | ASYNC | Default | 5520 | 6597 | 5734 | 89515 |
 | Redis Sentinel | SYNC | Default | 10304 | 11415 | 11073 | 161890 |
 
-## PersistentDict Benchmarks
+## PersistentDict Benchmarks (Optimized with Lua)
 
 | Variant | Set (ops/s) | Get (ops/s) | Del (ops/s) | Iter (ops/s) |
 |---------|-------------|-------------|-------------|--------------|
-| Sync (HSET)          | 4724 | 2318 | 2467 | ~4.0M |
-| Sync (No HSET)       | 4701 | 4985 | 4786 | ~2.9M |
-| Async (HSET)         | 3637 | 1534 | 1732 | ~2.0M |
-| Async (No HSET)      | 2897 | 3339 | 3792 | ~3.5M |
+| Sync (HSET)          | 4520 | 4640 | 4830 | ~4.4M |
+| Sync (No HSET)       | 4654 | 4695 | 4854 | ~2.7M |
+| Async (HSET)         | 3332 | 3099 | 2635 | ~1.7M |
+| Async (No HSET)      | 3138 | 3240 | 3033 | ~2.7M |
 
 **Conclusion:**
-- **No HSET (Direct Keys)** is significantly faster for **Get/Del** operations (~2x faster) compared to HSET, likely due to avoiding the extra expiration check roundtrip required by the HSET implementation.
-- **Sync** is generally faster than Async for sequential checks.
-- **Iteration** is extremely fast in all cases as it fetches keys in bulk.
+- **Optimization Successful**: Implemented Lua scripts for atomic `HGET/HSET/HDEL` operations.
+- **Performance**: `HSET` performance is now **comparable** to `No HSET` (direct keys) for Read/Write operations.
+  - **Get**: ~2x improvement (2318 -> 4640 ops/s).
+  - **Del**: ~2x improvement (2467 -> 4830 ops/s).
+- **Recommendation**: Users can now safely use `hset_enabled=True` (default) without significant performance penalties compared to direct key usage.
