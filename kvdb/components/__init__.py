@@ -20,6 +20,7 @@ from .connection_pool import (
     AsyncConnectionPool,
     AsyncBlockingConnectionPool,
 )
+from .connection_pool_optimized import OptimizedAsyncConnectionPool
 
 # Import multidb support for redis-py 7.x Active-Active features
 from .multidb import (

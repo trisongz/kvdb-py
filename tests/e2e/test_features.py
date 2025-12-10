@@ -1,0 +1,62 @@
+
+import pytest
+import asyncio
+from kvdb import KVDBClient
+
+TEST_URL = "redis://localhost:6379/10"
+
+@pytest.fixture
+async def async_session():
+    session = KVDBClient.get_session(name="e2e_features", url=TEST_URL)
+    await session.aclear()
+    yield session
+    await session.aclear()
+
+@pytest.mark.asyncio
+async def test_async_lock(async_session):
+    # Test acquiring lock
+    lock = async_session.lock("test_lock", timeout=5, blocking_timeout=1)
+    
+    assert await lock.acquire() is True
+    
+    # Try to acquire same lock (should fail)
+    lock2 = async_session.lock("test_lock", timeout=5, blocking_timeout=0.1)
+    assert await lock2.acquire() is False
+    
+    # Release
+    await lock.release()
+    
+    # Now lock2 should be acquirable
+    assert await lock2.acquire() is True
+    await lock2.release()
+
+@pytest.mark.asyncio
+async def test_async_pubsub(async_session):
+    channel = "test_channel"
+    received_messages = []
+
+    async def listener():
+        pubsub = async_session.pubsub()
+        await pubsub.subscribe(channel)
+        async for message in pubsub.listen():
+            if message['type'] == 'message':
+                received_messages.append(message['data'])
+                if message['data'] == b'STOP':
+                    await pubsub.unsubscribe(channel)
+                    break
+
+    # Start listener task
+    task = asyncio.create_task(listener())
+    
+    # Wait a bit for subscription
+    await asyncio.sleep(0.5)
+    
+    # Publish messages
+    await async_session.publish(channel, "Hello")
+    await async_session.publish(channel, "World")
+    await async_session.publish(channel, "STOP")
+    
+    await task
+    
+    assert b'Hello' in received_messages
+    assert b'World' in received_messages

@@ -70,5 +70,5 @@ path = "kvdb/version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["kvdb"]
 
-[tool.uv.sources]
-lazyops = { path = "../../lazyops", editable = true }
+# [tool.uv.sources]
+# lazyops = { path = "../../lazyops", editable = true }

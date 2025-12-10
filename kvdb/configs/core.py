@@ -84,9 +84,13 @@ class KVDBPoolConfig(BaseModel):
         """
         pool_class = (self.apool_class if is_async else self.pool_class) if pool_class is None else pool_class
         if pool_class is None:
-            from kvdb.components.connection_pool import ConnectionPool, AsyncConnectionPool
-            return AsyncConnectionPool if is_async else ConnectionPool
+            from kvdb.components.connection_pool import ConnectionPool
+            from kvdb.components.connection_pool_optimized import OptimizedAsyncConnectionPool
+            return OptimizedAsyncConnectionPool if is_async else ConnectionPool
         elif isinstance(pool_class, str):
+            if pool_class == "OptimizedAsyncConnectionPool":
+                from kvdb.components.connection_pool_optimized import OptimizedAsyncConnectionPool
+                return OptimizedAsyncConnectionPool
             from kvdb.components import connection_pool
             return getattr(connection_pool, pool_class)
         return pool_class

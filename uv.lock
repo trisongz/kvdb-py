@@ -835,7 +835,7 @@ requires-dist = [
     { name = "croniter" },
     { name = "fsspec", specifier = ">=2025.10.0" },
     { name = "hiredis" },
-    { name = "lazyops", editable = "../../lazyops" },
+    { name = "lazyops", specifier = ">=0.2.69" },
     { name = "makefun" },
     { name = "mkdocs-material", marker = "extra == 'docs'" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'" },
@@ -857,7 +857,8 @@ provides-extras = ["docs", "serialization", "test"]
 
 [[package]]
 name = "lazyops"
-source = { editable = "../../lazyops" }
+version = "0.4.6"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio", version = "3.7.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "anyio", version = "4.12.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -874,72 +875,9 @@ dependencies = [
     { name = "typer" },
     { name = "xxhash" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiobotocore", marker = "extra == 'file'", specifier = ">=2.11.0" },
-    { name = "aiobotocore", marker = "extra == 'fileio'", specifier = ">=2.11.0" },
-    { name = "aiocache", marker = "extra == 'kops'" },
-    { name = "aiofile", marker = "extra == 'file'" },
-    { name = "aiofile", marker = "extra == 'fileio'" },
-    { name = "aiofiles", marker = "extra == 'file'" },
-    { name = "aiofiles", marker = "extra == 'fileio'" },
-    { name = "aiopath", marker = "extra == 'file'" },
-    { name = "aiopath", marker = "extra == 'fileio'" },
-    { name = "anyio", specifier = ">=3.7.1" },
-    { name = "async-lru" },
-    { name = "backoff", marker = "extra == 'openai'" },
-    { name = "boto3", marker = "extra == 'file'", specifier = ">=1.34.0" },
-    { name = "boto3", marker = "extra == 'fileio'", specifier = ">=1.34.0" },
-    { name = "botocore", marker = "extra == 'file'", specifier = ">=1.34.0" },
-    { name = "botocore", marker = "extra == 'fileio'", specifier = ">=1.34.0" },
-    { name = "fastapi", marker = "extra == 'fastapi'" },
-    { name = "filelock" },
-    { name = "frozendict" },
-    { name = "fsspec", marker = "extra == 'file'", specifier = ">=2024.2.0" },
-    { name = "fsspec", marker = "extra == 'fileio'", specifier = ">=2024.2.0" },
-    { name = "httpx", marker = "extra == 'openai'" },
-    { name = "jinja2", marker = "extra == 'openai'" },
-    { name = "kopf", marker = "extra == 'kops'" },
-    { name = "kr8s", marker = "extra == 'kops'" },
-    { name = "kubernetes", marker = "extra == 'kops'" },
-    { name = "kubernetes-asyncio", marker = "extra == 'kops'" },
-    { name = "loguru" },
-    { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.5.0" },
-    { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.0.0" },
-    { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.24.0" },
-    { name = "numpy", marker = "extra == 'openai'" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pymdown-extensions", marker = "extra == 'docs'", specifier = ">=10.0" },
-    { name = "python-magic", marker = "extra == 'file'" },
-    { name = "python-magic", marker = "extra == 'fileio'" },
-    { name = "python-multipart", marker = "extra == 'fastapi'" },
-    { name = "pyyaml" },
-    { name = "pyyaml", marker = "extra == 'openai'" },
-    { name = "s3fs", marker = "extra == 'file'", specifier = ">=2024.2.0" },
-    { name = "s3fs", marker = "extra == 'fileio'", specifier = ">=2024.2.0" },
-    { name = "s3transfer", marker = "extra == 'file'", specifier = ">=0.10.0" },
-    { name = "s3transfer", marker = "extra == 'fileio'", specifier = ">=0.10.0" },
-    { name = "scipy", marker = "extra == 'openai'" },
-    { name = "setuptools", marker = "python_full_version >= '3.12'" },
-    { name = "tiktoken", marker = "extra == 'openai'" },
-    { name = "typer", specifier = ">=0.17.3" },
-    { name = "typer", marker = "extra == 'builder'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.8'" },
-    { name = "uvicorn", marker = "extra == 'fastapi'" },
-    { name = "xxhash" },
-]
-provides-extras = ["kops", "fastapi", "builder", "openai", "fileio", "file", "docs"]
-
-[package.metadata.requires-dev]
-builder-ci = [
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pyyaml" },
-    { name = "setuptools", marker = "python_full_version >= '3.12'" },
-    { name = "typer" },
-    { name = "typing-extensions", marker = "python_full_version < '3.8'" },
+sdist = { url = "https://files.pythonhosted.org/packages/03/ce/15a42d234b78d45303290f3312f4a83f551a46e8a3f82e6ae292b56a32e2/lazyops-0.4.6.tar.gz", hash = "sha256:2537d9c786ea518abfcdad358df9029d90104acbf9b9721126dfac13eee474a3", size = 664233, upload-time = "2025-11-12T21:07:30.131Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/16/08/d8192d210c602ab232965ef3e7ea591d5dddccdcad1db57ad34fd00b91b6/lazyops-0.4.6-py3-none-any.whl", hash = "sha256:0c8ae9a377d565913e08c478eb80bcf8026ba64bebba6805f098265aa531fc16", size = 848757, upload-time = "2025-11-12T21:07:28.1Z" },
 ]
 
 [[package]]

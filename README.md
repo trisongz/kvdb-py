@@ -59,6 +59,14 @@ pip install kvdb-py
 
 Check out the [examples](./examples/README.md) directory for examples on how to use this library.
 
+## Performance Features
+
+`kvdb-py` includes several advanced performance optimizations:
+
+- **Optimized Connection Pooling**: Uses `OptimizedAsyncConnectionPool` by default for async connections. This pool implements a "hybrid blocking" strategy—using a low-contention fast path for available connections and efficiently waiting (blocking) when the pool is exhausted, preventing connection errors under high load.
+- **`uvloop` Support**: Automatically detects and uses `uvloop` if installed, significantly boosting async I/O performance.
+- **PersistentDict Optimization**: The `PersistentDict` implementation uses custom Lua scripts for atomic operations (`HGET`, `HSET`, `HDEL`). This minimizes network round-trips, making the organized `HSET` storage method as performant as raw Key-Value access.
+
 ---
 ### Quick Example
 
