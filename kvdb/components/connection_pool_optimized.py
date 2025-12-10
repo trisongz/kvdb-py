@@ -97,7 +97,7 @@ class OptimizedAsyncConnectionPool(BaseAsyncConnectionPool):
     """
     
     def __init__(self, *args, enable_metrics: bool = False, 
-                 health_check_interval: float = 1.0,
+                 health_check_interval: float = 30.0,
                  min_idle_connections: int = 5,
                  **kwargs):
         super().__init__(*args, **kwargs)
@@ -107,6 +107,8 @@ class OptimizedAsyncConnectionPool(BaseAsyncConnectionPool):
         self.metrics = PoolMetrics() if enable_metrics else None
         self._connection_cache: Dict[AsyncConnection, HealthCachedConnection] = {}
         self._warmed = False
+        # Initialize condition for blocking when pool is exhausted (using shared lock)
+        self._condition = asyncio.Condition(self._lock)
     
     async def warm_pool(self, target_connections: Optional[int] = None):
         """
@@ -145,7 +147,7 @@ class OptimizedAsyncConnectionPool(BaseAsyncConnectionPool):
         logger.info(f"Pool warmed with {created} connections")
         return created
     
-    async def get_connection_optimized(self, command_name, *keys, **options):
+    async def get_connection_optimized(self, command_name: Optional[str] = None, *keys, **options):
         """
         Optimized connection acquisition with reduced lock contention
         
@@ -191,19 +193,45 @@ class OptimizedAsyncConnectionPool(BaseAsyncConnectionPool):
                 except IndexError:
                     # Need to create new connection
                     if self._created_connections >= self.max_connections:
-                        # Pool exhausted - could implement waiting here
-                        raise Exception("Connection pool exhausted")
-                    
-                    create_start = time.time() if self.metrics else None
-                    connection = self.make_connection()
-                    self._created_connections += 1
-                    self._in_use_connections.add(connection)
-                    self._connection_cache[connection] = HealthCachedConnection(
-                        connection, self.health_check_interval
-                    )
-                    
-                    if self.metrics and create_start:
-                        self.metrics.connection_creation_time += time.time() - create_start
+                        # Pool exhausted - break to use blocking fallback
+                        pass
+                    else:
+                        create_start = time.time() if self.metrics else None
+                        connection = self.make_connection()
+                        self._created_connections += 1
+                        self._in_use_connections.add(connection)
+                        self._connection_cache[connection] = HealthCachedConnection(
+                            connection, self.health_check_interval
+                        )
+                        
+                        if self.metrics and create_start:
+                            self.metrics.connection_creation_time += time.time() - create_start
+        
+        # Hybrid Blocking Path: If connection is still None (pool exhausted), we wait
+        if connection is None:
+            async with self._condition:
+                 while connection is None:
+                    try:
+                        # Try to get one that was just released
+                        connection = self._available_connections.pop()
+                        # Verify we can use it (race check, though condition hold lock so unlikely unless stolen)
+                        if connection in self._in_use_connections:
+                            self._available_connections.append(connection)
+                            connection = None
+                            await self._condition.wait()
+                        else:
+                            self._in_use_connections.add(connection)
+                    except IndexError:
+                        # Double check if we can create one (race condition where created count dropped)
+                        if self._created_connections < self.max_connections:
+                            connection = self.make_connection()
+                            self._created_connections += 1
+                            self._in_use_connections.add(connection)
+                            self._connection_cache[connection] = HealthCachedConnection(
+                                connection, self.health_check_interval
+                            )
+                        else:
+                            await self._condition.wait()
         
         # Use cached health check
         cached_conn = self._connection_cache.get(connection)
@@ -240,7 +268,7 @@ class OptimizedAsyncConnectionPool(BaseAsyncConnectionPool):
         async with self.ensure_connection(connection) as conn:
             return conn
     
-    async def get_connection(self, command_name, *keys, **options):
+    async def get_connection(self, command_name: Optional[str] = None, *keys, **options):
         """
         Get a connection from the pool (delegates to optimized version if enabled)
         """
@@ -270,6 +298,12 @@ class OptimizedAsyncConnectionPool(BaseAsyncConnectionPool):
             'errors': self.metrics.errors,
         }
     
+    async def release(self, connection: AsyncConnection):
+        """Releases the connection back to the pool"""
+        async with self._condition:
+            await super().release(connection)
+            self._condition.notify()
+
     def reset_metrics(self):
         """Reset metrics counters"""
         if self.metrics:

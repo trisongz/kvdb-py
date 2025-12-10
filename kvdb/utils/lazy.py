@@ -4,19 +4,29 @@ from __future__ import annotations
 import os
 from .helpers import lazy_import, extract_obj_init_kwargs
 from typing import Dict, Any, Optional, Type, Union, Callable, List, TYPE_CHECKING
-# from lazyops.libs.proxyobj import ProxyObject
+
 from lzl.proxied import ProxyObject
 if TYPE_CHECKING:
     from kvdb.configs.main import KVDBSettings
     from kvdb.types.common import AppEnv
     from lzl.io.persistence import TemporaryData
-    # from lazyops.libs.fastapi_utils.types.persistence import TemporaryData
     from kvdb.components.connection import Connection
 
 _temp_data: Optional['TemporaryData'] = None
 _kvdb_settings: Optional['KVDBSettings'] = None
 _valid_connection_kwarg_keys: Dict[str, List[str]] = {}
+_init_uvloop: Optional[bool] = None
 
+def init_uvloop():
+    """
+    Initializes the uvloop
+    """
+    global _init_uvloop
+    if _init_uvloop is None:
+        import uvloop
+        uvloop.install()
+        _init_uvloop = True
+    return _init_uvloop
 
 def get_settings() -> 'KVDBSettings':
     """
@@ -24,6 +34,7 @@ def get_settings() -> 'KVDBSettings':
     """
     global _kvdb_settings
     if _kvdb_settings is None:
+        init_uvloop()
         from kvdb.configs.main import KVDBSettings
         _kvdb_settings = KVDBSettings()
     return _kvdb_settings
@@ -36,7 +47,6 @@ def get_temp_data() -> 'TemporaryData':
     global _temp_data
     if _temp_data is None:
         from lzl.io.persistence import TemporaryData
-        # from lazyops.libs.fastapi_utils.types.persistence import TemporaryData
         _temp_data = TemporaryData.from_module('kvdb')
     return _temp_data
 
@@ -55,7 +65,6 @@ def get_app_env() -> 'AppEnv':
         if env_value := os.getenv(key):
             return AppEnv.from_env(env_value)
     
-    # from lazyops.utils.system import is_in_kubernetes, get_host_name
     from lzo.utils.system import is_in_kubernetes, get_host_name
     if is_in_kubernetes():
         hn = get_host_name()

@@ -9,7 +9,7 @@ import sys
 import functools
 
 from pydantic.types import ByteSize
-# from lazyops.libs.pooler import ThreadPooler
+
 # from redis.compat import Literal
 from kvdb.types.base import BaseModel, KVDBUrl
 from kvdb.types.generic import Number, KeyT, ExpiryT, AbsExpiryT, PatternT, ENOVAL
@@ -54,10 +54,7 @@ if sys.version_info >= (3, 11, 3):
     from asyncio import timeout as async_timeout
 else:
     from async_timeout import timeout as async_timeout
-try:
-    from lzl.pool import ThreadPool as ThreadPooler
-except ImportError:
-    from lazyops.libs.pooler import ThreadPooler
+from lzl.pool import ThreadPool as ThreadPooler
 
 if TYPE_CHECKING:
     from kvdb.io.encoder import Encoder

@@ -15,10 +15,7 @@ from lzl.load.utils import get_function_name
 from lzl.pool import ThreadPool as ThreadPooler
 from lzl.proxied import ProxyObject
 
-# from lazyops.utils import timed_cache
-# from lazyops.utils.lazy import get_function_name
-# from lazyops.libs.pooler import ThreadPooler
-# from lazyops.libs.proxyobj import ProxyObject
+
 from types import ModuleType
 from kvdb.types.generic import ParamSpec
 from typing import Optional, Dict, Any, Callable, List, Union, TypeVar, Tuple, Awaitable, Type, overload, TYPE_CHECKING

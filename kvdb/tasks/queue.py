@@ -23,8 +23,7 @@ from kvdb.configs import settings
 from kvdb.configs.tasks import KVDBTaskQueueConfig
 import kvdb.errors as errors
 from redis import exceptions as rerrors
-from lazyops.utils.times import Timer
-from lazyops.utils.helpers import timed_cache
+from lzo.utils import Timer, timed_cache
 from kvdb.types.base import BaseModel, KVDBUrl
 from kvdb.types.jobs import (
     Job,
@@ -39,6 +38,7 @@ from kvdb.utils.helpers import (
     now, 
     seconds, 
     ensure_coro,
+    inspect_serializability,
 )
 from .debug import get_autologger
 from .static import ColorMap
@@ -1331,7 +1331,7 @@ class TaskQueue(abc.ABC):
             # return await self.serializer.adumps(job)
 
         except Exception as e:
-            from lazyops.utils.debugging import inspect_serializability
+            # from lazyops.utils.debugging import inspect_serializability
             self.queue_settings.logger.trace(f"Unable to serialize job: {job}", e, depth = 2)
             data = job.model_dump()
             for k,v in data.get('kwargs', {}).items():
@@ -1615,7 +1615,7 @@ class TaskQueue(abc.ABC):
 
         
         # Configure Misc Variables
-        from lazyops.utils.system import get_host_name
+        from lzo.utils.system import get_host_name
         self.node_name = get_host_name()
         self.is_primary_process = not self.queue_settings.temp_data.has_logged(f'primary_process.queue:{self.queue_name}')
         

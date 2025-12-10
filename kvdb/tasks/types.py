@@ -11,9 +11,9 @@ from pydantic import Field, model_validator
 from kvdb.types.base import BaseModel
 from kvdb.utils.logs import logger
 from kvdb.utils.helpers import is_coro_func, lazy_import, ensure_coro
-from lazyops.libs.proxyobj import ProxyObject
-from lazyops.libs.pooler import ThreadPooler
-from lazyops.libs.abcs.utils.helpers import update_dict
+from lzl.proxied import ProxyObject
+from lzl.pool import ThreadPool as ThreadPooler
+from lzo.utils.helpers import update_dict
 from typing import Optional, Dict, Any, Union, TypeVar, Callable, Awaitable, TypeAlias, List, Type, Set, Tuple, Literal, TYPE_CHECKING, overload
 from .utils import AttributeMatchType, determine_match_from_attributes, get_func_name
 from .debug import get_autologger

@@ -16,7 +16,7 @@ from kvdb.utils.patching import (
 
 )
 from kvdb.types.generic import ParamSpec
-from lazyops.libs.abcs.utils.helpers import update_dict
+from lzo.utils.helpers import update_dict
 from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from types import ModuleType, FunctionType
 from .types import (

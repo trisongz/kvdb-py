@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kvdb-py"
+dynamic = ["version"]
+description = "Key-Value DB Python Client Abstraction built on top of Redis"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+  { name = "Tri Songz", email = "ts@growthengineai.com" },
+]
+classifiers = [
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+  "anyio",
+  "pydantic",
+  "pydantic-settings",
+  "croniter",
+  "tenacity",
+  "backoff",
+  "redis",
+  "hiredis",
+  "xxhash",
+  "makefun",
+  "lazyops>=0.2.69",
+  "typer",
+  "typing-extensions; python_version < '3.8'",
+  "pybreaker",
+  "aiopath",
+  "uvloop>=0.18.0",
+  "fsspec>=2025.10.0",
+]
+urls.Documentation = "https://trisongz.github.io/kvdb-py/"
+urls.Changes = "https://github.com/trisongz/kvdb-py/releases"
+urls.Code = "https://github.com/trisongz/kvdb-py"
+
+[project.optional-dependencies]
+serialization = [
+  "pysimdjson",
+  "cloudpickle",
+  "zstd",
+]
+docs = [
+  "mkdocs-material",
+  "mkdocstrings[python]",
+  "black",
+]
+test = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[project.scripts]
+kvdb-task = "kvdb.tasks.cli:main"
+
+[tool.hatch.version]
+path = "kvdb/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kvdb"]
+
+[tool.uv.sources]
+lazyops = { path = "../../lazyops", editable = true }

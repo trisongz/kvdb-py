@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # Standard Redis
+  redis:
+    image: redis:7.2
+    container_name: kvdb-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+
+  # KeyDB
+  keydb:
+    image: eqalpha/keydb:latest
+    container_name: kvdb-keydb
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "keydb-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+
+  # Dragonfly
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly
+    container_name: kvdb-dragonfly
+    ulimits:
+      memlock: -1
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+
+  # Valkey
+  valkey:
+    image: valkey/valkey:7.2
+    container_name: kvdb-valkey
+    ports:
+      - "6382:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+
+  # Redis Sentinel Setup
+  redis-master:
+    image: redis:7.2
+    container_name: kvdb-sentinel-master
+    command: redis-server --port 6379
+    ports:
+      - "6383:6379"
+      
+  redis-replica:
+    image: redis:7.2
+    container_name: kvdb-sentinel-replica
+    command: redis-server --replicaof redis-master 6379 --port 6379
+    depends_on:
+      - redis-master
+      
+  redis-sentinel:
+    image: redis:7.2
+    container_name: kvdb-sentinel
+    command: >
+      bash -c "echo 'port 26379' > sentinel.conf &&
+      echo 'sentinel monitor mymaster redis-master 6379 1' >> sentinel.conf &&
+      echo 'sentinel down-after-milliseconds mymaster 5000' >> sentinel.conf &&
+      echo 'sentinel failover-timeout mymaster 60000' >> sentinel.conf &&
+      echo 'sentinel parallel-syncs mymaster 1' >> sentinel.conf &&
+      echo 'sentinel resolve-hostnames yes' >> sentinel.conf &&
+      echo 'sentinel announce-ip 127.0.0.1' >> sentinel.conf &&
+      echo 'sentinel announce-port 26379' >> sentinel.conf &&
+      redis-sentinel sentinel.conf"
+    ports:
+      - "26379:26379"
+    depends_on:
+      - redis-master
+      - redis-replica
+
+  # Redis Cluster
+  redis-cluster:
+    image: grokzen/redis-cluster:7.0.0
+    container_name: kvdb-cluster
+    ports:
+      - "7000:7000"
+      - "7001:7001"
+      - "7002:7002"
+      - "7003:7003"
+      - "7004:7004"
+      - "7005:7005"
+    environment:
+      - IP=0.0.0.0

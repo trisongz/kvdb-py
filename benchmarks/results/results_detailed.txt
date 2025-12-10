@@ -1,0 +1,108 @@
+=== Standard Redis ===
+  [ASYNC]
+    Pool: AsyncConnectionPool
+      Run 1: {'set_ops_per_sec': 4223.033720705331, 'get_ops_per_sec': 4270.906552841103, 'del_ops_per_sec': 4273.228827145853, 'pipe_ops_per_sec': 116285.88617895194}
+      Run 2: {'set_ops_per_sec': 3588.28070674938, 'get_ops_per_sec': 4143.247997896323, 'del_ops_per_sec': 3717.777827021517, 'pipe_ops_per_sec': 121584.95401036035}
+      Run 3: {'set_ops_per_sec': 3605.1026124871223, 'get_ops_per_sec': 3943.5160940019464, 'del_ops_per_sec': 3966.7441831212986, 'pipe_ops_per_sec': 97382.29182387017}
+    Pool: AsyncBlockingConnectionPool
+      Run 1: {'set_ops_per_sec': 3711.3477958634126, 'get_ops_per_sec': 3592.26514784988, 'del_ops_per_sec': 4000.0595101626955, 'pipe_ops_per_sec': 115909.57828994638}
+      Run 2: {'set_ops_per_sec': 3706.061852463659, 'get_ops_per_sec': 3910.152075619135, 'del_ops_per_sec': 3562.4321953260437, 'pipe_ops_per_sec': 112801.96004077143}
+      Run 3: {'set_ops_per_sec': 3781.8122800808783, 'get_ops_per_sec': 3611.6729005271504, 'del_ops_per_sec': 4075.1954110834754, 'pipe_ops_per_sec': 117666.80880669704}
+    Pool: OptimizedAsyncConnectionPool
+      Run 1: {'set_ops_per_sec': 3794.855945259597, 'get_ops_per_sec': 4163.460667032557, 'del_ops_per_sec': 4001.573418350588, 'pipe_ops_per_sec': 120212.66411966513}
+      Run 2: {'set_ops_per_sec': 3780.8355996570995, 'get_ops_per_sec': 3774.376665568211, 'del_ops_per_sec': 3713.707208248968, 'pipe_ops_per_sec': 106574.51544379961}
+      Run 3: {'set_ops_per_sec': 3950.5983064897673, 'get_ops_per_sec': 4016.960034814961, 'del_ops_per_sec': 3757.1134990631185, 'pipe_ops_per_sec': 114157.74618753283}
+  [SYNC]
+    Pool: ConnectionPool
+      Run 1: {'set_ops_per_sec': 5122.735836094105, 'get_ops_per_sec': 6310.3830473931985, 'del_ops_per_sec': 7047.613478684447, 'pipe_ops_per_sec': 143696.64869161247}
+      Run 2: {'set_ops_per_sec': 6391.484002942856, 'get_ops_per_sec': 4793.6524481285305, 'del_ops_per_sec': 6292.347625658555, 'pipe_ops_per_sec': 153669.03101002405}
+      Run 3: {'set_ops_per_sec': 6486.582454432122, 'get_ops_per_sec': 6674.661676151192, 'del_ops_per_sec': 6812.648843314261, 'pipe_ops_per_sec': 155228.45870866982}
+    Pool: BlockingConnectionPool
+      Run 1: {'set_ops_per_sec': 5748.58598323848, 'get_ops_per_sec': 6286.856535758439, 'del_ops_per_sec': 6400.179692545079, 'pipe_ops_per_sec': 97283.81202437254}
+      Run 2: {'set_ops_per_sec': 5939.84424687625, 'get_ops_per_sec': 6390.139239786992, 'del_ops_per_sec': 5726.310132991218, 'pipe_ops_per_sec': 140705.96128685967}
+      Run 3: {'set_ops_per_sec': 6265.938591679245, 'get_ops_per_sec': 5829.480188153198, 'del_ops_per_sec': 6250.164289620621, 'pipe_ops_per_sec': 142057.0015749098}
+
+=== KeyDB ===
+  [ASYNC]
+    Pool: AsyncConnectionPool
+      Run 1: {'set_ops_per_sec': 3614.613908963834, 'get_ops_per_sec': 3947.742603625203, 'del_ops_per_sec': 4509.444742018033, 'pipe_ops_per_sec': 104345.00516214098}
+      Run 2: {'set_ops_per_sec': 4306.3947174613295, 'get_ops_per_sec': 4221.785714105973, 'del_ops_per_sec': 4224.303737855126, 'pipe_ops_per_sec': 112346.92702264721}
+      Run 3: {'set_ops_per_sec': 3907.391654829979, 'get_ops_per_sec': 4320.360008026181, 'del_ops_per_sec': 4740.614822446099, 'pipe_ops_per_sec': 110106.37069083196}
+    Pool: AsyncBlockingConnectionPool
+      Run 1: {'set_ops_per_sec': 3539.955597623827, 'get_ops_per_sec': 3804.203821251659, 'del_ops_per_sec': 3889.682719857793, 'pipe_ops_per_sec': 118588.68767406025}
+      Run 2: {'set_ops_per_sec': 3446.7449932138393, 'get_ops_per_sec': 4105.452563974691, 'del_ops_per_sec': 4288.757011159571, 'pipe_ops_per_sec': 121401.60351963877}
+      Run 3: {'set_ops_per_sec': 4126.670754995158, 'get_ops_per_sec': 4822.374933746015, 'del_ops_per_sec': 3875.643190940412, 'pipe_ops_per_sec': 114970.39603526161}
+    Pool: OptimizedAsyncConnectionPool
+      Run 1: {'set_ops_per_sec': 4471.751591626682, 'get_ops_per_sec': 4167.472561407888, 'del_ops_per_sec': 4404.512439325518, 'pipe_ops_per_sec': 120040.64028482544}
+      Run 2: {'set_ops_per_sec': 4042.757593139338, 'get_ops_per_sec': 4669.918894710091, 'del_ops_per_sec': 4467.275531148148, 'pipe_ops_per_sec': 119833.49094742737}
+      Run 3: {'set_ops_per_sec': 4577.99390998487, 'get_ops_per_sec': 4521.543961928643, 'del_ops_per_sec': 3908.7571714764163, 'pipe_ops_per_sec': 100988.72205795957}
+  [SYNC]
+    Pool: ConnectionPool
+      Run 1: {'set_ops_per_sec': 4703.07145268738, 'get_ops_per_sec': 4654.099732769289, 'del_ops_per_sec': 6599.827667921498, 'pipe_ops_per_sec': 145216.04254376245}
+      Run 2: {'set_ops_per_sec': 5307.855448996966, 'get_ops_per_sec': 6316.759993018031, 'del_ops_per_sec': 6048.096328780334, 'pipe_ops_per_sec': 115011.37965263268}
+      Run 3: {'set_ops_per_sec': 5342.962367456304, 'get_ops_per_sec': 6453.7901190002485, 'del_ops_per_sec': 5740.072918549835, 'pipe_ops_per_sec': 141558.3793179095}
+    Pool: BlockingConnectionPool
+      Run 1: {'set_ops_per_sec': 5134.537409751192, 'get_ops_per_sec': 5180.484944210691, 'del_ops_per_sec': 6040.200858844516, 'pipe_ops_per_sec': 134580.341271522}
+      Run 2: {'set_ops_per_sec': 5653.253181746195, 'get_ops_per_sec': 5809.353711227902, 'del_ops_per_sec': 4482.803325327788, 'pipe_ops_per_sec': 113508.96991445497}
+      Run 3: {'set_ops_per_sec': 6098.137716617951, 'get_ops_per_sec': 6384.708498444887, 'del_ops_per_sec': 3107.919997830393, 'pipe_ops_per_sec': 133809.6620545983}
+
+=== Dragonfly ===
+  [ASYNC]
+    Pool: AsyncConnectionPool
+      Run 1: {'set_ops_per_sec': 4011.0461214876364, 'get_ops_per_sec': 4302.387723922845, 'del_ops_per_sec': 3694.125014257109, 'pipe_ops_per_sec': 85664.99937706412}
+      Run 2: {'set_ops_per_sec': 3728.473051156205, 'get_ops_per_sec': 3959.264257014465, 'del_ops_per_sec': 4118.190370122289, 'pipe_ops_per_sec': 80634.88157490004}
+      Run 3: {'set_ops_per_sec': 3570.9691881921017, 'get_ops_per_sec': 4078.501476186059, 'del_ops_per_sec': 3847.8543528472565, 'pipe_ops_per_sec': 91182.50396747755}
+    Pool: AsyncBlockingConnectionPool
+      Run 1: {'set_ops_per_sec': 3990.5280825189766, 'get_ops_per_sec': 3570.2338980629947, 'del_ops_per_sec': 3543.8573367062595, 'pipe_ops_per_sec': 80235.06366307542}
+      Run 2: {'set_ops_per_sec': 3575.737218561113, 'get_ops_per_sec': 4000.9966471903285, 'del_ops_per_sec': 4319.011127289353, 'pipe_ops_per_sec': 92606.45990324939}
+      Run 3: {'set_ops_per_sec': 3459.9357508287694, 'get_ops_per_sec': 4253.483567572348, 'del_ops_per_sec': 4056.7540736763017, 'pipe_ops_per_sec': 77661.50997546637}
+    Pool: OptimizedAsyncConnectionPool
+      Run 1: {'set_ops_per_sec': 3928.825409433743, 'get_ops_per_sec': 3884.6190607794165, 'del_ops_per_sec': 4204.247465681083, 'pipe_ops_per_sec': 90124.11042733867}
+      Run 2: {'set_ops_per_sec': 4305.412488466098, 'get_ops_per_sec': 4605.633597122357, 'del_ops_per_sec': 3950.151830608218, 'pipe_ops_per_sec': 95855.3452507736}
+      Run 3: {'set_ops_per_sec': 3530.2581968606714, 'get_ops_per_sec': 3975.0399986656053, 'del_ops_per_sec': 3770.8866038848464, 'pipe_ops_per_sec': 93118.39654372407}
+  [SYNC]
+    Pool: ConnectionPool
+      Run 1: {'set_ops_per_sec': 4361.066381245821, 'get_ops_per_sec': 4787.838994156383, 'del_ops_per_sec': 4976.121922048543, 'pipe_ops_per_sec': 95331.59079028116}
+      Run 2: {'set_ops_per_sec': 3902.63837009199, 'get_ops_per_sec': 4265.991426324528, 'del_ops_per_sec': 3870.956071616911, 'pipe_ops_per_sec': 100057.11000474724}
+      Run 3: {'set_ops_per_sec': 3990.249048079682, 'get_ops_per_sec': 4994.154857112511, 'del_ops_per_sec': 4909.55899342841, 'pipe_ops_per_sec': 94383.40196674093}
+    Pool: BlockingConnectionPool
+      Run 1: {'set_ops_per_sec': 4363.249001331558, 'get_ops_per_sec': 5686.842557331733, 'del_ops_per_sec': 3551.911050469726, 'pipe_ops_per_sec': 48751.24949439064}
+      Run 2: {'set_ops_per_sec': 4706.074547614528, 'get_ops_per_sec': 4173.563476304505, 'del_ops_per_sec': 4745.781889535167, 'pipe_ops_per_sec': 61410.733947103334}
+      Run 3: {'set_ops_per_sec': 5483.11371747121, 'get_ops_per_sec': 4246.136589346149, 'del_ops_per_sec': 5804.100215181728, 'pipe_ops_per_sec': 88640.02164063028}
+
+=== Valkey ===
+  [ASYNC]
+    Pool: AsyncConnectionPool
+      Run 1: {'set_ops_per_sec': 5111.2861057430655, 'get_ops_per_sec': 5707.8795417152605, 'del_ops_per_sec': 5350.289059222285, 'pipe_ops_per_sec': 115222.11752683239}
+      Run 2: {'set_ops_per_sec': 4963.261627644854, 'get_ops_per_sec': 5676.709003401042, 'del_ops_per_sec': 5330.281965966443, 'pipe_ops_per_sec': 132003.0338984651}
+      Run 3: {'set_ops_per_sec': 5432.2052546106615, 'get_ops_per_sec': 4577.050711661249, 'del_ops_per_sec': 5257.977625504433, 'pipe_ops_per_sec': 135411.51592438942}
+    Pool: AsyncBlockingConnectionPool
+      Run 1: {'set_ops_per_sec': 5216.168652352385, 'get_ops_per_sec': 5354.34474093756, 'del_ops_per_sec': 5228.099509175123, 'pipe_ops_per_sec': 115275.31874311187}
+      Run 2: {'set_ops_per_sec': 4670.732232876921, 'get_ops_per_sec': 5236.295358586577, 'del_ops_per_sec': 5485.795122364649, 'pipe_ops_per_sec': 136221.1598420287}
+      Run 3: {'set_ops_per_sec': 4892.478260727562, 'get_ops_per_sec': 5674.911740140894, 'del_ops_per_sec': 5134.4688982563775, 'pipe_ops_per_sec': 126617.44018257673}
+    Pool: OptimizedAsyncConnectionPool
+      Run 1: {'set_ops_per_sec': 5137.0195125231185, 'get_ops_per_sec': 5654.233242998877, 'del_ops_per_sec': 5711.87646463469, 'pipe_ops_per_sec': 133422.31751192093}
+      Run 2: {'set_ops_per_sec': 5030.178282550084, 'get_ops_per_sec': 6010.334331782807, 'del_ops_per_sec': 5642.101717541669, 'pipe_ops_per_sec': 124945.38131793823}
+      Run 3: {'set_ops_per_sec': 5631.032716157449, 'get_ops_per_sec': 5835.885478561493, 'del_ops_per_sec': 5308.551426123648, 'pipe_ops_per_sec': 146707.33413548983}
+  [SYNC]
+    Pool: ConnectionPool
+      Run 1: {'set_ops_per_sec': 9055.386927810221, 'get_ops_per_sec': 9220.804002866727, 'del_ops_per_sec': 8365.801152896973, 'pipe_ops_per_sec': 180105.8055650979}
+      Run 2: {'set_ops_per_sec': 9252.792954091914, 'get_ops_per_sec': 8409.955831883653, 'del_ops_per_sec': 7830.460598966282, 'pipe_ops_per_sec': 167453.32886184705}
+      Run 3: {'set_ops_per_sec': 9173.983558455846, 'get_ops_per_sec': 8358.833833883706, 'del_ops_per_sec': 8223.704630017954, 'pipe_ops_per_sec': 161982.89145924652}
+    Pool: BlockingConnectionPool
+      Run 1: {'set_ops_per_sec': 8045.011974575462, 'get_ops_per_sec': 9415.984147092426, 'del_ops_per_sec': 9723.793794471425, 'pipe_ops_per_sec': 173463.85604453323}
+      Run 2: {'set_ops_per_sec': 9047.339349643968, 'get_ops_per_sec': 9053.71568299009, 'del_ops_per_sec': 9142.404757716587, 'pipe_ops_per_sec': 148669.8662280857}
+      Run 3: {'set_ops_per_sec': 8583.064185575562, 'get_ops_per_sec': 9885.516387697218, 'del_ops_per_sec': 7704.843228642745, 'pipe_ops_per_sec': 145936.5496892897}
+
+=== Redis Sentinel ===
+  [ASYNC]
+    Pool: Default
+      Run 1: {'set_ops_per_sec': 5769.1489815315335, 'get_ops_per_sec': 6527.006527778383, 'del_ops_per_sec': 5526.513814426687, 'pipe_ops_per_sec': 82086.89934026018}
+      Run 2: {'set_ops_per_sec': 5656.0197183090995, 'get_ops_per_sec': 6844.092144109751, 'del_ops_per_sec': 6041.882741231406, 'pipe_ops_per_sec': 90861.1251318734}
+      Run 3: {'set_ops_per_sec': 5135.755836876511, 'get_ops_per_sec': 6420.843050392769, 'del_ops_per_sec': 5632.3423958145895, 'pipe_ops_per_sec': 95596.8902493225}
+  [SYNC]
+    Pool: Default
+      Run 1: {'set_ops_per_sec': 10632.563808504015, 'get_ops_per_sec': 11758.519823472387, 'del_ops_per_sec': 10945.30406376939, 'pipe_ops_per_sec': 164877.5693917583}
+      Run 2: {'set_ops_per_sec': 9786.99772353292, 'get_ops_per_sec': 9315.02030322924, 'del_ops_per_sec': 11394.054114846133, 'pipe_ops_per_sec': 162051.107693972}
+      Run 3: {'set_ops_per_sec': 10491.813776549068, 'get_ops_per_sec': 13171.849081774484, 'del_ops_per_sec': 10880.871651858097, 'pipe_ops_per_sec': 158740.4626377619}
+

@@ -140,6 +140,7 @@ class AbstractConnection(_AbstractConnection):
         self.client_name = client_name
         self.lib_name = lib_name
         self.lib_version = lib_version
+        self.reset_should_reconnect()
         self.credential_provider = credential_provider
         self.password = password
         self.username = username
@@ -170,6 +171,7 @@ class AbstractConnection(_AbstractConnection):
         self._sock = None
         self._socket_read_size = socket_read_size
         self.set_parser(parser_class)
+        self._re_auth_token = None
         self._connect_callbacks = []
         self._buffer_cutoff = 6000
         try:
@@ -242,6 +244,7 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         self.client_name = client_name
         self.lib_name = lib_name
         self.lib_version = lib_version
+        self.reset_should_reconnect()
         self.credential_provider = credential_provider
         self.password = password
         self.username = username
@@ -254,9 +257,78 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
             retry_on_error = []
         if retry_on_timeout:
             retry_on_error.append(TimeoutError)
-            retry_on_error.append(socket.timeout)
             retry_on_error.append(asyncio.TimeoutError)
         self.retry_on_error = retry_on_error
+        self._init_retry(
+            retry=retry, 
+            retry_on_error=retry_on_error,
+            health_check_interval=health_check_interval,
+            encoder=encoder,
+            encoder_class=encoder_class,
+            encoding=encoding,
+            encoding_errors=encoding_errors,
+            decode_responses=decode_responses,
+            redis_connect_func=redis_connect_func,
+            socket_read_size=socket_read_size,
+            parser_class=parser_class,
+            protocol=protocol,
+        )
+        # logger.info(f"AsyncAbstractConnection Initialized: {self}")
+        # Call super init to ensure Mixin behavior works, but pass filtered kwargs
+        # The parent classes might need specific args, but we should be careful about what we pass
+        # Since AsyncAbstractConnection is a Mixin, and we use it with AsyncConnection which inherits from redis.asyncio.connection.Connection
+        # We need to make sure we don't pass arguments that are already handled or not expected by the MRO next class if it's not designed to handle **kwargs
+        
+        # However, redis.asyncio.connection.Connection.__init__ takes **kwargs but passes them to super().__init__
+        # And AsyncConnection (our class) inherits from _AsyncConnection (redis) and AsyncAbstractConnection (kvdb)
+        # We need to ensure that when we call super().__init__ here, it goes to the right place or we manually handle what's needed.
+        
+        # Actually, since we are overriding __init__ completely in this Mixin/Base class, we are responsible for setting up current class state.
+        # But if we want to support properly what Connection expects (like host/port), we must ensure those are set or passed.
+        # In this implementation, we are setting attributes directly.
+
+        # Fix: We need to call super().__init__ to propagate kwargs if there are other Mixins or Base classes.
+        # But wait, AsyncConnection inherits from (_AsyncConnection, AsyncAbstractConnection).
+        # _AsyncConnection is redis.asyncio.connection.Connection.
+        # So AsyncConnection MRO is: AsyncConnection, _AsyncConnection, AsyncAbstractConnection, AbstractConnection, object (roughly)
+        # WARNING: If AsyncConnection inherits from _AsyncConnection FIRST, then _AsyncConnection.__init__ is called.
+        # But we are REDEFINING AsyncConnection in connection.py as:
+        # class AsyncConnection(_AsyncConnection, AsyncAbstractConnection): pass
+        # This means _AsyncConnection.__init__ is called first unless AsyncConnection defines __init__. It doesn't.
+        # So _AsyncConnection.__init__ is called.
+        
+        # _AsyncConnection (redis.asyncio.connection.Connection) calls super().__init__(**kwargs).
+        # super() from _AsyncConnection refers to AsyncAbstractConnection (because of MRO!).
+        # So AsyncAbstractConnection.__init__ IS called by _AsyncConnection.__init__.
+        
+        # So we just need to ensure we accept **kwargs and handle them or pass them up if needed.
+        # And crucially, we must NOT call super().__init__ if we are the last one in chain that matters, OR we call object.__init__
+        # But AbstractConnection is also in there.
+        
+        # Let's check AbstractConnection.
+        pass
+    
+    def reset_should_reconnect(self):
+        """
+        Reset the flag to True so that the connection tries to reconnect
+        """
+        self._should_reconnect = False
+
+    def _init_retry(
+        self, 
+        retry, 
+        retry_on_error,
+        health_check_interval,
+        encoder,
+        encoder_class,
+        encoding,
+        encoding_errors,
+        decode_responses,
+        redis_connect_func,
+        socket_read_size,
+        parser_class,
+        protocol,
+    ):
         if retry:
             # deep-copy the Retry object as it is mutable
             self.retry = copy.deepcopy(retry)
@@ -268,6 +340,7 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
             self.retry.update_supported_errors(retry_on_error)
         else:
             self.retry = Retry(NoBackoff(), 0)
+
         self.health_check_interval = health_check_interval
         self.next_health_check: float = -1
         if encoder is not None:
@@ -279,6 +352,7 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         self._writer: Optional[asyncio.StreamWriter] = None
         self._socket_read_size = socket_read_size
         self.set_parser(parser_class)
+        self._re_auth_token = None
         self._connect_callbacks: List[weakref.WeakMethod[ConnectCallbackT]] = []
         self._buffer_cutoff = 6000
         if DEPRECATED_SUPPORT:

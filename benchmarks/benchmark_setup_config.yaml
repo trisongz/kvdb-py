@@ -1,0 +1,26 @@
+benchmarks:
+  - name: Standard Redis
+    # url: redis://localhost:6379/0
+    url: redis://redis.benchmarks.orb.local:6379/0
+    type: standalone
+  - name: KeyDB
+    # url: redis://localhost:6380/0
+    url: redis://keydb.benchmarks.orb.local:6379/0
+    type: standalone
+  - name: Dragonfly
+    # url: redis://localhost:6381/0
+    url: redis://dragonfly.benchmarks.orb.local:6379/0
+    type: standalone
+  - name: Valkey
+    # url: redis://localhost:6382/0
+    url: redis://valkey.benchmarks.orb.local:6379/0
+    type: standalone
+  # doesn't work currently.
+  # - name: Redis Cluster
+  #   url: redis://redis-cluster.benchmarks.orb.local:7000/0
+  #   # url: redis://localhost:7000/0
+  #   type: cluster
+  - name: Redis Sentinel
+    url: redis+sentinel://redis-sentinel.benchmarks.orb.local:26379/mymaster/0
+    # url: redis+sentinel://localhost:26379/mymaster/0
+    type: sentinel

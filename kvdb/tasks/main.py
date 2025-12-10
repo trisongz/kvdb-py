@@ -20,8 +20,8 @@ from kvdb.utils.patching import (
     get_object_child_class_names,
     get_parent_object_class_names,
 )
-from lazyops.libs.proxyobj import ProxyObject, LockedSingleton
-from lazyops.libs.abcs.utils.helpers import update_dict
+from lzl.proxied import ProxyObject, LockedSingleton
+from lzo.utils.helpers import update_dict
 from types import ModuleType
 from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from .types import (
@@ -117,7 +117,7 @@ class QueueTaskManager(abc.ABC, LockedSingleton):
         Gets the task worker base index
         """
         if self._task_worker_base_index is None:
-            from lazyops.utils.system import is_in_kubernetes, get_host_name
+            from lzo.utils.system import is_in_kubernetes, get_host_name
             if is_in_kubernetes() and get_host_name()[-1].isdigit():
                 _base_worker_index = int(get_host_name()[-1])
             else:

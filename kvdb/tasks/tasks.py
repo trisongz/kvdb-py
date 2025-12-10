@@ -65,7 +65,7 @@ class QueueTasks(abc.ABC):
         # if context is not None: self.context = context
         
         from kvdb.configs import settings
-        from lazyops.libs.pooler import ThreadPooler
+        from lzl.pool import ThreadPool as ThreadPooler
         self.task_settings = settings
         self.logger = self.task_settings.logger
         self.autologger = self.task_settings.autologger

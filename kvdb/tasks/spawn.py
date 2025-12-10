@@ -295,7 +295,7 @@ def get_worker_start_index() -> int:
     """
     Gets the worker start index
     """
-    from lazyops.utils.system import is_in_kubernetes, get_host_name
+    from lzo.utils.system import is_in_kubernetes, get_host_name
     if is_in_kubernetes() and get_host_name()[-1].isdigit():
         return int(get_host_name()[-1])
     return 0
