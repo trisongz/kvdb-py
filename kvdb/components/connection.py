@@ -118,6 +118,7 @@ class AbstractConnection(_AbstractConnection):
         protocol: Optional[int] = 2,
         event_dispatcher: Optional[Any] = None,
         command_packer: Optional[Callable[[], None]] = None,
+        serializer: Optional['SerializerT'] = None,
         **kwargs,
     ):  # sourcery skip: low-code-quality
         """
@@ -167,7 +168,7 @@ class AbstractConnection(_AbstractConnection):
         if encoder is not None:
             self.encoder = encoder
         else:
-            self.encoder = Encoder(encoding, encoding_errors, decode_responses)
+            self.encoder = Encoder(encoding, encoding_errors, decode_responses, serializer = serializer)
         self._sock = None
         self._socket_read_size = socket_read_size
         self.set_parser(parser_class)
@@ -187,9 +188,9 @@ class AbstractConnection(_AbstractConnection):
             self.protocol = p
         self._command_packer = self._construct_command_packer(command_packer)
 
-class Connection(_Connection, AbstractConnection): pass
-class UnixDomainSocketConnection(_UnixDomainSocketConnection, AbstractConnection): pass
-class SSLConnection(_SSLConnection, AbstractConnection): pass
+class Connection(AbstractConnection, _Connection): pass
+class UnixDomainSocketConnection(AbstractConnection, _UnixDomainSocketConnection): pass
+class SSLConnection(AbstractConnection, _SSLConnection): pass
 
 class AsyncAbstractConnection(_AsyncAbstractConnection):
     """
@@ -223,6 +224,7 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         credential_provider: Optional[CredentialProvider] = None,
         protocol: Optional[int] = 2,
         event_dispatcher: Optional[Any] = None,
+        serializer: Optional['SerializerT'] = None,
         **kwargs,
     ):  # sourcery skip: low-code-quality
         if (username or password) and credential_provider is not None:
@@ -272,6 +274,7 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
             socket_read_size=socket_read_size,
             parser_class=parser_class,
             protocol=protocol,
+            serializer=serializer,
         )
         # logger.info(f"AsyncAbstractConnection Initialized: {self}")
         # Call super init to ensure Mixin behavior works, but pass filtered kwargs
@@ -328,6 +331,7 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         socket_read_size,
         parser_class,
         protocol,
+        serializer,
     ):
         if retry:
             # deep-copy the Retry object as it is mutable
@@ -346,7 +350,7 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         if encoder is not None:
             self.encoder = encoder
         else:
-            self.encoder = encoder_class(encoding, encoding_errors, decode_responses)
+            self.encoder = encoder_class(encoding, encoding_errors, decode_responses, serializer = serializer)
         self.redis_connect_func = redis_connect_func
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
@@ -375,9 +379,9 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         
 
 
-class AsyncConnection(_AsyncConnection, AsyncAbstractConnection): pass
-class AsyncUnixDomainSocketConnection(_AsyncUnixDomainSocketConnection, AsyncAbstractConnection): pass
-class AsyncSSLConnection(_AsyncSSLConnection, AsyncAbstractConnection): pass
+class AsyncConnection(AsyncAbstractConnection, _AsyncConnection): pass
+class AsyncUnixDomainSocketConnection(AsyncAbstractConnection, _AsyncUnixDomainSocketConnection): pass
+class AsyncSSLConnection(AsyncAbstractConnection, _AsyncSSLConnection): pass
 
 # TODO: Implement AsyncConnection with trio backend
 class TrioAsyncAbstractConnection(AsyncAbstractConnection):

@@ -176,6 +176,7 @@ class ConnectionPool(_ConnectionPool):
         self.auto_pause_max_delay = self.extra_kwargs.get('auto_pause_max_delay', self.settings.pool.auto_pause_max_delay)
 
         self.encoder_class = self.connection_kwargs.get("encoder_class", Encoder)
+        self.connection_kwargs['encoder_class'] = self.encoder_class
         if 'serializer' in kwargs:
             serializer = kwargs.get('serializer')
             if isinstance(serializer, str):
@@ -183,6 +184,7 @@ class ConnectionPool(_ConnectionPool):
                 serializer = get_serializer(**kwargs, is_encoder = True)
                 # logger.info(f"Serializer: {serializer}")
             self.serializer = serializer
+            self.connection_kwargs['serializer'] = serializer
         self.auto_reset_enabled = kwargs.get('auto_reset_enabled', self.settings.pool.auto_reset_enabled)
     
     def post_init_pool(self, **kwargs):
@@ -606,7 +608,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         self.auto_pause_max_delay = self.extra_kwargs.get('auto_pause_max_delay', self.settings.pool.auto_pause_max_delay)
 
         self.encoder_class = self.connection_kwargs.get("encoder_class", Encoder)
-        
+        self.connection_kwargs['encoder_class'] = self.encoder_class
         if 'serializer' in kwargs:
             serializer = kwargs.get('serializer')
             if isinstance(serializer, str):
@@ -614,6 +616,8 @@ class AsyncConnectionPool(_AsyncConnectionPool):
                 serializer = get_serializer(**kwargs, is_encoder = True)
                 # logger.info(f"Serializer: {serializer}")
             self.serializer = serializer
+            self.connection_kwargs['serializer'] = serializer
+            self.connection_kwargs['serializer'] = serializer
         self.auto_reset_enabled = kwargs.get('auto_reset_enabled', self.settings.pool.auto_reset_enabled)
 
     def post_init_pool(self, **kwargs):

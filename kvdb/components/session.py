@@ -134,6 +134,9 @@ class KVDBSession(abc.ABC):
         """
         Enable Serialization in the Encoder
         """
+        if serializer and isinstance(serializer, str):
+            serializer = settings.client_config.get_serializer(serializer=serializer)
+        
         self.encoder.enable_serialization(serializer = serializer, decode_responses = decode_responses)
         self.pool.enable_serialization(serializer = serializer, decode_responses = decode_responses)
 
@@ -597,6 +600,18 @@ class KVDBSession(abc.ABC):
         [Dict] Deletes the key
         """
         return await self.persistence.adelete(key)
+
+    def clear(self):
+        """
+        Clears the current database
+        """
+        return self.client.flushdb()
+
+    async def aclear(self):
+        """
+        Clears the current database
+        """
+        return await self.aclient.flushdb()
 
 
     """

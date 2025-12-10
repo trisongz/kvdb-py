@@ -162,6 +162,47 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             redis.call('HDEL', KEYS[2], ARGV[1])
             return 1
         """)
+        
+        # Initialize Async Scripts placeholders
+        self._lua_hget_script_async = None
+        self._lua_hset_script_async = None
+        self._lua_hdel_script_async = None
+
+    async def _ensure_async_scripts(self):
+        """
+        Ensures async scripts are initialized
+        """
+        if self._lua_hget_script_async is not None: return
+        
+        # We need to register scripts on the async client
+        # GET script
+        self._lua_hget_script_async = self.cache.aclient.register_script("""
+            local val = redis.call('HGET', KEYS[1], ARGV[1])
+            if not val then return nil end
+            local exp = redis.call('HGET', KEYS[2], ARGV[1])
+            if exp and tonumber(exp) < tonumber(ARGV[2]) then
+                redis.call('HDEL', KEYS[1], ARGV[1])
+                redis.call('HDEL', KEYS[2], ARGV[1])
+                return nil
+            end
+            return val
+        """)
+        
+        # SET script
+        self._lua_hset_script_async = self.cache.aclient.register_script("""
+            redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+            if ARGV[3] ~= '' then
+                redis.call('HSET', KEYS[2], ARGV[1], ARGV[3])
+            end
+            return 1
+        """)
+        
+        # DEL script
+        self._lua_hdel_script_async = self.cache.aclient.register_script("""
+            redis.call('HDEL', KEYS[1], ARGV[1])
+            redis.call('HDEL', KEYS[2], ARGV[1])
+            return 1
+        """)
 
     @classmethod
     def as_persistent_dict(
@@ -448,9 +489,9 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             # await self.ahset_expiration_check(key)
             # value = await self.cache.ahget(self.base_key, key)
             current_time = int(time.time())
-            # For async, we need to call it slightly differently or ensure the client supports it
-            # Redis-py async client supports script objects callable? Yes.
-            value = await self._lua_hget_script(keys=[self.base_key, self.exp_index_key], args=[key, current_time], client=self.cache.aclient)
+            # Use async script
+            await self._ensure_async_scripts()
+            value = await self._lua_hget_script_async(keys=[self.base_key, self.exp_index_key], args=[key, current_time], client=self.cache.aclient)
         else: value = await self.cache.aget(self.get_key(key))
         if value is None: return default
         try:
@@ -487,7 +528,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
             exp_time = ''
             if ex is not None:
                 exp_time = int(time.time()) + ex
-            await self._lua_hset_script(keys=[self.base_key, self.exp_index_key], args=[key, encoded_val, exp_time], client=self.cache.aclient)
+            await self._ensure_async_scripts()
+            await self._lua_hset_script_async(keys=[self.base_key, self.exp_index_key], args=[key, encoded_val, exp_time], client=self.cache.aclient)
         else:
             await self.cache.aset(self.get_key(key), encoded_val, ex = ex)
 
@@ -514,7 +556,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Deletes a Value from the DB
         """
         if self.hset_enabled: 
-            await self._lua_hdel_script(keys=[self.base_key, self.exp_index_key], args=[key], client=self.cache.aclient)
+            await self._ensure_async_scripts()
+            await self._lua_hdel_script_async(keys=[self.base_key, self.exp_index_key], args=[key], client=self.cache.aclient)
         else: await self.cache.adelete(self.get_key(key))
 
     async def aclear(self, *keys, **kwargs):

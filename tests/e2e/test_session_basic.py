@@ -14,14 +14,16 @@ TEST_URL = "redis://localhost:6379/10" # Use DB 10 for tests
 
 @pytest.fixture
 def sync_session():
-    session = KVDBClient.get_session(name="e2e_sync", url=TEST_URL, serializer="json")
+    session = KVDBClient.get_session(name="e2e_sync", url=TEST_URL, serializer="json", decode_responses=True)
+    session.enable_serialization("json", decode_responses=True)
     session.clear()
     yield session
     session.clear()
 
 @pytest.fixture
 async def async_session():
-    session = KVDBClient.get_session(name="e2e_async", url=TEST_URL, serializer="json")
+    session = KVDBClient.get_session(name="e2e_async", url=TEST_URL, serializer="json", decode_responses=True)
+    session.enable_serialization("json", decode_responses=True)
     await session.aclear()
     yield session
     await session.aclear()
