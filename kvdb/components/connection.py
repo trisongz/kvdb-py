@@ -189,22 +189,39 @@ class AbstractConnection(_AbstractConnection):
             self.protocol = p
         self._command_packer = self._construct_command_packer(command_packer)
         
+
         # Filter kwargs for super().__init__
+        # We must explicitly include arguments that were consumed by our signature
+        # but are needed by the parent class.
+        pass_args = {
+            "db": db,
+            "password": password,
+            "socket_timeout": socket_timeout,
+            "socket_connect_timeout": socket_connect_timeout,
+            "retry_on_timeout": retry_on_timeout,
+            "encoding": encoding,
+            "encoding_errors": encoding_errors,
+            "decode_responses": decode_responses,
+            "parser_class": parser_class,
+            "socket_read_size": socket_read_size,
+            "health_check_interval": health_check_interval,
+            "client_name": client_name,
+            "username": username,
+            "credential_provider": credential_provider,
+            "protocol": self.protocol,
+        }
+        # Update kwargs with these values if they are not already there (they shouldn't be)
+        kwargs.update(pass_args)
+
         sig = inspect.signature(super().__init__)
         if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-            # If parent accepts **kwargs, we can't rely on signature filtering alone if the parent's parent is strict.
-            # But redis.Connection accepts **kwargs and passes to redis.AbstractConnection (strict).
-            # We must inspect the MRO or just filter known bad keys?
-            # Or inspect super(redis.Connection, self).__init__? No, we don't know the exact class structure easily.
-            # Best effort: if parent accepts kwargs, we pass everything EXCEPT common KVDB internal keys
-            # or better: we use filter_kwargs_for_connection logic if possible?
-            # User suggestion: "inspect the underlying kwargs ... and only pass through expected".
-            # For now, let's assume we remove keys we KNOW are ours and not redis'.
-            # 'encoder_class' caused the error.
-            kwargs.pop('encoder_class', None)
-            kwargs.pop('serializer', None) # serializer is already handled/popped?
-            # If we want to be generic:
-            init_kwargs = kwargs
+            # Parent accepts **kwargs.
+            # We filter out known internal keys.
+            to_remove = {
+                'encoder_class', 'serializer', 'retry_on_error', 'lib_name', 'lib_version',
+                'redis_connect_func', 'encoder', 'event_dispatcher', 'command_packer'
+            }
+            init_kwargs = {k: v for k, v in kwargs.items() if k not in to_remove}
         else:
             valid_params = sig.parameters.keys()
             init_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
@@ -335,11 +352,33 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         
         
         # Filter kwargs for super().__init__
+        # We must explicitly include arguments that were consumed by our signature
+        pass_args = {
+            "db": db,
+            "password": password,
+            "socket_timeout": socket_timeout,
+            "socket_connect_timeout": socket_connect_timeout,
+            "retry_on_timeout": retry_on_timeout,
+            "encoding": encoding,
+            "encoding_errors": encoding_errors,
+            "decode_responses": decode_responses,
+            "parser_class": parser_class,
+            "socket_read_size": socket_read_size,
+            "health_check_interval": health_check_interval,
+            "client_name": client_name,
+            "username": username,
+            "credential_provider": credential_provider,
+            "protocol": self.protocol,
+        }
+        kwargs.update(pass_args)
+
         sig = inspect.signature(super().__init__)
         if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-             kwargs.pop('encoder_class', None)
-             kwargs.pop('serializer', None)
-             init_kwargs = kwargs
+             to_remove = {
+                'encoder_class', 'serializer', 'retry_on_error', 'lib_name', 'lib_version',
+                'redis_connect_func', 'encoder', 'event_dispatcher'
+             }
+             init_kwargs = {k: v for k, v in kwargs.items() if k not in to_remove}
         else:
             valid_params = sig.parameters.keys()
             init_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
