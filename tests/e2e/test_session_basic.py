@@ -22,7 +22,7 @@ def sync_session():
 
 @pytest.fixture
 async def async_session():
-    session = KVDBClient.get_session(name="e2e_async", url=TEST_URL, serializer="json", decode_responses=True)
+    session = KVDBClient.get_session(name="e2e_async_basic", url=TEST_URL, serializer="json", decode_responses=True)
     session.enable_serialization("json", decode_responses=True)
     await session.aclear()
     yield session

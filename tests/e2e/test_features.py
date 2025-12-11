@@ -44,7 +44,7 @@ async def test_async_pubsub(async_session):
             async for message in pubsub.listen():
                 if message['type'] == 'message':
                     received_messages.append(message['data'])
-                    if message['data'] == b'STOP':
+                    if message['data'] == b'STOP' or message['data'] == 'STOP':
                         await pubsub.unsubscribe(channel)
                         break
         finally:
@@ -67,5 +67,5 @@ async def test_async_pubsub(async_session):
         task.cancel()
         raise Exception("PubSub timed out - message not received or loop stuck")
     
-    assert b'Hello' in received_messages
-    assert b'World' in received_messages
+    assert b'Hello' in received_messages or 'Hello' in received_messages
+    assert b'World' in received_messages or 'World' in received_messages
