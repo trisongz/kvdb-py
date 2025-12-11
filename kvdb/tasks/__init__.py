@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from .abstract import TaskABC
-from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, Set, TypeVar, ParamSpec, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
+from typing import Optional, Dict, Any, Callable, Awaitable, List, Union, Type, Set, TypeVar, AsyncGenerator, Iterable, Tuple, Literal, TYPE_CHECKING, overload
+import sys
+
+if sys.version_info >= (3, 10):
+    from typing import ParamSpec
+else:
+    from typing_extensions import ParamSpec
 
 RT = TypeVar('RT')
 P = ParamSpec("P")

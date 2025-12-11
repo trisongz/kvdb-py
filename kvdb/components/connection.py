@@ -187,6 +187,7 @@ class AbstractConnection(_AbstractConnection):
                 # p = DEFAULT_RESP_VERSION
             self.protocol = p
         self._command_packer = self._construct_command_packer(command_packer)
+        super().__init__(**kwargs)
 
 class Connection(AbstractConnection, _Connection): pass
 class UnixDomainSocketConnection(AbstractConnection, _UnixDomainSocketConnection): pass
@@ -309,7 +310,9 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         # But AbstractConnection is also in there.
         
         # Let's check AbstractConnection.
-        pass
+        
+        # Let's check AbstractConnection.
+        super().__init__(**kwargs)
     
     def reset_should_reconnect(self):
         """
