@@ -281,7 +281,10 @@ class ConnectionPool(_ConnectionPool):
         self._checkpid()
         with self._lock:
             try:
-                connection = self._available_connections.pop()
+                if self._available_connections:
+                    connection = self._available_connections.pop()
+                else:
+                    raise IndexError
             except IndexError:
                 try:
                     connection = self.make_connection()

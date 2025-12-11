@@ -6,6 +6,7 @@ Some Base Components for KVDB
 import os
 import sys
 import copy
+import inspect
 
 import socket
 import weakref
@@ -187,7 +188,28 @@ class AbstractConnection(_AbstractConnection):
                 # p = DEFAULT_RESP_VERSION
             self.protocol = p
         self._command_packer = self._construct_command_packer(command_packer)
-        super().__init__(**kwargs)
+        
+        # Filter kwargs for super().__init__
+        sig = inspect.signature(super().__init__)
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            # If parent accepts **kwargs, we can't rely on signature filtering alone if the parent's parent is strict.
+            # But redis.Connection accepts **kwargs and passes to redis.AbstractConnection (strict).
+            # We must inspect the MRO or just filter known bad keys?
+            # Or inspect super(redis.Connection, self).__init__? No, we don't know the exact class structure easily.
+            # Best effort: if parent accepts kwargs, we pass everything EXCEPT common KVDB internal keys
+            # or better: we use filter_kwargs_for_connection logic if possible?
+            # User suggestion: "inspect the underlying kwargs ... and only pass through expected".
+            # For now, let's assume we remove keys we KNOW are ours and not redis'.
+            # 'encoder_class' caused the error.
+            kwargs.pop('encoder_class', None)
+            kwargs.pop('serializer', None) # serializer is already handled/popped?
+            # If we want to be generic:
+            init_kwargs = kwargs
+        else:
+            valid_params = sig.parameters.keys()
+            init_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
+
+        super().__init__(**init_kwargs)
 
 class Connection(AbstractConnection, _Connection): pass
 class UnixDomainSocketConnection(AbstractConnection, _UnixDomainSocketConnection): pass
@@ -311,8 +333,18 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         
         # Let's check AbstractConnection.
         
-        # Let's check AbstractConnection.
-        super().__init__(**kwargs)
+        
+        # Filter kwargs for super().__init__
+        sig = inspect.signature(super().__init__)
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+             kwargs.pop('encoder_class', None)
+             kwargs.pop('serializer', None)
+             init_kwargs = kwargs
+        else:
+            valid_params = sig.parameters.keys()
+            init_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
+
+        super().__init__(**init_kwargs)
     
     def reset_should_reconnect(self):
         """
