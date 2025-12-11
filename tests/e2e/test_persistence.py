@@ -17,9 +17,10 @@ async def test_persistence_hset_enabled():
     # HSET mode stores keys in a hash `bench:hset`
     pdict = KVDBStatefulBackend.as_persistent_dict(
         url=TEST_URL, 
-        base_key="test:pdict:hset", 
+        base_key="test:pdict:hset:unique1", 
         hset_disabled=False, 
-        async_enabled=True
+        async_enabled=True,
+        name="persistence_hset_unique1"
     )
     await pdict.aclear()
 
@@ -53,9 +54,10 @@ async def test_persistence_no_hset():
     # No-HSET mode stores keys as `test:pdict:nohset:key`
     pdict = KVDBStatefulBackend.as_persistent_dict(
         url=TEST_URL, 
-        base_key="test:pdict:nohset", 
+        base_key="test:pdict:nohset:unique2", 
         hset_disabled=True, 
-        async_enabled=True
+        async_enabled=True,
+        name="persistence_nohset_unique2"
     )
     await pdict.aclear() # Should clear keys matching pattern
 
