@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 authors = [
-  { name = "Tri Songz", email = "ts@growthengineai.com" },
+  { name = "Tri Songz", email = "ts@sgz.ai" },
 ]
 classifiers = [
   "Intended Audience :: Developers",
