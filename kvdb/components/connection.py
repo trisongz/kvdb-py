@@ -6,6 +6,7 @@ Some Base Components for KVDB
 import os
 import sys
 import copy
+import inspect
 
 import socket
 import weakref
@@ -24,6 +25,8 @@ from redis.connection import (
     BlockingConnectionPool as _BlockingConnectionPool,
     Retry,
     DefaultParser,
+    PythonRespSerializer,
+    _RESP2Parser as PythonParser,
 )
 
 
@@ -41,15 +44,18 @@ from redis.asyncio.connection import (
     DefaultParser as AsyncDefaultParser,
     CredentialProvider,
     NoBackoff,
+    _AsyncRESP2Parser as AsyncPythonParser,
     # DEFAULT_RESP_VERSION,
 )
 
 try:
-    from redis.asyncio.connection import DEFAULT_RESP_VERSION
+    from redis.asyncio.connection import DEFAULT_RESP_VERSION, EventDispatcher
     DEPRECATED_SUPPORT = False
 except ImportError:
     DEFAULT_RESP_VERSION = 2
     DEPRECATED_SUPPORT = True
+    # EventDispatcher not available in older versions
+    EventDispatcher = None
 
 
 import kvdb.errors as errors
@@ -114,7 +120,9 @@ class AbstractConnection(_AbstractConnection):
         redis_connect_func: Optional[Callable[[], None]] = None,
         credential_provider: Optional[CredentialProvider] = None,
         protocol: Optional[int] = 2,
+        event_dispatcher: Optional[Any] = None,
         command_packer: Optional[Callable[[], None]] = None,
+        serializer: Optional['SerializerT'] = None,
         **kwargs,
     ):  # sourcery skip: low-code-quality
         """
@@ -137,6 +145,7 @@ class AbstractConnection(_AbstractConnection):
         self.client_name = client_name
         self.lib_name = lib_name
         self.lib_version = lib_version
+        self.reset_should_reconnect()
         self.credential_provider = credential_provider
         self.password = password
         self.username = username
@@ -151,40 +160,78 @@ class AbstractConnection(_AbstractConnection):
             # Add TimeoutError to the errors list to retry on
             retry_on_error.append(TimeoutError)
         self.retry_on_error = retry_on_error
+        try:
+            p = int(protocol)
+        except TypeError:
+            p = DEFAULT_RESP_VERSION
+        except ValueError as e:
+            raise errors.ConnectionError("protocol must be an integer") from e
+        finally:
+            if p < 2 or p > 3:
+                raise errors.ConnectionError("protocol must be either 2 or 3")
+            self.protocol = p
+
+        # Force usage of PythonParser to ensure our custom Encoder.decode is used
+        if parser_class is DefaultParser:
+            parser_class = PythonParser
+
+        # Filter kwargs for super().__init__
+        # We must explicitly include arguments that were consumed by our signature
+        # but are needed by the parent class.
+        pass_args = {
+            "db": db,
+            "password": password,
+            "socket_timeout": socket_timeout,
+            "socket_connect_timeout": socket_connect_timeout,
+            "retry_on_timeout": retry_on_timeout,
+            "encoding": encoding,
+            "encoding_errors": encoding_errors,
+            "decode_responses": decode_responses,
+            "parser_class": parser_class,
+            "socket_read_size": socket_read_size,
+            "health_check_interval": health_check_interval,
+            "client_name": client_name,
+            "username": username,
+            "credential_provider": credential_provider,
+            "protocol": self.protocol,
+        }
+        # Update kwargs with these values if they are not already there (they shouldn't be)
+        kwargs.update(pass_args)
+
+        sig = inspect.signature(super().__init__)
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            # Parent accepts **kwargs.
+            # We filter out known internal keys.
+            to_remove = {
+                'encoder_class', 'serializer', 'retry_on_error', 'lib_name', 'lib_version',
+                'redis_connect_func', 'encoder', 'event_dispatcher', 'command_packer'
+            }
+            init_kwargs = {k: v for k, v in kwargs.items() if k not in to_remove}
+        else:
+            valid_params = sig.parameters.keys()
+            init_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
+
+        super().__init__(**init_kwargs)
+
         if retry or retry_on_error:
             self.retry = Retry(NoBackoff(), 1) if retry is None else copy.deepcopy(retry)
             # Update the retry's supported errors with the specified errors
             self.retry.update_supported_errors(retry_on_error)
         else:
             self.retry = Retry(NoBackoff(), 0)
-        self.health_check_interval = health_check_interval
-        self.next_health_check = 0
-        self.redis_connect_func = redis_connect_func
+        
         if encoder is not None:
             self.encoder = encoder
         else:
-            self.encoder = Encoder(encoding, encoding_errors, decode_responses)
-        self._sock = None
-        self._socket_read_size = socket_read_size
-        self.set_parser(parser_class)
-        self._connect_callbacks = []
-        self._buffer_cutoff = 6000
-        try:
-            p = int(protocol)
-        except TypeError:
-            p = DEFAULT_RESP_VERSION
-        except ValueError as e:
-            raise ConnectionError("protocol must be an integer") from e
-        finally:
-            if p < 2 or p > 3:
-                raise ConnectionError("protocol must be either 2 or 3")
-                # p = DEFAULT_RESP_VERSION
-            self.protocol = p
-        self._command_packer = self._construct_command_packer(command_packer)
+            self.encoder = Encoder(encoding, encoding_errors, decode_responses, serializer = serializer)
+            
+        # Force usage of PythonRespSerializer to ensure our custom encoder is used
+        # HiredisRespSerializer (default if available) ignores self.encoder
+        self._command_packer = PythonRespSerializer(self._buffer_cutoff, self.encoder.encode)
 
-class Connection(_Connection, AbstractConnection): pass
-class UnixDomainSocketConnection(_UnixDomainSocketConnection, AbstractConnection): pass
-class SSLConnection(_SSLConnection, AbstractConnection): pass
+class Connection(AbstractConnection, _Connection): pass
+class UnixDomainSocketConnection(AbstractConnection, _UnixDomainSocketConnection): pass
+class SSLConnection(AbstractConnection, _SSLConnection): pass
 
 class AsyncAbstractConnection(_AsyncAbstractConnection):
     """
@@ -217,6 +264,8 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         encoder_class: Type[Encoder] = Encoder,
         credential_provider: Optional[CredentialProvider] = None,
         protocol: Optional[int] = 2,
+        event_dispatcher: Optional[Any] = None,
+        serializer: Optional['SerializerT'] = None,
         **kwargs,
     ):  # sourcery skip: low-code-quality
         if (username or password) and credential_provider is not None:
@@ -227,10 +276,18 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
                 "2. 'credential_provider'"
             )
         # logger.info(f"Using Mixin: {args}, {kwargs}, {self.__dict__}", prefix = self.__class__.__name__)
+        # Initialize event dispatcher for redis-py 7.x support
+        if event_dispatcher is None and not DEPRECATED_SUPPORT and EventDispatcher is not None:
+            self._event_dispatcher = EventDispatcher()
+        elif event_dispatcher is not None:
+            self._event_dispatcher = event_dispatcher
+        else:
+            self._event_dispatcher = None
         self.db = db
         self.client_name = client_name
         self.lib_name = lib_name
         self.lib_version = lib_version
+        self.reset_should_reconnect()
         self.credential_provider = credential_provider
         self.password = password
         self.username = username
@@ -243,9 +300,97 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
             retry_on_error = []
         if retry_on_timeout:
             retry_on_error.append(TimeoutError)
-            retry_on_error.append(socket.timeout)
             retry_on_error.append(asyncio.TimeoutError)
         self.retry_on_error = retry_on_error
+        try:
+            p = int(protocol)
+        except TypeError:
+            p = DEFAULT_RESP_VERSION
+        except ValueError as e:
+            raise errors.ConnectionError("protocol must be an integer") from e
+        finally:
+            if p < 2 or p > 3:
+                raise errors.ConnectionError("protocol must be either 2 or 3")
+            self.protocol = int(protocol) if protocol is not None else p
+
+        # Filter kwargs for super().__init__
+        # We must explicitly include arguments that were consumed by our signature
+        # but are needed by the parent class.
+        pass_args = {
+            "db": db,
+            "password": password,
+            "socket_timeout": socket_timeout,
+            "socket_connect_timeout": socket_connect_timeout,
+            "retry_on_timeout": retry_on_timeout,
+            "encoding": encoding,
+            "encoding_errors": encoding_errors,
+            "decode_responses": decode_responses,
+            "parser_class": parser_class,
+            "socket_read_size": socket_read_size,
+            "health_check_interval": health_check_interval,
+            "client_name": client_name,
+            "username": username,
+            "credential_provider": credential_provider,
+            "protocol": self.protocol,
+        }
+        kwargs.update(pass_args)
+
+        sig = inspect.signature(super().__init__)
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+             to_remove = {
+                'encoder_class', 'serializer', 'retry_on_error', 'lib_name', 'lib_version',
+                'redis_connect_func', 'encoder', 'event_dispatcher'
+             }
+             init_kwargs = {k: v for k, v in kwargs.items() if k not in to_remove}
+        else:
+            valid_params = sig.parameters.keys()
+            init_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
+
+        super().__init__(**init_kwargs)
+
+        self._init_retry(
+            retry=retry, 
+            retry_on_error=retry_on_error,
+            health_check_interval=health_check_interval,
+            encoder=encoder,
+            encoder_class=encoder_class,
+            encoding=encoding,
+            encoding_errors=encoding_errors,
+            decode_responses=decode_responses,
+            redis_connect_func=redis_connect_func,
+            socket_read_size=socket_read_size,
+            parser_class=parser_class,
+            protocol=protocol,
+            serializer=serializer,
+        )
+        
+        # Force usage of PythonRespSerializer to ensure our custom encoder is used
+        # HiredisRespSerializer (default if available) ignores self.encoder
+        self._command_packer = PythonRespSerializer(self._buffer_cutoff, self.encoder.encode)
+
+    
+    def reset_should_reconnect(self):
+        """
+        Reset the flag to True so that the connection tries to reconnect
+        """
+        self._should_reconnect = False
+
+    def _init_retry(
+        self, 
+        retry, 
+        retry_on_error,
+        health_check_interval,
+        encoder,
+        encoder_class,
+        encoding,
+        encoding_errors,
+        decode_responses,
+        redis_connect_func,
+        socket_read_size,
+        parser_class,
+        protocol,
+        serializer,
+    ):
         if retry:
             # deep-copy the Retry object as it is mutable
             self.retry = copy.deepcopy(retry)
@@ -257,17 +402,26 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
             self.retry.update_supported_errors(retry_on_error)
         else:
             self.retry = Retry(NoBackoff(), 0)
+
         self.health_check_interval = health_check_interval
         self.next_health_check: float = -1
         if encoder is not None:
             self.encoder = encoder
         else:
-            self.encoder = encoder_class(encoding, encoding_errors, decode_responses)
+            self.encoder = encoder_class(encoding, encoding_errors, decode_responses, serializer = serializer)
         self.redis_connect_func = redis_connect_func
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         self._socket_read_size = socket_read_size
+        self._sock = None
+        self._socket_read_size = socket_read_size
+        
+        # Force usage of PythonParser to ensure our custom Encoder.decode is used
+        if parser_class is AsyncDefaultParser:
+            parser_class = AsyncPythonParser
+            
         self.set_parser(parser_class)
+        self._re_auth_token = None
         self._connect_callbacks: List[weakref.WeakMethod[ConnectCallbackT]] = []
         self._buffer_cutoff = 6000
         if DEPRECATED_SUPPORT:
@@ -290,9 +444,9 @@ class AsyncAbstractConnection(_AsyncAbstractConnection):
         
 
 
-class AsyncConnection(_AsyncConnection, AsyncAbstractConnection): pass
-class AsyncUnixDomainSocketConnection(_AsyncUnixDomainSocketConnection, AsyncAbstractConnection): pass
-class AsyncSSLConnection(_AsyncSSLConnection, AsyncAbstractConnection): pass
+class AsyncConnection(AsyncAbstractConnection, _AsyncConnection): pass
+class AsyncUnixDomainSocketConnection(AsyncAbstractConnection, _AsyncUnixDomainSocketConnection): pass
+class AsyncSSLConnection(AsyncAbstractConnection, _AsyncSSLConnection): pass
 
 # TODO: Implement AsyncConnection with trio backend
 class TrioAsyncAbstractConnection(AsyncAbstractConnection):

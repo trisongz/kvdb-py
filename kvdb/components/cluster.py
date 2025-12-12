@@ -43,8 +43,8 @@ from kvdb.components.connection_pool import (
     AsyncConnectionPool, 
     Encoder,
     parse_url,
-    AsyncSSLConnection,
 )
+from kvdb.components.connection import AsyncSSLConnection
 
 from redis.client import (
     CaseInsensitiveDict,

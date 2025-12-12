@@ -1,0 +1,43 @@
+=== Standard Redis ===
+set_ops_per_sec: 5524.493107857976
+get_ops_per_sec: 6132.690456388824
+del_ops_per_sec: 6247.204861444686
+set_duration: 1.8101208209991455
+get_duration: 1.630605697631836
+del_duration: 1.6007158756256104
+
+=== KeyDB ===
+set_ops_per_sec: 5190.6343190904845
+get_ops_per_sec: 5329.470573137044
+del_ops_per_sec: 4920.305970641252
+set_duration: 1.9265468120574951
+get_duration: 1.876358985900879
+del_duration: 2.0323939323425293
+
+=== Dragonfly ===
+set_ops_per_sec: 4377.889482063488
+get_ops_per_sec: 4611.873140238063
+del_ops_per_sec: 4394.128763156025
+set_duration: 2.284205675125122
+get_duration: 2.16831636428833
+del_duration: 2.275763988494873
+
+=== Valkey ===
+set_ops_per_sec: 5899.413153612594
+get_ops_per_sec: 5998.493763534604
+del_ops_per_sec: 6101.727955686685
+set_duration: 1.6950838565826416
+get_duration: 1.6670851707458496
+del_duration: 1.6388800144195557
+
+=== Redis Cluster ===
+Error: Redis Cluster cannot be connected. Please provide at least one reachable node: Error Multiple exceptions: [Errno 61] Connect call failed ('192.168.138.27', 6379), [Errno 61] Connect call failed ('fd07:b51a:cc66:0:a617:db5e:c0a8:8a1b', 6379, 0, 0) connecting to redis-cluster.benchmarks.orb.local:6379.
+
+=== Redis Sentinel ===
+set_ops_per_sec: 6262.8192589385035
+get_ops_per_sec: 7472.070395554565
+del_ops_per_sec: 6294.616841847133
+set_duration: 1.5967249870300293
+get_duration: 1.3383171558380127
+del_duration: 1.5886590480804443
+

@@ -2,7 +2,7 @@
 
 from kvdb.utils.retry import get_retryable_wrapper
 # from kvdb.utils.helpers import lazy_function_wrapper
-from lazyops.libs.lazyload import lazy_function_wrapper
+from lzl.load import lazy_function_wrapper
 from kvdb.errors import ConnectionError
 
 def get_pubsub_wrapper(enabled: bool = True):

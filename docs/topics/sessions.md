@@ -19,6 +19,13 @@ A session can be created by calling the `KVDBClient.get_session()` method. This 
 * `password`: The password to use when connecting. Defaults to `None`.
 * `username`: The username to use when connecting. Defaults to `None`.
 
+## Connection Management
+
+`kvdb-py` is designed for high-concurrency environments.
+
+*   **Async Interface**: By default, `KVDBClient` uses the `OptimizedAsyncConnectionPool`. This pool employs a hybrid blocking strategy: it serves connections immediately when available but gracefully waits (blocks) when the pool hits its `max_connections` limit, preventing `ConnectionError` under load. It also uses `uvloop` if installed.
+*   **Sync Interface**: Uses a thread-safe `BlockingConnectionPool` to ensure safe concurrent access across threads.
+
 ## Session Serialization
 
 A session can be configured to use a serializer when serializing and deserializing data in-flight. This allows you to store almost any type of object when using any `set/get` methods without having to worry about serializing and deserializing prior.

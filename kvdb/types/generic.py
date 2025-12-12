@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Iterable, TypeVar, Union
 from typing import Any, ClassVar, TypeVar, overload
 from typing_extensions import Literal, Self, TypeAlias
 
-if sys.version_info >= (3, 8):
+if sys.version_info >= (3, 10):
     from typing import ParamSpec, Protocol
 else:
     from typing_extensions import ParamSpec, Protocol
@@ -68,11 +68,11 @@ class ClusterCommandsProtocol(CommandsProtocol, Protocol):
         ...
 
 
-_Value: TypeAlias = bytes | float | int | str
-_Key: TypeAlias = str | bytes
+_Value: TypeAlias = Union[bytes, float, int, str]
+_Key: TypeAlias = Union[str, bytes]
 
 # Lib returns str or bytes depending on value of decode_responses
-_StrType = TypeVar("_StrType", bound=str | bytes)
+_StrType = TypeVar("_StrType", bound=Union[str, bytes])
 
 _VT = TypeVar("_VT")
 _T = TypeVar("_T")

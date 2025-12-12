@@ -15,8 +15,8 @@ import functools
 import contextlib
 
 from pydantic.types import ByteSize
-from lazyops.libs.pooler import ThreadPooler
-from lazyops.libs.proxyobj import ProxyObject
+from lzl.pool import ThreadPool as ThreadPooler
+from lzl.proxied import ProxyObject
 from kvdb.types.base import BaseModel, KVDBUrl
 from kvdb.types.generic import Number, KeyT, ExpiryT, AbsExpiryT, PatternT, ENOVAL
 from kvdb.configs import settings

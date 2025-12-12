@@ -23,7 +23,7 @@ Usage:
 import abc
 import contextlib
 from lzl.proxied import ProxyObject, Singleton
-# from lazyops.libs.proxyobj import ProxyObject, Singleton
+
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -102,7 +102,6 @@ class KVDBSessionManager(abc.ABC, Singleton):
         `KVDBSession`, `SessionPools`, `SerializerConfig`, and `KVDBUrl`
         enabling for full flexibility and customization of the KVDB
         """
-        # from lazyops.utils import lazy_import
         from lzl.load import lazy_import
         if session_class and isinstance(session_class, str):
             session_class = lazy_import(session_class)

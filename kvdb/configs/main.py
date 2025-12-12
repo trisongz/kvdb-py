@@ -14,7 +14,7 @@ from pydantic import ImportString, AliasChoices # Not available in v1
 # from pydantic_settings import SettingsConfigDict
 from lzl.proxied import ProxyObject
 # from lzl.types import BaseSettings
-# from lazyops.libs.proxyobj import ProxyObject
+
 from kvdb.types.base import KVDBUrl, BaseModel, supported_schemas, kv_db_schemas, computed_field
 from .base import temp_data, app_env
 from .defaults import (
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from kvdb.utils.logs import Logger
     from kvdb.types.common import AppEnv
     from lzl.io import TemporaryData
-    # from lazyops.libs.fastapi_utils.types.persistence import TemporaryData
+
 
 def create_alias_choices(key: str) -> AliasChoices:
     """
@@ -219,7 +219,7 @@ class KVDBSettings(BaseSettings):
         """
         Returns whether the app is running in k8s
         """
-        from lazyops.utils.system import is_in_kubernetes
+        from lzo.utils.system import is_in_kubernetes
         return is_in_kubernetes()
     
     @computed_field

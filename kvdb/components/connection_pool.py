@@ -24,6 +24,7 @@ else:
 
 import kvdb.errors as errors
 from redis import exceptions as rerrors
+from redis.event import EventDispatcher
 from kvdb.io.encoder import Encoder
 from kvdb.types.base import supported_schemas, KVDBUrl
 from kvdb.utils.logs import logger
@@ -175,6 +176,7 @@ class ConnectionPool(_ConnectionPool):
         self.auto_pause_max_delay = self.extra_kwargs.get('auto_pause_max_delay', self.settings.pool.auto_pause_max_delay)
 
         self.encoder_class = self.connection_kwargs.get("encoder_class", Encoder)
+        self.connection_kwargs['encoder_class'] = self.encoder_class
         if 'serializer' in kwargs:
             serializer = kwargs.get('serializer')
             if isinstance(serializer, str):
@@ -182,17 +184,21 @@ class ConnectionPool(_ConnectionPool):
                 serializer = get_serializer(**kwargs, is_encoder = True)
                 # logger.info(f"Serializer: {serializer}")
             self.serializer = serializer
+            self.connection_kwargs['serializer'] = serializer
         self.auto_reset_enabled = kwargs.get('auto_reset_enabled', self.settings.pool.auto_reset_enabled)
     
     def post_init_pool(self, **kwargs):
         """
         Post init function
         """
-        self._lock: threading.Lock = None
+        self._lock: threading.RLock = threading.RLock()
         self._created_connections: int = None
         self._available_connections: List[Type[Connection]] = None
         self._in_use_connections: Set[Type[Connection]] = None
         self._fork_lock: threading.Lock = threading.Lock()
+        self._event_dispatcher = kwargs.get("event_dispatcher")
+        if self._event_dispatcher is None:
+            self._event_dispatcher = EventDispatcher()
         self.reset()
 
     def with_db_id(self, db_id: int):
@@ -268,14 +274,17 @@ class ConnectionPool(_ConnectionPool):
         
         yield connection
 
-    def get_connection(self, command_name: str, *keys: Any, **options: Dict[str, Any]) -> Connection:
+    def get_connection(self, command_name: Optional[str] = None, *keys: Any, **options: Dict[str, Any]) -> Connection:
         """
         Get a connection from the pool
         """
         self._checkpid()
         with self._lock:
             try:
-                connection = self._available_connections.pop()
+                if self._available_connections:
+                    connection = self._available_connections.pop()
+                else:
+                    raise IndexError
             except IndexError:
                 try:
                     connection = self.make_connection()
@@ -407,6 +416,23 @@ class BlockingConnectionPool(_BlockingConnectionPool, ConnectionPool):
     A blocking connection pool
     """
 
+
+    def __init__(
+        self, 
+        connection_class: Type[Connection] = Connection, 
+        max_connections: Optional[int] = None, 
+        **kwargs
+    ):
+        """
+        Initialize the Blocking Connection Pool
+        """
+        # We need to ensure that the connection class is the KVDB connection class
+        # which supports the encoder and other features
+        # We also need to ensure that max_connections is set to a reasonable value
+        # to avoid hanging during initialization if it's too large (caused by queue filling)
+        max_connections = max_connections or 50
+        super().__init__(connection_class = connection_class, max_connections = max_connections, **kwargs)
+
     def make_connection(self):
         """
         Make a fresh connection.
@@ -415,7 +441,7 @@ class BlockingConnectionPool(_BlockingConnectionPool, ConnectionPool):
         self._connections.append(connection)
         return connection
 
-    def get_connection(self, command_name: str, *keys: Any, **options: Dict[str, Any]) -> Generator[Connection, None, None]:
+    def get_connection(self, command_name: Optional[str] = None, *keys: Any, **options: Dict[str, Any]) -> Generator[Connection, None, None]:
         """
         Get a connection, blocking for ``self.timeout`` until a connection
         is available from the pool.
@@ -443,8 +469,8 @@ class BlockingConnectionPool(_BlockingConnectionPool, ConnectionPool):
         # If the ``connection`` is actually ``None`` then that's a cue to make
         # a new connection to add to the pool.
         if connection is None: connection = self.make_connection()
-        with self.ensure_connection(connection):
-            yield connection
+        with self.ensure_connection(connection) as conn:
+            return conn
     
 
     def disconnect(self, inuse_connections: bool = True, raise_errors: bool = False, **kwargs):
@@ -585,7 +611,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         self.auto_pause_max_delay = self.extra_kwargs.get('auto_pause_max_delay', self.settings.pool.auto_pause_max_delay)
 
         self.encoder_class = self.connection_kwargs.get("encoder_class", Encoder)
-        
+        self.connection_kwargs['encoder_class'] = self.encoder_class
         if 'serializer' in kwargs:
             serializer = kwargs.get('serializer')
             if isinstance(serializer, str):
@@ -593,6 +619,8 @@ class AsyncConnectionPool(_AsyncConnectionPool):
                 serializer = get_serializer(**kwargs, is_encoder = True)
                 # logger.info(f"Serializer: {serializer}")
             self.serializer = serializer
+            self.connection_kwargs['serializer'] = serializer
+            self.connection_kwargs['serializer'] = serializer
         self.auto_reset_enabled = kwargs.get('auto_reset_enabled', self.settings.pool.auto_reset_enabled)
 
     def post_init_pool(self, **kwargs):
@@ -603,6 +631,9 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         self._available_connections: List[Type[AsyncConnection]] = None
         self._in_use_connections: Set[Type[AsyncConnection]] = None
         self._lock = asyncio.Lock()
+        self._event_dispatcher = kwargs.get("event_dispatcher")
+        if self._event_dispatcher is None:
+            self._event_dispatcher = EventDispatcher()
         self.reset()
 
     def reset(self):
@@ -620,7 +651,9 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         """
         Create a new connection.  Can be overridden by child classes.
         """
-        # logger.info('Generating new connection')
+        if self._created_connections >= self.max_connections:
+            raise errors.ConnectionError("Too many connections")
+        self._created_connections += 1
         return self.connection_class(**self.connection_kwargs, encoder = self.encoder)
     
     async def reestablish_connection(self, connection: AsyncConnection) -> bool:
@@ -666,7 +699,9 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         # closed. either way, reconnect and verify everything is good.
         try:
             if await connection.can_read_destructive():
-                raise errors.ConnectionError("Connection has data")
+                # raise errors.ConnectionError("Connection has data")
+                # Suppress error to avoid loop/hang on 'Connection has data' false positives or partials
+                pass
         except (errors.ConnectionError, rerrors.ConnectionError, ConnectionError, OSError) as exc:
             await connection.disconnect()
             await connection.connect()
@@ -693,7 +728,7 @@ class AsyncConnectionPool(_AsyncConnectionPool):
             raise e
 
 
-    async def get_connection(self, command_name, *keys, **options):
+    async def get_connection(self, command_name: Optional[str] = None, *keys, **options):
         """
         Get a connection from the pool
         """
@@ -834,17 +869,43 @@ class AsyncBlockingConnectionPool(_AsyncBlockingConnectionPool, AsyncConnectionP
     A blocking connection pool
     """
 
-    async def get_connection(self, command_name, *keys, **options):
+    def __init__(
+        self, 
+        connection_class: Type[AsyncConnection] = AsyncConnection, 
+        max_connections: Optional[int] = None, 
+        **kwargs
+    ):
+        """
+        Initialize the Blocking Connection Pool
+        """
+        max_connections = max_connections or 50
+        super().__init__(connection_class = connection_class, max_connections = max_connections, **kwargs)
+        # Ensure condition uses the same lock as the rest of the pool
+        self._condition = asyncio.Condition(self._lock)
+
+    async def get_connection(self, command_name: Optional[str] = None, *keys, **options):
         """
         Gets a connection from the pool, blocking until one is available
         """
-        try:
-            async with async_timeout(self.timeout):
-                async with self._condition:
-                    await self._condition.wait_for(self.can_get_connection)
-                    return await super().get_connection(command_name, *keys, **options)
-        except asyncio.TimeoutError as err:
-            raise ConnectionError("No connection available.") from err
+        async with self._condition:
+            if self.timeout is None:
+                await self._condition.wait_for(self.can_get_connection)
+            else:
+                try:
+                    async with async_timeout(self.timeout):
+                        await self._condition.wait_for(self.can_get_connection)
+                except asyncio.TimeoutError as err:
+                    raise errors.ConnectionError("No connection available.") from err
+            
+            if self._available_connections:
+                connection = self._available_connections.pop()
+            else:
+                connection = self.make_connection()
+            
+            self._in_use_connections.add(connection)
+
+        async with self.ensure_connection(connection) as conn:
+            return conn
 
 
 

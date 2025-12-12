@@ -8,31 +8,15 @@ import signal
 import xxhash
 import threading
 import functools
-try:
-    from lzl.pool.base import ensure_coro, is_coro_func
-except ImportError:
-    from lazyops.libs.pooler import ensure_coro, is_coro_func
-
-try:
-    from lzl.load.utils import (
-        import_string,
-        lazy_import,
-        validate_callable,
-        get_obj_class_name,
-        extract_obj_init_kwargs,
-    )
-except ImportError:
-    from lazyops.utils.lazy import (
-        import_string,
-        lazy_import,
-        validate_callable,
-        get_obj_class_name,
-        extract_obj_init_kwargs,
-    )
-try:
-    from lzl.load.wrappers import lazy_function_wrapper
-except ImportError:
-    from lazyops.libs.lazyload import lazy_function_wrapper
+from lzl.pool.base import ensure_coro, is_coro_func
+from lzl.load.utils import (
+    import_string,
+    lazy_import,
+    validate_callable,
+    get_obj_class_name,
+    extract_obj_init_kwargs,
+)
+from lzl.load.wrappers import lazy_function_wrapper
 
 from typing import Callable, Any, Optional, Union, Type, TypeVar, List, Tuple, Dict, TYPE_CHECKING
 from ..types.generic import ENOVAL
@@ -242,5 +226,18 @@ class timeout:
     def __exit__(self, type, value, traceback):
         if is_main_thread():
             signal.alarm(0)
+
+
+def inspect_serializability(obj: Any, name: Optional[str] = None, return_error: bool = False) -> Union[bool, Exception]:
+    """
+    Checks if an object is serializable by pickle
+    """
+    import pickle
+    try:
+        pickle.dumps(obj)
+        return True
+    except Exception as e:
+        if return_error: return e
+        return False
             
 

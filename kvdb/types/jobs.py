@@ -6,8 +6,8 @@ import croniter
 import contextlib
 
 from pydantic import Field, validator, computed_field, model_validator
-from lazyops.libs.pooler import ThreadPooler
-from lazyops.libs.abcs.utils.helpers import update_dict
+from lzl.pool import ThreadPool as ThreadPooler
+from lzo.utils.helpers import update_dict
 from kvdb.utils.logs import logger
 from kvdb.utils.helpers import (
     lazy_import,

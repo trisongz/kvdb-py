@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pickle
 from typing import Any, Dict, Optional, Union, Type, TypeVar
 from kvdb.utils.lazy import lazy_import

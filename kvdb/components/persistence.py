@@ -14,8 +14,8 @@ try:
     from lzl.io.persistence.backends.base import BaseStatefulBackend, SchemaType
     from lzl.io.persistence import PersistentDict
 except ImportError:
-    from lazyops.libs.persistence.backends.base import BaseStatefulBackend, SchemaType
-    from lazyops.libs.persistence import PersistentDict
+    from lzl.io.persistence.backends.base import BaseStatefulBackend, SchemaType
+    from lzl.io.persistence import PersistentDict
 
 from typing import Any, Dict, Optional, Union, Iterable, List, Type, Set, Callable, TYPE_CHECKING
 
@@ -27,8 +27,7 @@ if TYPE_CHECKING:
     from lzl.types import BaseSettings
     from lzl.io.ser.base import ObjectValue
 
-    # from lazyops.types.models import BaseSettings
-    # from lazyops.libs.persistence.serializers.base import ObjectValue
+
 
 
 class KVDBStatefulBackend(BaseStatefulBackend):
@@ -127,6 +126,83 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         self._kwargs['context_timeout'] = context_timeout
         if kvdb_settings.debug:
             logger.info(f'[{self.base_key}] Initialized KVDBStatefulBackend with {self._kwargs}')
+        
+        # Initialize Lua Scripts
+        self._init_scripts()
+
+    def _init_scripts(self):
+        """
+        Initializes Lua scripts for atomic operations
+        """
+        # GET script: Check expiration then get value
+        self._lua_hget_script = self.cache.client.register_script("""
+            local val = redis.call('HGET', KEYS[1], ARGV[1])
+            if not val then return nil end
+            local exp = redis.call('HGET', KEYS[2], ARGV[1])
+            if exp and tonumber(exp) < tonumber(ARGV[2]) then
+                redis.call('HDEL', KEYS[1], ARGV[1])
+                redis.call('HDEL', KEYS[2], ARGV[1])
+                return nil
+            end
+            return val
+        """)
+        
+        # SET script: Set value and expiration atomically
+        self._lua_hset_script = self.cache.client.register_script("""
+            redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+            if ARGV[3] ~= '' then
+                redis.call('HSET', KEYS[2], ARGV[1], ARGV[3])
+            end
+            return 1
+        """)
+        
+        # DEL script: Delete from both keys
+        self._lua_hdel_script = self.cache.client.register_script("""
+            redis.call('HDEL', KEYS[1], ARGV[1])
+            redis.call('HDEL', KEYS[2], ARGV[1])
+            return 1
+        """)
+        
+        # Initialize Async Scripts placeholders
+        self._lua_hget_script_async = None
+        self._lua_hset_script_async = None
+        self._lua_hdel_script_async = None
+
+    async def _ensure_async_scripts(self):
+        """
+        Ensures async scripts are initialized
+        """
+        if self._lua_hget_script_async is not None: return
+        
+        # We need to register scripts on the async client
+        # GET script
+        self._lua_hget_script_async = self.cache.aclient.register_script("""
+            local val = redis.call('HGET', KEYS[1], ARGV[1])
+            if not val then return nil end
+            local exp = redis.call('HGET', KEYS[2], ARGV[1])
+            if exp and tonumber(exp) < tonumber(ARGV[2]) then
+                redis.call('HDEL', KEYS[1], ARGV[1])
+                redis.call('HDEL', KEYS[2], ARGV[1])
+                return nil
+            end
+            return val
+        """)
+        
+        # SET script
+        self._lua_hset_script_async = self.cache.aclient.register_script("""
+            redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+            if ARGV[3] ~= '' then
+                redis.call('HSET', KEYS[2], ARGV[1], ARGV[3])
+            end
+            return 1
+        """)
+        
+        # DEL script
+        self._lua_hdel_script_async = self.cache.aclient.register_script("""
+            redis.call('HDEL', KEYS[1], ARGV[1])
+            redis.call('HDEL', KEYS[2], ARGV[1])
+            return 1
+        """)
 
     @classmethod
     def as_persistent_dict(
@@ -313,8 +389,11 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Gets a Value from the DB
         """
         if self.hset_enabled: 
-            self.hset_expiration_check(key)
-            value = self.cache.hget(self.base_key, key)
+            # Use Lua script for atomic check-and-get
+            # self.hset_expiration_check(key)
+            # value = self.cache.hget(self.base_key, key)
+            current_time = int(time.time())
+            value = self._lua_hget_script(keys=[self.base_key, self.exp_index_key], args=[key, current_time])
         else: value = self.cache.client.get(self.get_key(key))
         if value is None: return default
         try:
@@ -348,12 +427,16 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Saves a Value to the DB
         """
         ex = ex or self.expiration
+        encoded_val = self.encode_value(value, _raw = _raw, **kwargs)
         if self.hset_enabled:
-            self.cache.hset(self.base_key, key, self.encode_value(value, _raw = _raw, **kwargs))
-            if ex is not None: self.hset_expire(key, ex)
-            # if ex is not None: self.cache.expire(self.base_key, ex)
+            # Use Lua script for atomic set
+            exp_time = ''
+            if ex is not None:
+                exp_time = int(time.time()) + ex
+            
+            self._lua_hset_script(keys=[self.base_key, self.exp_index_key], args=[key, encoded_val, exp_time])
         else:
-            self.cache.client.set(self.get_key(key), self.encode_value(value, _raw = _raw, **kwargs), ex = ex)
+            self.cache.client.set(self.get_key(key), encoded_val, ex = ex)
     
     def set_batch(self, data: Dict[str, Any], ex: Optional[int] = None, _raw: Optional[bool] = None, **kwargs) -> None:
         """
@@ -378,8 +461,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Deletes a Value from the DB
         """
         if self.hset_enabled: 
-            self.cache.hdel(self.base_key, key)
-            self.cache.hdel(self.exp_index_key, key)
+            # Use Lua script for atomic delete
+            self._lua_hdel_script(keys=[self.base_key, self.exp_index_key], args=[key])
         else: self.cache.client.delete(self.get_key(key))
 
     def clear(self, *keys, **kwargs):
@@ -403,8 +486,12 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Gets a Value from the DB
         """
         if self.hset_enabled: 
-            await self.ahset_expiration_check(key)
-            value = await self.cache.ahget(self.base_key, key)
+            # await self.ahset_expiration_check(key)
+            # value = await self.cache.ahget(self.base_key, key)
+            current_time = int(time.time())
+            # Use async script
+            await self._ensure_async_scripts()
+            value = await self._lua_hget_script_async(keys=[self.base_key, self.exp_index_key], args=[key, current_time], client=self.cache.aclient)
         else: value = await self.cache.aget(self.get_key(key))
         if value is None: return default
         try:
@@ -436,12 +523,15 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Saves a Value to the DB
         """
         ex = ex or self.expiration
+        encoded_val = self.encode_value(value, _raw = _raw, **kwargs)
         if self.hset_enabled:
-            await self.cache.ahset(self.base_key, key, self.encode_value(value, _raw = _raw, **kwargs))
-            if ex is not None: await self.ahset_expire(key, ex)
-            # if ex is not None: await self.cache.aexpire(self.base_key, ex)
+            exp_time = ''
+            if ex is not None:
+                exp_time = int(time.time()) + ex
+            await self._ensure_async_scripts()
+            await self._lua_hset_script_async(keys=[self.base_key, self.exp_index_key], args=[key, encoded_val, exp_time], client=self.cache.aclient)
         else:
-            await self.cache.aset(self.get_key(key), self.encode_value(value, _raw = _raw, **kwargs), ex = ex)
+            await self.cache.aset(self.get_key(key), encoded_val, ex = ex)
 
     async def aset_batch(self, data: Dict[str, Any], ex: Optional[int] = None, _raw: Optional[bool] = None, **kwargs) -> None:
         """
@@ -466,8 +556,8 @@ class KVDBStatefulBackend(BaseStatefulBackend):
         Deletes a Value from the DB
         """
         if self.hset_enabled: 
-            await self.cache.ahdel(self.base_key, key)
-            await self.cache.ahdel(self.exp_index_key, key)
+            await self._ensure_async_scripts()
+            await self._lua_hdel_script_async(keys=[self.base_key, self.exp_index_key], args=[key], client=self.cache.aclient)
         else: await self.cache.adelete(self.get_key(key))
 
     async def aclear(self, *keys, **kwargs):

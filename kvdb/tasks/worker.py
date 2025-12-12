@@ -22,8 +22,8 @@ from kvdb.types.jobs import CronJob, Job, JobStatus
 from redis import exceptions as rerrors
 
 from kvdb.utils.helpers import is_coro_func, lazy_import
-from lazyops.libs.proxyobj import ProxyObject
-from lazyops.utils.times import Timer
+from lzl.proxied import ProxyObject
+from lzo.utils import Timer
 from typing import Optional, Dict, Any, Union, TypeVar, AsyncGenerator, Iterable, Callable, Set, Type, Awaitable, List, Tuple, Literal, TYPE_CHECKING, overload
 from .static import ColorMap
 from .utils import get_exc_error, get_func_name
@@ -717,7 +717,7 @@ class TaskWorker(abc.ABC):
         self.tasks_idx: int = 0
 
         # Configure Misc Variables
-        from lazyops.utils.system import get_host_name
+        from lzo.utils.system import get_host_name
         self.node_name = get_host_name()
         self.name = kwargs.get('name', kwargs.get('worker_name')) or self.node_name
         self.worker_name = self.name

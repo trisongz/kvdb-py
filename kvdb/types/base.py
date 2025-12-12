@@ -227,6 +227,7 @@ kv_db_schemas: Dict[str, str] = {
     "redis+socket": "redis",
     "redis+tls": "redis",
     "rediss": "redis",
+    "redis+sentinel": "redis",
 
     "dfly": "dragonfly",
     "dfly+unix": "dragonfly",

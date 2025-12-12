@@ -9,7 +9,7 @@ import sys
 import functools
 
 from pydantic.types import ByteSize
-# from lazyops.libs.pooler import ThreadPooler
+
 # from redis.compat import Literal
 from kvdb.types.base import BaseModel, KVDBUrl
 from kvdb.types.generic import Number, KeyT, ExpiryT, AbsExpiryT, PatternT, ENOVAL
@@ -54,10 +54,7 @@ if sys.version_info >= (3, 11, 3):
     from asyncio import timeout as async_timeout
 else:
     from async_timeout import timeout as async_timeout
-try:
-    from lzl.pool import ThreadPool as ThreadPooler
-except ImportError:
-    from lazyops.libs.pooler import ThreadPooler
+from lzl.pool import ThreadPool as ThreadPooler
 
 if TYPE_CHECKING:
     from kvdb.io.encoder import Encoder
@@ -137,6 +134,9 @@ class KVDBSession(abc.ABC):
         """
         Enable Serialization in the Encoder
         """
+        if serializer and isinstance(serializer, str):
+            serializer = settings.client_config.get_serializer(serializer=serializer)
+        
         self.encoder.enable_serialization(serializer = serializer, decode_responses = decode_responses)
         self.pool.enable_serialization(serializer = serializer, decode_responses = decode_responses)
 
@@ -600,6 +600,18 @@ class KVDBSession(abc.ABC):
         [Dict] Deletes the key
         """
         return await self.persistence.adelete(key)
+
+    def clear(self):
+        """
+        Clears the current database
+        """
+        return self.client.flushdb()
+
+    async def aclear(self):
+        """
+        Clears the current database
+        """
+        return await self.aclient.flushdb()
 
 
     """
