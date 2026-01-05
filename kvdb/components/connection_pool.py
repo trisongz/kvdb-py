@@ -24,7 +24,6 @@ else:
 
 import kvdb.errors as errors
 from redis import exceptions as rerrors
-from redis.event import EventDispatcher
 from kvdb.io.encoder import Encoder
 from kvdb.types.base import supported_schemas, KVDBUrl
 from kvdb.utils.logs import logger
@@ -198,7 +197,9 @@ class ConnectionPool(_ConnectionPool):
         self._fork_lock: threading.Lock = threading.Lock()
         self._event_dispatcher = kwargs.get("event_dispatcher")
         if self._event_dispatcher is None:
-            self._event_dispatcher = EventDispatcher()
+            with contextlib.suppress(Exception):
+                from redis.event import EventDispatcher
+                self._event_dispatcher = EventDispatcher()
         self.reset()
 
     def with_db_id(self, db_id: int):
@@ -633,7 +634,9 @@ class AsyncConnectionPool(_AsyncConnectionPool):
         self._lock = asyncio.Lock()
         self._event_dispatcher = kwargs.get("event_dispatcher")
         if self._event_dispatcher is None:
-            self._event_dispatcher = EventDispatcher()
+            with contextlib.suppress(Exception):
+                from redis.event import EventDispatcher
+                self._event_dispatcher = EventDispatcher()
         self.reset()
 
     def reset(self):

@@ -145,7 +145,8 @@ class AbstractConnection(_AbstractConnection):
         self.client_name = client_name
         self.lib_name = lib_name
         self.lib_version = lib_version
-        self.reset_should_reconnect()
+        if hasattr(self, 'reset_should_reconnect'):
+            self.reset_should_reconnect()
         self.credential_provider = credential_provider
         self.password = password
         self.username = username

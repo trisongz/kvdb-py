@@ -854,4 +854,6 @@ def is_available(
     try:
         return s.ping()
     except Exception as e:
+        # from lzl.logging import logger
+        # logger.trace('Error', e)
         return False
