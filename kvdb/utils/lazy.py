@@ -34,7 +34,7 @@ def get_settings() -> 'KVDBSettings':
     """
     global _kvdb_settings
     if _kvdb_settings is None:
-        init_uvloop()
+        # init_uvloop()
         from kvdb.configs.main import KVDBSettings
         _kvdb_settings = KVDBSettings()
     return _kvdb_settings
